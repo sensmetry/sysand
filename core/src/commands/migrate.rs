@@ -20,7 +20,7 @@ use crate::model::MetamodelFamily;
 use crate::{
     manifest::{
         ModelToml,
-        common::{Maintainer, Sources, admitted_source},
+        common::{Maintainer, PathKey, Sources, admitted_source},
         diagnostics::{Diagnostic, Diagnostics, ReadWarning, Validated},
         inherit::MetaProperty,
         project::{ProjectManifest, ProjectTable, Urls},
@@ -81,10 +81,18 @@ pub fn migrate_project(
         }
     };
 
-    // The metamodel decides which source file types the migrated
-    // `sources` may list, so it is settled before that check runs.
+    // The metamodel decides whether the project lists `sources` and which
+    // file types they may be, so it is settled before those run. A Syside
+    // project names `root` and lists no `sources`.
     let metamodel = migrate_metamodel(meta, options, &mut report);
-    let sources = migrate_sources(meta, metamodel.as_ref(), &mut report);
+    let syside = metamodel
+        .as_ref()
+        .is_some_and(|kind| kind.family == MetamodelFamily::Syside);
+    let sources = if syside {
+        None
+    } else {
+        migrate_sources(meta, metamodel.as_ref(), &mut report)
+    };
     let usages = migrate_usages(info, target, &mut report);
     check_duplicate_usages(&usages, &mut report);
     let license = info
@@ -124,7 +132,7 @@ pub fn migrate_project(
                 None
             }
         });
-    warn_discarded(meta, &mut report);
+    warn_discarded(meta, syside, &mut report);
 
     // Every value is built before this point, so the report holds every
     // problem.
@@ -132,21 +140,21 @@ pub fn migrate_project(
         return Err(report);
     };
 
+    // A Syside project is its `root`; without one there is nothing to
+    // migrate the files to.
+    if syside && meta.root.is_none() {
+        report.push(Diagnostic::error(
+            "missing key `root` in `.meta.json`; the Syside metamodel requires it",
+        ));
+    }
+
     let mut project = ProjectTable::new(publisher, name, version);
-    // `root` comes from `.meta.json` and must be among the recovered
-    // sources; reported here, where the cause is.
     if let Some(root) = &meta.root {
-        if !sources
-            .as_ref()
-            .is_some_and(|sources| sources.iter().any(|entry| entry.as_str() == root))
-        {
-            report.push(Diagnostic::error(format!(
-                "`root` is `{root}`, which is not listed in `sources`"
-            )));
-        }
         project.root = Some(toml::Value::from(root.as_str()));
     }
-    project.sources = Some(sources.unwrap_or_default());
+    if !syside {
+        project.sources = Some(sources.unwrap_or_default());
+    }
     project.description = info.description.clone();
     project.license = license.map(MetaProperty::Provided);
     if !maintainers.is_empty() {
@@ -201,9 +209,6 @@ pub fn migrate_sources(
     let mut paths: IndexSet<Utf8UnixPathBuf> = IndexSet::new();
     let mut bad_checksum_keys: Vec<String> = Vec::new();
     let mut unadmitted_checksum_keys: Vec<String> = Vec::new();
-    // A Syside `.meta.json` checksums the whole archive, so a non-model key
-    // is a conventional file (silent) or a stray one (a warning).
-    let syside = metamodel.is_some_and(|kind| kind.family == MetamodelFamily::Syside);
 
     let mut add = |raw: &str, from_checksum: bool, report: &mut Diagnostics| {
         let path = match normalize_relative(raw) {
@@ -216,17 +221,7 @@ pub fn migrate_sources(
             }
         };
         if Language::guess_from_path(&path).is_none() {
-            if from_checksum && syside {
-                let conventional = raw == "README.md"
-                    || raw == "CHANGELOG.md"
-                    || (raw.starts_with("LICENSES/") && raw.to_ascii_lowercase().ends_with(".txt"));
-                if !conventional {
-                    report.push(Diagnostic::warning(format!(
-                        "`{raw}` is not a model file and is not migrated: `sources` lists \
-                         model files only"
-                    )));
-                }
-            } else if from_checksum {
+            if from_checksum {
                 bad_checksum_keys.push(raw.to_owned());
             } else {
                 // One diagnostic per entry: `index` has no plural rule
@@ -242,11 +237,11 @@ pub fn migrate_sources(
         // Skipped when the metamodel did not resolve, which has already
         // been reported.
         if let Some(kind) = metamodel
-            && admitted_source(&path, kind).is_err()
+            && admitted_source(PathKey::Sources, &path, kind).is_err()
         {
             if from_checksum {
                 unadmitted_checksum_keys.push(raw.to_owned());
-            } else if let Err(problem) = admitted_source(&path, kind) {
+            } else if let Err(problem) = admitted_source(PathKey::Sources, &path, kind) {
                 report.push(problem);
             }
             return;
@@ -356,7 +351,7 @@ fn migrate_metamodel(
 /// The metadata keys that do not survive.
 /// `index` and `checksum` are named apart from their paths, which become
 /// `sources`.
-fn warn_discarded(meta: &InterchangeProjectMetadataRaw, report: &mut Diagnostics) {
+fn warn_discarded(meta: &InterchangeProjectMetadataRaw, syside: bool, report: &mut Diagnostics) {
     report.push(Diagnostic::warning(format!(
         "`created` (`{}`) is not migrated: a `model.toml` project has no creation time, and \
          `sysand build` records the build's own",
@@ -369,10 +364,13 @@ fn warn_discarded(meta: &InterchangeProjectMetadataRaw, report: &mut Diagnostics
         ));
     }
     if meta.checksum.as_ref().is_some_and(|c| !c.is_empty()) {
-        report.push(Diagnostic::warning(
+        report.push(Diagnostic::warning(if syside {
+            "`checksum` is not migrated: a Syside project's files are reached from its `root`, \
+             and checksums are computed when the project is built"
+        } else {
             "`checksum` is not migrated apart from its paths, which become `sources`: \
-             checksums are computed when the project is built",
-        ));
+             checksums are computed when the project is built"
+        }));
     }
     if meta
         .exports

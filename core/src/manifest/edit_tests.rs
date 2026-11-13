@@ -308,7 +308,6 @@ fn root_is_written_as_the_path_it_holds() {
 #[test]
 fn a_syside_manifest_renders_and_reads_back() {
     let mut table = built();
-    table.sources = Some(sources(&["main.sysml", "lib.sysml"]));
     table.metamodel = Some(MetaProperty::Provided(metamodel(
         "https://www.sysand.com/spec/SysML/20250201",
     )));
@@ -319,7 +318,6 @@ fn a_syside_manifest_renders_and_reads_back() {
         format!(
             "manifest-version = \"{SUPPORTED_MANIFEST_VERSION}\"\n\n[project]\n\
              publisher = \"acme\"\nname = \"widgets\"\nversion = \"1.0.0\"\n\
-             sources = [\n    \"main.sysml\",\n    \"lib.sysml\",\n]\n\
              metamodel = \"https://www.sysand.com/spec/SysML/20250201\"\n\
              root = \"main.sysml\"\n"
         )
@@ -335,10 +333,7 @@ fn a_syside_manifest_renders_and_reads_back() {
         .expect("and resolves")
         .into_parts()
         .0;
-    assert_eq!(
-        read.root.as_ref().map(|root| root.as_str()),
-        Some("main.sysml")
-    );
+    assert_eq!(read.root().map(|root| root.as_str()), Some("main.sysml"));
 }
 
 /// A `root` that was read is written back exactly as it was written,

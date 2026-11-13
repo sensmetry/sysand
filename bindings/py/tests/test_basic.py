@@ -1559,8 +1559,9 @@ def test_build(compression: sysand.CompressionMethod | None) -> None:
 
 def test_syside_metadata_shapes() -> None:
     """A Syside-metamodel ``.meta.json`` carries ``root`` and
-    ``exports`` and no ``index``; the dict a caller passes in may leave
-    the three keys out."""
+    ``exports`` and no ``index``. Its format is not final, so reading one
+    from disk is refused; the dict a caller passes in may leave the three
+    keys out."""
     from sysand._sysand_core import _do_model_roundtrip_py  # type: ignore
 
     syside = "https://www.sysand.com/spec/SysML/20250201"
@@ -1591,12 +1592,8 @@ def test_syside_metadata_shapes() -> None:
         )
         (root / "main.sysml").write_text("package Widgets;\n")
 
-        info_meta = sysand.info(iri=root.resolve().as_uri())
-        assert info_meta is not None
-        _, meta = info_meta
-        assert meta["index"] is None
-        assert meta["root"] == "main.sysml"
-        assert meta["exports"] == ["Widgets"]
+        with pytest.raises(sysand.ResolutionError):
+            sysand.info(iri=root.resolve().as_uri())
 
     # A dict without the three keys is accepted, and comes back with them.
     info: sysand.InterchangeProjectInfo = {

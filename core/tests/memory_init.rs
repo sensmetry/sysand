@@ -50,7 +50,7 @@ fn init_basic() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(manifest.name.as_str(), "init-basic");
     assert_eq!(manifest.publisher.as_str(), "echo");
     assert_eq!(
-        manifest.sources.as_slice(),
+        manifest.sources().expect("an OMG project").as_slice(),
         [] as [typed_path::Utf8UnixPathBuf; 0]
     );
 

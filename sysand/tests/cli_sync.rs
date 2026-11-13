@@ -1244,55 +1244,54 @@ fn sync_warns_on_a_metamodel_release_mismatch() -> Result<(), Box<dyn std::error
     Ok(())
 }
 
-/// A mixed-family workspace locks and syncs in one pass, and the
-/// environment's layout is family-blind: a Syside archive installs where
-/// an OMG archive reached the same way would, with its whole checksummed
-/// file set.
+/// A Syside project depending on an OMG project and a Syside archive
+/// locks and syncs in one pass, and the environment's layout is
+/// family-blind: a Syside archive installs where an OMG archive reached
+/// the same way would, with its whole checksummed file set.
+///
+/// The Syside projects are the extracted form of an archive: a Syside
+/// `model.toml` names `root` alone, and neither builds nor locks until
+/// the files it reaches can be found.
+#[cfg(feature = "syside-kpar")]
 #[test]
-fn a_mixed_family_workspace_locks_and_syncs_in_one_pass() -> Result<(), Box<dyn std::error::Error>>
-{
-    const SYSIDE: &str = "https://www.sysand.com/spec/SysML/20250201";
+fn a_syside_project_locks_and_syncs_a_syside_archive() -> Result<(), Box<dyn std::error::Error>> {
     const OMG: &str = "https://www.omg.org/spec/SysML/20250201";
-    let (_temp_dir, cwd) = new_temp_cwd()?;
-    write_workspace_root(&cwd, &["omg", "app"], "exclude = [\"deps\"]\n")?;
-    fs::create_dir_all(cwd.join("omg"))?;
+    let (_temp_dir, root) = new_temp_cwd()?;
+    fs::create_dir_all(root.join("omg"))?;
     write_toml_project(
-        cwd.join("omg"),
+        root.join("omg"),
         "omg",
         "1.0.0",
         &format!("sources = [\"main.sysml\"]\nmetamodel = \"{OMG}\"\n"),
     )?;
-    fs::write(cwd.join("omg/main.sysml"), "package Omg;\n")?;
-    fs::create_dir_all(cwd.join("app"))?;
-    write_toml_project(
-        cwd.join("app"),
+    fs::write(root.join("omg/main.sysml"), "package Omg;\n")?;
+    let cwd = root.join("app");
+    write_syside_json_project(
+        &cwd,
         "app",
         "1.0.0",
-        &format!(
-            "sources = [\"main.sysml\"]\nmetamodel = \"{SYSIDE}\"\n\
-            root = \"main.sysml\"\n\n[[inline-usages]]\n\
-            publisher = \"acme\"\nname = \"omg\"\ndir = \"../omg\"\n\n\
-            [[inline-usages]]\npublisher = \"acme\"\nname = \"gadget\"\n\
-            kpar-path = \"../deps/gadget.kpar\"\n"
-        ),
+        serde_json::json!([
+            {"dir": "../omg", "publisher": "acme", "name": "omg"},
+            {"kparPath": "../deps/gadget.kpar", "publisher": "acme", "name": "gadget"},
+        ]),
+        &["App"],
+        &[("main.sysml", b"package App;\n")],
     )?;
-    fs::write(cwd.join("app/main.sysml"), "package App;\n")?;
     // The archive: a Syside project with the conventional files, all
     // checksummed.
-    let src = cwd.join("deps/gadget-src");
-    fs::create_dir_all(&src)?;
-    write_toml_project(
+    let src = root.join("deps/gadget-src");
+    write_syside_json_project(
         &src,
         "gadget",
         "1.0.0",
-        &format!(
-            "sources = [\"lib.sysml\"]\nmetamodel = \"{SYSIDE}\"\n\
-            root = \"lib.sysml\"\n"
-        ),
+        serde_json::json!([]),
+        &["Gadget"],
+        &[
+            ("lib.sysml", b"package Gadget;\n"),
+            ("README.md", b"# gadget\n"),
+            ("CHANGELOG.md", b"# changes\n"),
+        ],
     )?;
-    fs::write(src.join("lib.sysml"), "package Gadget;\n")?;
-    fs::write(src.join("README.md"), "# gadget\n")?;
-    fs::write(src.join("CHANGELOG.md"), "# changes\n")?;
     run_sysand_in(&src, ["build", "../gadget.kpar"], None)?
         .assert()
         .success();

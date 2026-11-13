@@ -1099,9 +1099,10 @@ fn init_prefers_the_argument_to_the_group() -> Result<(), Box<dyn std::error::Er
 const SYSIDE_SYSML: &str = "https://www.sysand.com/spec/SysML/20250201";
 const SYSIDE_KERML: &str = "https://www.sysand.com/spec/KerML/20250201";
 
-/// The Syside layout, byte for byte: `sources` listing one file, `root`
-/// naming it, and the file itself with a package declaration. The
-/// project then reads without a warning and builds.
+/// The Syside layout, byte for byte: `root` naming one file and no
+/// `sources`, and the file itself with a package declaration. The
+/// project then reads without a warning; building it waits for its files
+/// to be found from `root`.
 #[test]
 fn init_with_a_syside_metamodel_writes_the_syside_layout() -> Result<(), Box<dyn std::error::Error>>
 {
@@ -1134,7 +1135,6 @@ fn init_with_a_syside_metamodel_writes_the_syside_layout() -> Result<(), Box<dyn
              publisher = \"acme\"\n\
              name = \"widgets\"\n\
              version = \"1.2.3\"\n\
-             sources = [\n    \"widgets.sysml\",\n]\n\
              metamodel = \"{SYSIDE_SYSML}\"\n\
              root = \"widgets.sysml\"\n"
         )
@@ -1150,7 +1150,10 @@ fn init_with_a_syside_metamodel_writes_the_syside_layout() -> Result<(), Box<dyn
         .stderr(predicate::str::contains("warning").not());
     run_sysand_in(&project, ["build", "./widgets.kpar"], None)?
         .assert()
-        .success();
+        .failure()
+        .stderr(predicate::str::contains(
+            "finding them is not supported yet",
+        ));
     Ok(())
 }
 
@@ -1230,9 +1233,10 @@ fn init_in_a_workspace_with_a_syside_default_group_writes_the_layout_and_the_mar
     );
     assert!(manifest.contains("root = \"widgets.sysml\""), "{manifest}");
     assert!(cwd.join("app/widgets.sysml").is_file());
-    run_sysand_in(&cwd, ["lock", "--no-index"], None)?
+    run_sysand_in(&cwd.join("app"), ["info"], None)?
         .assert()
-        .success();
+        .success()
+        .stderr(predicate::str::contains("warning").not());
     Ok(())
 }
 
@@ -1261,8 +1265,5 @@ fn init_with_a_name_that_is_not_an_identifier_quotes_the_package()
         std::fs::read_to_string(cwd.join("project/3d-models.sysml"))?,
         "package '3d-models';\n"
     );
-    run_sysand_in(&cwd.join("project"), ["build", "./out.kpar"], None)?
-        .assert()
-        .success();
     Ok(())
 }

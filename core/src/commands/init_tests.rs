@@ -87,10 +87,7 @@ fn init_with_a_syside_metamodel_writes_the_layout_and_the_root_file() {
     let manifest = crate::project::ProjectRead::manifest_document(&project)
         .expect("a manifest")
         .to_string();
-    assert!(
-        manifest.contains("sources = [\n    \"my-widgets.kerml\",\n]\n"),
-        "{manifest}"
-    );
+    assert!(!manifest.contains("sources"), "{manifest}");
     assert!(
         manifest.contains("root = \"my-widgets.kerml\"\n"),
         "{manifest}"

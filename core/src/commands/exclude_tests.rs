@@ -6,14 +6,13 @@ use std::assert_matches;
 use typed_path::Utf8UnixPathBuf;
 
 use super::{ExcludeError, do_exclude};
-use crate::project::{ProjectMut as _, ProjectRead as _, memory::InMemoryProject};
+use crate::project::{ProjectMut as _, memory::InMemoryProject};
 
 const SYSIDE_MANIFEST: &str = "manifest-version = \"1.0\"\n\n\
                                [project]\n\
                                publisher = \"acme\"\n\
                                name = \"widgets\"\n\
                                version = \"1.0.0\"\n\
-                               sources = [\n    \"Base.kerml\",\n    \"Parts.sysml\",\n]\n\
                                metamodel = \"https://www.sysand.com/spec/SysML/20250201\"\n\
                                root = \"Base.kerml\"\n";
 
@@ -31,30 +30,20 @@ fn syside_project() -> InMemoryProject {
     project
 }
 
-/// The `root` is a `sources` entry by rule, so excluding it would leave
-/// a manifest the next read refuses.
-/// Spelled as written or with a `./`, the answer is the same; any other
-/// entry still goes.
+/// A Syside `model.toml` names `root` and lists no `sources`, so there is
+/// nothing to exclude from, the `root` file included.
 #[test]
-fn excluding_the_root_file_is_refused() {
-    for spelling in ["Base.kerml", "./Base.kerml"] {
+fn exclude_is_refused_on_a_syside_toml_project() {
+    for path in ["Base.kerml", "Parts.sysml"] {
         let mut project = syside_project();
-        let error = do_exclude(&mut project, [Utf8UnixPathBuf::from(spelling)].into_iter())
-            .expect_err("the root is not excludable");
+        let before = project.model_toml.clone();
+        let error = do_exclude(&mut project, [Utf8UnixPathBuf::from(path)].into_iter())
+            .expect_err("nothing to exclude from");
+        assert_matches!(error, ExcludeError::RootOnly);
         assert_eq!(
             error.to_string(),
-            format!("`{spelling}` is the project's `root`; set another `root` before excluding it")
+            "a Syside-metamodel project lists no `sources`; its files are reached from its `root`"
         );
-        assert_matches!(error, ExcludeError::RootExcluded(_));
+        assert_eq!(project.model_toml, before, "nothing was written");
     }
-
-    let mut project = syside_project();
-    do_exclude(
-        &mut project,
-        [Utf8UnixPathBuf::from("Parts.sysml")].into_iter(),
-    )
-    .expect("another entry is excludable");
-    let manifest = project.manifest_document().expect("a manifest").to_string();
-    assert!(!manifest.contains("Parts.sysml"), "{manifest}");
-    assert!(manifest.contains("root = \"Base.kerml\""), "{manifest}");
 }

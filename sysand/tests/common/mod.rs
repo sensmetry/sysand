@@ -491,6 +491,61 @@ pub fn write_toml_project(
     Ok(())
 }
 
+/// A Syside json project in `dir` (the extracted form of a Syside
+/// archive), which is created: publisher `acme`, the given `name` and
+/// `version`, `usage` as its `.project.json` usages, and `files` written
+/// and checksummed. The first file is `root`, and `exports` is written as
+/// given. A Syside `model.toml` names `root` alone and cannot be built,
+/// so a Syside archive is built from this form.
+pub fn write_syside_json_project(
+    dir: impl AsRef<Utf8Path>,
+    name: &str,
+    version: &str,
+    usage: serde_json::Value,
+    exports: &[&str],
+    files: &[(&str, &[u8])],
+) -> Result<(), Box<dyn Error>> {
+    let dir = dir.as_ref();
+    std::fs::create_dir_all(dir)?;
+    let mut checksum = serde_json::Map::new();
+    for (path, contents) in files {
+        let file = dir.join(path);
+        if let Some(parent) = file.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(file, contents)?;
+        checksum.insert(
+            (*path).to_owned(),
+            serde_json::json!({
+                "value": sha256_lowercase_hex(contents),
+                "algorithm": "SHA256",
+            }),
+        );
+    }
+    std::fs::write(
+        dir.join(".project.json"),
+        serde_json::json!({
+            "name": name,
+            "publisher": "acme",
+            "version": version,
+            "usage": usage,
+        })
+        .to_string(),
+    )?;
+    std::fs::write(
+        dir.join(".meta.json"),
+        serde_json::json!({
+            "root": files[0].0,
+            "exports": exports,
+            "created": "2026-01-01T00:00:00.000000000Z",
+            "metamodel": "https://www.sysand.com/spec/SysML/20250201",
+            "checksum": checksum,
+        })
+        .to_string(),
+    )?;
+    Ok(())
+}
+
 /// A `model.toml` workspace root in `dir`, which must exist, listing
 /// `members`, followed by `extra` (more `[workspace]` keys), which is
 /// written as is.

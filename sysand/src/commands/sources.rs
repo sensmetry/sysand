@@ -150,7 +150,7 @@ pub fn command_sources_workspace(
     for member in workspace.members() {
         let project = LocalSrcProject::new_member(member.dir.clone(), None, table.clone());
 
-        for source in member.project.sources.iter() {
+        for source in member.project.sources()?.iter() {
             let rendered = project.get_source_path(source)?.to_string();
             own.insert(rendered.clone());
             if seen.insert(rendered.clone()) {

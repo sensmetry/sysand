@@ -255,10 +255,15 @@ fn reader(files: &BTreeMap<String, String>) -> impl FnMut(&Utf8UnixPath) -> Resu
     }
 }
 
+/// The `sources` of a project the test knows is an OMG one.
+fn omg_sources(project: &ResolvedProject) -> &Sources {
+    project.sources().expect("an OMG-metamodel project")
+}
+
 fn maps(body: &str, entries: &[(&str, &str)]) -> (SymbolIndex, ChecksumMap) {
     let project = resolved(body);
     let files = files(entries);
-    source_maps(&project.sources, reader(&files)).expect("the sources are readable")
+    source_maps(omg_sources(&project), reader(&files)).expect("the sources are readable")
 }
 
 const FULL: &str = "\
@@ -534,7 +539,7 @@ fn the_two_maps_recover_the_source_list() {
     let body = REQUIRED.replace("sources = []", "sources = [\"a.sysml\", \"empty.sysml\"]");
     let project = resolved(&body);
     let files = files(&[("a.sysml", "part def A;"), ("empty.sysml", "")]);
-    let (index, checksum) = source_maps(&project.sources, reader(&files)).expect("readable");
+    let (index, checksum) = source_maps(omg_sources(&project), reader(&files)).expect("readable");
     let meta = meta(
         &project,
         &jiff::Timestamp::UNIX_EPOCH,
@@ -542,8 +547,7 @@ fn the_two_maps_recover_the_source_list() {
         checksum,
     );
 
-    let sources: HashSet<String> = project
-        .sources
+    let sources: HashSet<String> = omg_sources(&project)
         .iter()
         .map(|path| path.as_str().to_owned())
         .collect();
@@ -597,7 +601,7 @@ fn an_unrecognized_metamodel_never_reaches_the_view() {
 fn a_source_that_cannot_be_read_reports_the_readers_error() {
     let project = resolved(&REQUIRED.replace("sources = []", "sources = [\"a.sysml\"]"));
     let files = files(&[]);
-    let error = source_maps(&project.sources, reader(&files)).expect_err("nothing to read");
+    let error = source_maps(omg_sources(&project), reader(&files)).expect_err("nothing to read");
     assert_eq!(error.to_string(), "no such file `a.sysml`");
 }
 
@@ -605,7 +609,8 @@ fn a_source_that_cannot_be_read_reports_the_readers_error() {
 fn a_source_that_does_not_parse_stops_the_view() {
     let project = resolved(&REQUIRED.replace("sources = []", "sources = [\"a.sysml\"]"));
     let files = files(&[("a.sysml", "package Foo { /*")]);
-    let error = source_maps(&project.sources, reader(&files)).expect_err("an unterminated comment");
+    let error =
+        source_maps(omg_sources(&project), reader(&files)).expect_err("an unterminated comment");
     assert_eq!(
         error.to_string(),
         "failed to extract symbol names from `a.sysml`"
@@ -626,7 +631,7 @@ fn reading_stops_at_the_first_failure() {
     let project =
         resolved(&REQUIRED.replace("sources = []", "sources = [\"a.sysml\", \"b.sysml\"]"));
     let files = files(&[]);
-    let error = source_maps(&project.sources, reader(&files)).expect_err("nothing to read");
+    let error = source_maps(omg_sources(&project), reader(&files)).expect_err("nothing to read");
     assert_eq!(error.to_string(), "no such file `a.sysml`");
 }
 
@@ -638,7 +643,7 @@ fn the_view_is_the_two_halves() {
     let created = jiff::Timestamp::UNIX_EPOCH;
 
     let (whole_info, whole_meta) = view(&project, &created, reader(&files)).expect("readable");
-    let (index, checksum) = source_maps(&project.sources, reader(&files)).expect("readable");
+    let (index, checksum) = source_maps(omg_sources(&project), reader(&files)).expect("readable");
     assert_eq!(whole_info, info(&project));
     assert_eq!(whole_meta, meta(&project, &created, index, checksum));
 }

@@ -5,7 +5,6 @@ use crate::paths::{
     NormalizeError, RelativizePathError, ResolvePathError, normalize_relative, relativize_path_in,
 };
 use std::{
-    collections::HashSet,
     fs::File,
     io::{Read, Write as _},
 };
@@ -215,27 +214,6 @@ impl LocalSrcProject {
             final_path.push(component);
         }
         Ok(final_path)
-    }
-
-    // TODO: Do we iterate over index or checksum or both?
-    pub fn get_source_paths(&self) -> Result<HashSet<Utf8PathBuf>, LocalSrcError> {
-        let mut result = HashSet::new();
-
-        match self.get_project()? {
-            None => {}
-            Some(ProjectDefinition::Toml(project)) => {
-                for path in project.sources.iter() {
-                    result.insert(self.get_source_path(path)?);
-                }
-            }
-            Some(ProjectDefinition::Json { info: _, meta }) => {
-                for path in meta.source_paths(true) {
-                    result.insert(self.get_source_path(path)?);
-                }
-            }
-        }
-
-        Ok(result)
     }
 
     pub fn temporary_from_project<Pr: ProjectRead>(

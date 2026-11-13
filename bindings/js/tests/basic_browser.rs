@@ -69,7 +69,7 @@ mod browser_tests {
             manifest.license.as_ref().map(ToString::to_string),
             Some("MIT OR Apache-2.0".to_owned())
         );
-        assert!(manifest.sources.is_empty());
+        assert!(manifest.sources().expect("an OMG project").is_empty());
         assert_eq!(
             manifest.usages,
             [] as [sysand_core::manifest::usage::LocatedUsage; 0]

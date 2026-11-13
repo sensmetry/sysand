@@ -10,6 +10,7 @@ use typed_path::Utf8UnixPathBuf;
 
 use crate::{
     env::ReadEnvironment,
+    manifest::project::UnlistedFiles,
     model::{InterchangeProjectUsage, InterchangeProjectValidationError},
     project::{ProjectDefinition, ProjectRead, memory::InMemoryProject, utils::Identifier},
     resolve::{
@@ -79,6 +80,8 @@ pub enum SourcesError<ProjectError> {
         name: &'static str,
         source: InterchangeProjectValidationError,
     },
+    #[error(transparent)]
+    Unlisted(UnlistedFiles),
 }
 
 /// Enumerates source files in a project (as relative Unix-paths under the project root).
@@ -102,7 +105,12 @@ pub fn do_sources_definition<ProjectError>(
 ) -> Result<Vec<Utf8UnixPathBuf>, SourcesError<ProjectError>> {
     let meta = match definition {
         ProjectDefinition::Toml(project) => {
-            return Ok(project.sources.iter().cloned().collect());
+            return Ok(project
+                .sources()
+                .map_err(SourcesError::Unlisted)?
+                .iter()
+                .cloned()
+                .collect());
         }
         ProjectDefinition::Json { info: _, meta } => meta,
     };
@@ -130,6 +138,8 @@ pub enum LocalSourcesError {
     },
     #[error(transparent)]
     Path(#[from] PathError),
+    #[error(transparent)]
+    Unlisted(UnlistedFiles),
 }
 
 #[cfg(feature = "filesystem")]
@@ -138,6 +148,7 @@ impl From<SourcesError<LocalSrcError>> for LocalSourcesError {
         match value {
             SourcesError::Project(error) => Self::Project(error),
             SourcesError::Validation { name, source } => Self::Validation { name, source },
+            SourcesError::Unlisted(error) => Self::Unlisted(error),
         }
     }
 }

@@ -314,20 +314,33 @@ fn a_source_the_metamodel_does_not_admit_is_refused() {
         KnownMetamodel::recognize("https://www.omg.org/spec/SysML/20250201").expect("a kind");
 
     let entry = Utf8UnixPath::new("a.sysml");
-    let error = admitted_source(entry, &kerml).expect_err("a SysML file in a KerML project");
+    let error = admitted_source(PathKey::Sources, entry, &kerml)
+        .expect_err("a SysML file in a KerML project");
     assert_eq!(
         error.message,
         "`sources` entry `a.sysml` is a SysML file, which the metamodel \
          `https://www.omg.org/spec/KerML/20250201` does not admit;\n\
          a KerML project lists `.kerml` files, a SysML project `.sysml` and `.kerml` files"
     );
-    admitted_source(entry, &sysml).expect("a SysML file in a SysML project");
-    admitted_source(Utf8UnixPath::new("a.kerml"), &kerml).expect("KerML in KerML");
-    admitted_source(Utf8UnixPath::new("a.kerml"), &sysml).expect("KerML in SysML");
+    let error =
+        admitted_source(PathKey::Root, entry, &kerml).expect_err("a SysML root in a KerML project");
+    assert!(
+        error
+            .message
+            .starts_with("`root` `a.sysml` is a SysML file"),
+        "{}",
+        error.message
+    );
+    admitted_source(PathKey::Sources, entry, &sysml).expect("a SysML file in a SysML project");
+    admitted_source(PathKey::Sources, Utf8UnixPath::new("a.kerml"), &kerml)
+        .expect("KerML in KerML");
+    admitted_source(PathKey::Sources, Utf8UnixPath::new("a.kerml"), &sysml)
+        .expect("KerML in SysML");
 
     // Not a model file at all: `PathProblem::NotModelFile`'s, and no
     // metamodel to name.
-    admitted_source(Utf8UnixPath::new("notes.txt"), &kerml).expect("no language to judge");
+    admitted_source(PathKey::Sources, Utf8UnixPath::new("notes.txt"), &kerml)
+        .expect("no language to judge");
 }
 
 /// The two `sources` form errors, each on its whole text. A trailing

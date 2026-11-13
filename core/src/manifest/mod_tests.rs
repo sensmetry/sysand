@@ -527,7 +527,6 @@ fn every_example_in_syside_metamodel_md_parses_and_resolves() {
          publisher = \"acme\"\n\
          name = \"widgets\"\n\
          version = \"1.0.0\"\n\
-         sources = [\"Widgets.sysml\", \"Parts.sysml\", \"Ports.sysml\"]\n\
          metamodel = \"https://www.sysand.com/spec/SysML/20250201\"\n\
          root = \"Widgets.sysml\"\n",
     );
@@ -548,7 +547,7 @@ fn every_example_in_syside_metamodel_md_parses_and_resolves() {
         messages(&resolved.warnings)
     );
     assert_eq!(
-        resolved.value.root.as_ref().map(|root| root.as_str()),
+        resolved.value.root().map(|root| root.as_str()),
         Some("Widgets.sysml")
     );
 
@@ -569,7 +568,6 @@ fn every_example_in_syside_metamodel_md_parses_and_resolves() {
          name = \"ports\"\n\
          publisher.workspace = \"syside\"\n\
          version.workspace = \"syside\"\n\
-         sources = [\"Ports.sysml\"]\n\
          metamodel.workspace = \"syside\"\n\
          root = \"Ports.sysml\"\n",
     )
@@ -584,7 +582,7 @@ fn every_example_in_syside_metamodel_md_parses_and_resolves() {
         messages(&member.warnings)
     );
     assert_eq!(
-        member.value.root.as_ref().map(|root| root.as_str()),
+        member.value.root().map(|root| root.as_str()),
         Some("Ports.sysml")
     );
 
@@ -610,7 +608,7 @@ fn every_example_in_syside_metamodel_md_parses_and_resolves() {
         messages(&legacy.warnings),
         ["`root` in `[project]` is only supported by the Syside metamodel and is ignored here"]
     );
-    assert!(legacy.value.root.is_none());
+    assert!(legacy.value.root().is_none());
 }
 
 /// An index usage published by `OMG` is an *ordinary* usage, not a

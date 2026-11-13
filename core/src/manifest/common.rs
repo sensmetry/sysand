@@ -467,24 +467,28 @@ impl Sources {
 
 /// The half of the language rule the metamodel decides.
 ///
-/// The spec kind bounds what `sources` may list. An entry the metamodel
-/// does not admit is an error naming the entry and the metamodel; the fix
-/// is the metamodel that admits it, or a second project for the other
-/// language.
+/// The spec kind bounds which language a `sources` entry or a `root` may
+/// name. A file the metamodel does not admit is an error naming it, its
+/// key and the metamodel; the fix is the metamodel that admits it, or a
+/// second project for the other language.
 ///
-/// `Ok(())` for an entry that is not a model file at all: that is
+/// `Ok(())` for a path that is not a model file at all: that is
 /// [`PathProblem::NotModelFile`]'s, and it needs no metamodel.
-pub fn admitted_source(entry: &Utf8UnixPath, metamodel: &KnownMetamodel) -> Result<(), Diagnostic> {
-    let Some(language) = Language::guess_from_path(entry) else {
+pub fn admitted_source(
+    key: PathKey,
+    path: &Utf8UnixPath,
+    metamodel: &KnownMetamodel,
+) -> Result<(), Diagnostic> {
+    let Some(language) = Language::guess_from_path(path) else {
         return Ok(());
     };
     if metamodel.spec.admits(language) {
         return Ok(());
     }
     Err(Diagnostic::error(format!(
-        "`sources` entry `{entry}` is a {language} file, which the metamodel `{metamodel}` does \
-         not admit;\na KerML project lists `.kerml` files, a SysML project `.sysml` and \
-         `.kerml` files"
+        "{key} `{path}` is a {language} file, which the metamodel `{metamodel}` does not \
+         admit;\na KerML project lists `.kerml` files, a SysML project `.sysml` and `.kerml` \
+         files"
     )))
 }
 

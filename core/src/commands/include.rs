@@ -37,6 +37,9 @@ pub enum IncludeError<ProjectError> {
          KPAR carries `root` and `exports` instead"
     )]
     NoIndexSymbolsOnRoot,
+    /// A Syside-metamodel `model.toml` has no `sources` to append to.
+    #[error("a Syside-metamodel project lists no `sources`; its files are reached from its `root`")]
+    RootOnly,
     /// A `model.toml` project extracts no symbols, so there is no parser to select.
     #[error(
         "`force_format` has no effect on a `model.toml` project, whose symbols are computed when the KPAR is built"
@@ -162,12 +165,11 @@ fn include_toml<Pr: ProjectMut, I: Iterator<Item = Utf8UnixPathBuf>>(
 
         // Checked before the "computed at build" refusals, which would be
         // misleading on a Syside project.
-        if !index_symbols
-            && metamodel
-                .as_ref()
-                .is_some_and(|kind| kind.family == crate::model::MetamodelFamily::Syside)
+        if metamodel
+            .as_ref()
+            .is_some_and(|kind| kind.family == crate::model::MetamodelFamily::Syside)
         {
-            return Err(IncludeError::NoIndexSymbolsOnRoot);
+            return Err(IncludeError::RootOnly);
         }
         if compute_checksum {
             return Err(IncludeError::ComputedField("checksum"));
@@ -185,7 +187,11 @@ fn include_toml<Pr: ProjectMut, I: Iterator<Item = Utf8UnixPathBuf>>(
             log::info!("{header}{including:>12}{header:#} file `{path}`");
 
             if let Some(kind) = &metamodel
-                && let Err(problem) = crate::manifest::common::admitted_source(&path, kind)
+                && let Err(problem) = crate::manifest::common::admitted_source(
+                    crate::manifest::common::PathKey::Sources,
+                    &path,
+                    kind,
+                )
             {
                 return Err(IncludeError::NotAdmitted(problem.message.into()));
             }
@@ -215,10 +221,10 @@ pub fn read_project_file_to_string<Pr: ProjectRead, P: AsRef<Utf8UnixPath>>(
 #[path = "./include_tests.rs"]
 mod tests;
 
-/// The metamodel `include` judges a path against, or `None` when the
-/// project cannot say, such as a member with `metamodel.workspace = true`
-/// read without its workspace table.
-fn project_metamodel<Pr: ProjectRead>(
+/// The metamodel `include` and `exclude` judge a path against, or `None`
+/// when the project cannot say, such as a member with
+/// `metamodel.workspace = true` read without its workspace table.
+pub(crate) fn project_metamodel<Pr: ProjectRead>(
     project: &Pr,
     document: &crate::manifest::edit::DocumentMut,
 ) -> Option<crate::model::KnownMetamodel> {

@@ -10,7 +10,7 @@ use sysand_core::{
     auth::HTTPAuthentication,
     context::ProjectContext,
     index_location::IndexSource,
-    manifest::project::ResolvedProject,
+    manifest::project::{ProjectFiles, ResolvedProject},
     model::{
         InterchangeProjectChecksumRaw, InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw,
         InterchangeProjectUsageRaw,
@@ -66,6 +66,18 @@ pub fn report_project(definition: &ProjectDefinition, excluded_iris: &ProvidedId
 
 /// A resolved `model.toml` project as JSON, keyed as the manifest is.
 fn manifest_json(manifest: &ResolvedProject) -> serde_json::Value {
+    let (root, sources) = match &manifest.files {
+        ProjectFiles::Root(root) => (Some(root.as_str()), None),
+        ProjectFiles::Sources(sources) => (
+            None,
+            Some(
+                sources
+                    .iter()
+                    .map(|source| source.as_str())
+                    .collect::<Vec<_>>(),
+            ),
+        ),
+    };
     serde_json::json!({
         "name": manifest.name.as_str(),
         "publisher": manifest.publisher.as_str(),
@@ -76,8 +88,8 @@ fn manifest_json(manifest: &ResolvedProject) -> serde_json::Value {
         "topics": manifest.topics,
         "metamodel": manifest.metamodel.to_string(),
         "stdlib": manifest.stdlib.as_ref().map(ToString::to_string),
-        "root": manifest.root.as_ref().map(|root| root.as_str()),
-        "sources": manifest.sources.iter().map(|source| source.as_str()).collect::<Vec<_>>(),
+        "root": root,
+        "sources": sources,
         "urls": {
             "website": manifest.urls.website.as_ref().map(fluent_uri::Iri::as_str),
             "documentation": manifest.urls.documentation.as_ref().map(fluent_uri::Iri::as_str),
@@ -448,7 +460,7 @@ fn toml_field_lines<Project: ProjectRead>(
             .map(ToString::to_string)
             .collect(),
         InfoField::Index => {
-            if manifest.root.is_some() {
+            if manifest.root().is_some() {
                 log::warn!(
                     "the project has no `index`; a Syside KPAR carries `root` and `exports`"
                 );
@@ -458,7 +470,7 @@ fn toml_field_lines<Project: ProjectRead>(
             }
         }
         InfoField::Exports => {
-            if manifest.root.is_none() {
+            if manifest.root().is_none() {
                 log::warn!("the project has no `exports`; an OMG KPAR carries `index`");
                 Vec::new()
             } else {
@@ -469,8 +481,8 @@ fn toml_field_lines<Project: ProjectRead>(
             }
         }
         InfoField::Root => manifest
-            .root
-            .iter()
+            .root()
+            .into_iter()
             .map(|root| root.as_str().to_owned())
             .collect(),
         InfoField::Metamodel => vec![manifest.metamodel.to_string()],

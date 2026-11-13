@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
-use anyhow::{Result, bail};
+use anyhow::{Context as _, Result, bail};
 use sysand_core::{
     context::{EditError, ManifestStep, ProjectContext},
     manifest::{
@@ -383,11 +383,16 @@ fn edit_toml(document: &mut DocumentMut, edits: &EditArgs) -> Result<()> {
     if let Some(metamodel) = metamodel {
         let value = metamodel.to_string();
         // A switch is refused when the target schema's required key is
-        // missing, and warns when a key is left that the target does not use.
-        let has_root = document
-            .get("project")
-            .and_then(|project| project.get("root"))
-            .is_some();
+        // missing or a key is left that it refuses, and warns when a key is
+        // left that the target ignores.
+        let has_key = |key: &str| {
+            document
+                .get("project")
+                .and_then(|project| project.get(key))
+                .is_some()
+        };
+        let has_root = has_key("root");
+        let has_sources = has_key("sources");
         match metamodel.family {
             MetamodelFamily::Syside if !has_root => {
                 bail!(
@@ -396,6 +401,17 @@ fn edit_toml(document: &mut DocumentMut, edits: &EditArgs) -> Result<()> {
                     {SP:>8} pass `--root <PATH>` with it",
                     SP = ' ',
                 );
+            }
+            MetamodelFamily::Syside if has_sources => edit::remove_empty_sources(document)
+                .with_context(|| format!("changing the metamodel to `{value}`"))?,
+            MetamodelFamily::Omg if !has_sources => {
+                edit::add_empty_sources(document)?;
+                if has_root {
+                    log::warn!(
+                        "`root` is only supported by the Syside metamodel and will be ignored \
+                         under `{value}`; `sysand edit --clear-root` removes it"
+                    );
+                }
             }
             MetamodelFamily::Omg if has_root => {
                 log::warn!(

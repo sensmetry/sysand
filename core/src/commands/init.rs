@@ -120,13 +120,7 @@ pub fn do_init_ext<P: ProjectMut>(
 
     let mut project = ProjectTable::new(publisher, name.clone(), version);
     match &syside_root {
-        Some(root) => {
-            project.sources = Some(
-                Sources::new(vec![root.clone()])
-                    .expect("a normalized name with a model extension is a `sources` entry"),
-            );
-            project.root = Some(toml::Value::from(root.as_str()));
-        }
+        Some(root) => project.root = Some(toml::Value::from(root.as_str())),
         // Written as `sources = []`: an absent key is a manifest that
         // does not resolve.
         None => project.sources = Some(Sources::default()),

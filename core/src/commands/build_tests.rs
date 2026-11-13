@@ -1154,23 +1154,81 @@ fn a_member_that_inherits_can_be_a_usage_target() -> Result<(), Box<dyn std::err
 }
 
 /// A Syside project with the conventional files, ready to build.
-fn syside_project_with_extras() -> Result<camino_tempfile::Utf8TempDir, Box<dyn std::error::Error>>
-{
+/// The extracted form of a Syside archive: a json project whose
+/// `.meta.json` carries `root` and `exports`, and whose `checksum`
+/// covers the readme and the license file as well as the model files.
+#[cfg(feature = "syside-kpar")]
+fn syside_json_project_with_extras()
+-> Result<camino_tempfile::Utf8TempDir, Box<dyn std::error::Error>> {
+    let dir = tempdir()?;
+    let files: [(&str, &[u8]); 4] = [
+        ("a.sysml", b"package A;\n"),
+        ("b.sysml", b"package B;\n"),
+        ("README.md", b"# widgets\n"),
+        ("LICENSES/MIT.txt", b"MIT\n"),
+    ];
+    std::fs::create_dir_all(dir.path().join("LICENSES"))?;
+    let mut checksum = serde_json::Map::new();
+    for (path, contents) in files {
+        std::fs::write(dir.path().join(path), contents)?;
+        checksum.insert(
+            path.to_owned(),
+            serde_json::json!({
+                "value": crate::utils::sha256_lowercase_hex(contents),
+                "algorithm": "SHA256",
+            }),
+        );
+    }
+    std::fs::write(
+        dir.path().join(".project.json"),
+        serde_json::json!({
+            "name": "widgets",
+            "publisher": "acme",
+            "version": "1.0.0",
+            "license": "MIT",
+            "usage": [],
+        })
+        .to_string(),
+    )?;
+    std::fs::write(
+        dir.path().join(".meta.json"),
+        serde_json::json!({
+            "root": "a.sysml",
+            "exports": ["A", "B"],
+            "created": "2026-01-01T00:00:00.000000000Z",
+            "metamodel": "https://www.sysand.com/spec/SysML/20250201",
+            "checksum": checksum,
+        })
+        .to_string(),
+    )?;
+    Ok(dir)
+}
+
+/// A Syside `model.toml` names `root` alone, and the files it reaches
+/// cannot be found yet, so the build is refused before anything is
+/// written.
+#[test]
+fn a_syside_toml_project_is_not_built() -> Result<(), Box<dyn std::error::Error>> {
     let dir = tempdir()?;
     std::fs::write(
         dir.path().join("model.toml"),
         "manifest-version = \"1.0\"\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\n\
-         version = \"1.0.0\"\nsources = [\"a.sysml\", \"b.sysml\"]\nlicense = \"MIT\"\n\
-         metamodel = \"https://www.sysand.com/spec/SysML/20250201\"\nroot = \"a.sysml\"\n",
+         version = \"1.0.0\"\nmetamodel = \"https://www.sysand.com/spec/SysML/20250201\"\n\
+         root = \"a.sysml\"\n",
     )?;
     std::fs::write(dir.path().join("a.sysml"), b"package A;\n")?;
-    std::fs::write(dir.path().join("b.sysml"), b"package B;\n")?;
-    std::fs::write(dir.path().join("README.md"), b"# widgets\n")?;
-    std::fs::create_dir_all(dir.path().join("LICENSES"))?;
-    std::fs::write(dir.path().join("LICENSES/MIT.txt"), b"MIT\n")?;
-    Ok(dir)
+    let error = built(&dir, false).expect_err("a Syside `model.toml` is not built");
+    assert_matches!(error, KParBuildError::Unlisted(_));
+    assert_eq!(
+        error.to_string(),
+        "`acme/widgets` is a Syside-metamodel project, whose files are reached from its `root` \
+         `a.sysml`; finding them is not supported yet"
+    );
+    assert!(!dir.path().join("out.kpar").exists());
+    Ok(())
 }
 
+#[cfg(feature = "syside-kpar")]
 fn archive_names(path: &camino::Utf8Path) -> Result<Vec<String>, Box<dyn std::error::Error>> {
     let mut zip = zip::ZipArchive::new(std::fs::File::open(path)?)?;
     let mut names: Vec<String> = (0..zip.len())
@@ -1183,13 +1241,15 @@ fn archive_names(path: &camino::Utf8Path) -> Result<Vec<String>, Box<dyn std::er
     Ok(names)
 }
 
-/// The extracted form of a Syside archive is a json project that builds again. With `checksum`
+/// The extracted form of a Syside archive is a json project that builds
+/// the Syside shape, and its archive builds again. With `checksum`
 /// covering the readme and the license file, the build must not lex
 /// them as sources or package them twice; and `sysand sources` on the
 /// extracted form lists the model files only.
+#[cfg(feature = "syside-kpar")]
 #[test]
 fn the_extracted_form_of_a_syside_kpar_builds_again() -> Result<(), Box<dyn std::error::Error>> {
-    let dir = syside_project_with_extras()?;
+    let dir = syside_json_project_with_extras()?;
     let (_, meta) = built(&dir, false)?;
     let first = dir.path().join("out.kpar");
     let mut keys: Vec<&String> = meta.checksum.as_ref().expect("checksum").keys().collect();

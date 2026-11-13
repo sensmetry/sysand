@@ -1168,12 +1168,11 @@ fn a_typed_usage_keeps_the_json_spelling_here() {
 }
 
 /// A Syside json project (the extracted form of a Syside archive)
-/// migrates with its `root`
-/// and with `sources` taken from the model-file `checksum` keys; the
-/// conventional files are silent, a stray non-model key is a warning,
-/// and the result resolves.
+/// migrates to its `root` alone: a Syside `model.toml` lists no
+/// `sources`, so the `checksum` keys are not recovered, and the result
+/// resolves.
 #[test]
-fn a_syside_json_project_migrates_with_its_root_and_model_files() {
+fn a_syside_json_project_migrates_to_its_root() {
     let mut meta = meta();
     meta.index = None;
     meta.root = Some("main.sysml".to_owned());
@@ -1183,8 +1182,6 @@ fn a_syside_json_project_migrates_with_its_root_and_model_files() {
         "main.sysml",
         "lib.sysml",
         "README.md",
-        "CHANGELOG.md",
-        "LICENSES/MIT.txt",
         "notes.txt",
     ]));
 
@@ -1201,51 +1198,35 @@ fn a_syside_json_project_migrates_with_its_root_and_model_files() {
         .map(|w| w.message.as_str())
         .collect();
     assert!(
-        warnings.contains(
-            &"`notes.txt` is not a model file and is not migrated: `sources` lists model files only"
-        ),
-        "{warnings:?}"
-    );
-    assert!(
         warnings
             .iter()
             .any(|w| w.starts_with("`exports` is not migrated")),
         "{warnings:?}"
     );
     assert!(
-        !warnings
-            .iter()
-            .any(|w| w.contains("README.md") || w.contains("LICENSES")),
-        "the conventional files are silent: {warnings:?}"
+        !warnings.iter().any(|w| w.contains("notes.txt")),
+        "the `checksum` keys are not read: {warnings:?}"
     );
     let ModelToml::Project(manifest) = validated.value else {
         panic!("a project");
     };
-    assert_eq!(
-        manifest
-            .project
-            .sources
-            .as_ref()
-            .map(|s| s.iter().map(|p| p.as_str()).collect::<Vec<_>>()),
-        Some(vec!["main.sysml", "lib.sysml"])
-    );
+    assert_eq!(manifest.project.sources, None);
     assert_eq!(manifest.project.root, Some(toml::Value::from("main.sysml")));
     let resolved = manifest
         .resolve(None)
         .expect("the migrated manifest resolves");
     assert_eq!(
-        resolved.value.root.as_ref().map(|r| r.as_str()),
+        resolved.value.root().map(|r| r.as_str()),
         Some("main.sysml")
     );
 }
 
-/// At migration, a `root` that is not among the recovered sources is
-/// refused here, where the cause is.
+/// A Syside json project whose `.meta.json` names no `root` migrates to a
+/// manifest that does not resolve, and is refused.
 #[test]
-fn a_migrated_root_not_among_the_sources_is_refused() {
+fn a_syside_json_project_without_a_root_is_refused() {
     let mut meta = meta();
     meta.index = None;
-    meta.root = Some("gone.sysml".to_owned());
     meta.exports = Some(vec![]);
     meta.metamodel = Some("https://www.sysand.com/spec/SysML/20250201".to_owned());
     meta.checksum = Some(checksum_of(&["main.sysml"]));
@@ -1255,7 +1236,7 @@ fn a_migrated_root_not_among_the_sources_is_refused() {
         &MigrateOptions::default(),
     );
     assert!(
-        rendered.contains("`root` is `gone.sysml`, which is not listed in `sources`"),
+        rendered.contains("missing key `root` in `.meta.json`; the Syside metamodel requires it"),
         "{rendered}"
     );
 }

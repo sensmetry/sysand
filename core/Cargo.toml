@@ -35,6 +35,10 @@ kpar-zstd = ["zip?/zstd"]
 kpar-xz = ["zip?/xz"]
 kpar-ppmd = ["zip?/ppmd"]
 alltests = []
+# Accept the Syside `.meta.json` shape (`root` and `exports`) when reading a
+# json project or a KPAR. Its format is not final, so a default build
+# refuses it.
+syside-kpar = []
 
 [dependencies]
 # General

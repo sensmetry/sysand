@@ -947,6 +947,7 @@ pub(crate) fn handle_build_error(env: &mut Env<'_>, error: &KParBuildError<Local
             );
         }
         KParBuildError::InheritedLocalUsage { usage: _, path: _ }
+        | KParBuildError::Unlisted(_)
         | KParBuildError::KeepIndexOnRoot
         | KParBuildError::TomlTargetMissing { usage: _, path: _ }
         | KParBuildError::TomlTargetVersion {

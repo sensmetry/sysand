@@ -6,13 +6,14 @@ use std::assert_matches;
 use crate::manifest::common::{InheritFrom, Sources};
 use crate::manifest::diagnostics::{Diagnostic, Diagnostics, KeyLocation, Severity, Validated};
 use crate::manifest::inherit::MetaProperty;
-use crate::manifest::project::{ProjectManifest, ProjectTable, ResolvedProject};
+use crate::manifest::project::{ProjectFiles, ProjectManifest, ProjectTable, ResolvedProject};
 use crate::manifest::reader::TableReader;
 use crate::manifest::spans::Source;
 use crate::manifest::usage::{MemberUsage, Usage, UsageBase};
 use crate::manifest::workspace_table::WorkspaceTable;
 use crate::model::{IndexName, IndexPublisher, KnownMetamodel, MetamodelFamily, SpecKind};
 use fluent_uri::Iri;
+use typed_path::Utf8UnixPathBuf;
 
 /// The project side of a document, read the way `ModelToml::parse` will
 /// read it.
@@ -443,12 +444,13 @@ const SYSIDE_KERML: &str = "https://www.sysand.com/spec/KerML/20250201";
 const ROOT_MISSING: &str = "missing key `root` in `[project]`; the Syside metamodel requires it";
 const ROOT_IN_OMG: &str =
     "`root` in `[project]` is only supported by the Syside metamodel and is ignored here";
-const SYSIDE_SOURCES_MISSING: &str = "missing key `sources` in `[project]`; the Syside metamodel requires it\n\
-                     (`root` names one of its entries)";
+const SOURCES_IN_SYSIDE: &str = "`sources` in `[project]` is not used by the Syside metamodel; a \
+                                 Syside project names `root`,\nand its other files are reached \
+                                 from it";
 
-/// [`REQUIRED`] plus what a Syside project needs to resolve.
-fn syside(sources: &str, root: &str) -> String {
-    format!("{REQUIRED}metamodel = \"{SYSIDE_SYSML}\"\n{sources}{root}")
+/// [`REQUIRED`] plus a Syside metamodel, followed by `rest` as written.
+fn syside(rest: &str) -> String {
+    format!("{REQUIRED}metamodel = \"{SYSIDE_SYSML}\"\n{rest}")
 }
 
 /// Read and resolve outside any workspace, keeping both stages'
@@ -464,15 +466,13 @@ fn standalone(body: &str) -> Result<Validated<ResolvedProject>, Diagnostics> {
     validated.value.resolve(None)
 }
 
-/// A hand-written Syside `model.toml` reads with no warning. `root` is
-/// one of the `sources`, and the resolved project carries it.
+/// A hand-written Syside `model.toml` names `root` and lists no
+/// `sources`; it reads with no warning and the resolved project carries
+/// its `root`.
 #[test]
 fn a_syside_manifest_reads_with_no_warning() {
-    let body = syside(
-        "sources = [\"main.sysml\", \"lib.sysml\"]\n",
-        "root = \"main.sysml\"\n",
-    );
-    let resolved = standalone(&body).expect("a well-formed Syside project resolves");
+    let resolved = standalone(&syside("root = \"main.sysml\"\n"))
+        .expect("a well-formed Syside project resolves");
     assert!(
         resolved.warnings.is_empty(),
         "{:?}",
@@ -481,38 +481,59 @@ fn a_syside_manifest_reads_with_no_warning() {
     let project = resolved.value;
     assert_eq!(project.metamodel.family, MetamodelFamily::Syside);
     assert_eq!(
-        project.root.as_ref().map(|root| root.as_str()),
-        Some("main.sysml")
+        project.files,
+        ProjectFiles::Root(Utf8UnixPathBuf::from("main.sysml"))
     );
+    assert_eq!(project.root().map(|root| root.as_str()), Some("main.sysml"));
+    let unlisted = project
+        .sources()
+        .expect_err("a Syside project lists no files");
     assert_eq!(
-        project
-            .sources
-            .iter()
-            .map(|entry| entry.as_str())
-            .collect::<Vec<_>>(),
-        ["main.sysml", "lib.sysml"]
+        unlisted.to_string(),
+        "`acme/widgets` is a Syside-metamodel project, whose files are reached from its `root` \
+         `main.sysml`; finding them is not supported yet"
     );
 }
 
-/// `root` is required of every Syside project. With `sources` present,
-/// it is the only complaint.
+/// `root` is required of every Syside project, and is the only key it
+/// is missing.
 #[test]
 fn a_syside_project_without_root_is_missing_the_key() {
-    let report = standalone(&syside("sources = [\"main.sysml\"]\n", "")).expect_err("no root");
+    let report = standalone(&syside("")).expect_err("no root");
     assert_eq!(texts(&report), [ROOT_MISSING]);
 }
 
-/// Both required keys missing: both reported, in one report, in key
-/// order.
+/// `sources` and `root` exclude each other: a Syside project that lists
+/// `sources` is refused at the key, whether or not it names a `root`.
 #[test]
-fn root_and_sources_are_both_reported_when_both_are_missing() {
-    let report = standalone(&syside("", "")).expect_err("neither key");
-    assert_eq!(texts(&report), [SYSIDE_SOURCES_MISSING, ROOT_MISSING]);
+fn sources_in_a_syside_project_is_an_error() {
+    for (rest, expected) in [
+        (
+            "sources = [\"main.sysml\"]\nroot = \"main.sysml\"\n",
+            vec![SOURCES_IN_SYSIDE],
+        ),
+        (
+            "sources = []\nroot = \"main.sysml\"\n",
+            vec![SOURCES_IN_SYSIDE],
+        ),
+        // The missing key is reported at the table, before `sources`.
+        (
+            "sources = [\"main.sysml\"]\n",
+            vec![ROOT_MISSING, SOURCES_IN_SYSIDE],
+        ),
+    ] {
+        let report = standalone(&syside(rest)).expect_err(rest);
+        assert_eq!(texts(&report), expected, "{rest}");
+    }
+    let report =
+        standalone(&syside("sources = []\nroot = \"main.sysml\"\n")).expect_err("both keys");
+    // `[project]`, three required keys, `metamodel`, then `sources`.
+    assert_eq!(places(&report), [(6, 1)]);
 }
 
 /// `root` goes through the checks a `sources` entry goes through, with
-/// its own wording. A `root` that fails them is reported once, at
-/// `root`, and is not *also* reported missing.
+/// its own wording, and names a single file. A `root` that fails them is
+/// reported once, at `root`, and is not *also* reported missing.
 #[test]
 fn root_is_held_to_the_sources_entry_checks() {
     for (written, text) in [
@@ -544,15 +565,10 @@ fn root_is_held_to_the_sources_entry_checks() {
             "`root` `notes.txt` is not a KerML (`.kerml`) or SysML (`.sysml`) file",
         ),
     ] {
-        let body = syside(
-            "sources = [\"main.sysml\"]\n",
-            &format!("root = {written}\n"),
-        );
-        let report = standalone(&body).expect_err(written);
+        let report = standalone(&syside(&format!("root = {written}\n"))).expect_err(written);
         assert_eq!(texts(&report), [text], "{written}");
-        // Line 6 of the document: `[project]`, three required keys,
-        // `metamodel`, `sources`, then `root`.
-        assert_eq!(places(&report), [(7, 1)], "{written}");
+        // `[project]`, three required keys, `metamodel`, then `root`.
+        assert_eq!(places(&report), [(6, 1)], "{written}");
     }
 }
 
@@ -561,58 +577,29 @@ fn root_is_held_to_the_sources_entry_checks() {
 /// key was written.
 #[test]
 fn a_root_that_is_not_a_string_is_a_type_error_in_a_syside_project() {
-    let report =
-        standalone(&syside("sources = [\"main.sysml\"]\n", "root = true\n")).expect_err("a bool");
+    let report = standalone(&syside("root = true\n")).expect_err("a bool");
     assert_eq!(
         texts(&report),
         ["`root` in `[project]` must be a string, but it is a boolean"]
     );
-    assert_eq!(places(&report), [(7, 1)]);
+    assert_eq!(places(&report), [(6, 1)]);
 }
 
-/// `root` is a `sources` entry, and every `sources` entry is already
-/// held to the metamodel, so an inadmissible `root` raises nothing of
-/// its own. One file, one complaint.
+/// The metamodel bounds the language `root` may be written in, as it
+/// bounds a `sources` entry's.
 #[test]
-fn an_inadmissible_root_is_complained_about_once_as_a_sources_entry() {
-    let body = format!(
-        "{REQUIRED}metamodel = \"{SYSIDE_KERML}\"\nsources = [\"main.sysml\"]\n\
-         root = \"main.sysml\"\n"
-    );
-    let report = standalone(&body).expect_err("a SysML file in a KerML project");
+fn an_inadmissible_root_is_refused() {
+    let body = format!("{REQUIRED}metamodel = \"{SYSIDE_KERML}\"\nroot = \"main.sysml\"\n");
+    let report = standalone(&body).expect_err("a SysML root in a KerML project");
     assert_eq!(
         texts(&report),
         [format!(
-            "`sources` entry `main.sysml` is a SysML file, which the metamodel `{SYSIDE_KERML}` \
-             does not admit;\na KerML project lists `.kerml` files, a SysML project `.sysml` and \
-             `.kerml` files"
+            "`root` `main.sysml` is a SysML file, which the metamodel `{SYSIDE_KERML}` does not \
+             admit;\na KerML project lists `.kerml` files, a SysML project `.sysml` and `.kerml` \
+             files"
         )]
     );
-}
-
-/// `root` names one of the `sources` entries, compared as written like
-/// the entries themselves.
-/// `sources = []` beside a `root` is therefore this error too.
-#[test]
-fn root_must_be_listed_in_sources() {
-    for sources in ["sources = [\"lib.sysml\"]\n", "sources = []\n"] {
-        let report =
-            standalone(&syside(sources, "root = \"main.sysml\"\n")).expect_err("not listed");
-        assert_eq!(
-            texts(&report),
-            ["`root` is `main.sysml`, which is not listed in `sources`"],
-            "{sources}"
-        );
-        assert_eq!(places(&report), [(7, 1)], "{sources}");
-    }
-}
-
-/// The membership check needs a list to be absent from: with no
-/// `sources` at all the complaint is the missing key, once.
-#[test]
-fn root_membership_is_not_checked_when_sources_is_absent() {
-    let report = standalone(&syside("", "root = \"main.sysml\"\n")).expect_err("no sources");
-    assert_eq!(texts(&report), [SYSIDE_SOURCES_MISSING]);
+    assert_eq!(places(&report), [(6, 1)]);
 }
 
 /// `root` in an OMG project is a warning, raised where the family is
@@ -635,7 +622,7 @@ fn root_in_an_omg_project_is_a_warning() {
             .expect("`sources` is there, so `root` costs only the warning");
         assert_eq!(messages(&resolved.warnings), [ROOT_IN_OMG], "{root}");
         assert!(
-            resolved.value.root.is_none(),
+            resolved.value.root().is_none(),
             "{root}: built from `sources`"
         );
     }
@@ -664,9 +651,7 @@ fn root_is_not_foreign_when_the_syside_metamodel_is_inherited() {
     let group = workspace(&format!(
         "[workspace]\nmembers = []\nmetamodel = \"{SYSIDE_SYSML}\"\n"
     ));
-    let body = format!(
-        "{REQUIRED}metamodel.workspace = true\nsources = [\"main.sysml\"]\nroot = \"main.sysml\"\n"
-    );
+    let body = format!("{REQUIRED}metamodel.workspace = true\nroot = \"main.sysml\"\n");
     let resolved = manifest(&body)
         .resolve(Some(&group))
         .expect("the member resolves");
@@ -676,7 +661,7 @@ fn root_is_not_foreign_when_the_syside_metamodel_is_inherited() {
         messages(&resolved.warnings)
     );
     assert_eq!(
-        resolved.value.root.as_ref().map(|root| root.as_str()),
+        resolved.value.root().map(|root| root.as_str()),
         Some("main.sysml")
     );
 }
@@ -695,8 +680,8 @@ fn a_marker_on_root_is_refused() {
     );
 }
 
-/// The required keys follow the family: `sources` for both, `root` for
-/// Syside as well. What a project with only the three common keys is
+/// The required keys follow the family: `sources` for OMG, `root` for
+/// Syside. What a project with only the three common keys is
 /// told, for each of the four values.
 #[test]
 fn the_required_keys_follow_the_family_for_all_four_metamodels() {
@@ -715,8 +700,8 @@ fn the_required_keys_follow_the_family_for_all_four_metamodels() {
                  (a project with no source files writes `sources = []`)",
             ],
         ),
-        (SYSIDE_KERML, vec![SYSIDE_SOURCES_MISSING, ROOT_MISSING]),
-        (SYSIDE_SYSML, vec![SYSIDE_SOURCES_MISSING, ROOT_MISSING]),
+        (SYSIDE_KERML, vec![ROOT_MISSING]),
+        (SYSIDE_SYSML, vec![ROOT_MISSING]),
     ] {
         let report = manifest(&format!("{REQUIRED}metamodel = \"{url}\"\n"))
             .resolve(None)
@@ -1255,15 +1240,7 @@ fn sources_is_required_after_inheritance() {
         .expect("an empty list is a value")
         .into_parts()
         .0;
-    assert!(project.sources.is_empty());
-}
-
-/// A Syside project needs `sources` as an OMG one does, and the message
-/// says where `root` fits.
-#[test]
-fn a_syside_project_without_sources_names_the_key_root_lives_in() {
-    let report = standalone(&syside("", "root = \"main.sysml\"\n")).expect_err("no sources");
-    assert_eq!(texts(&report), [SYSIDE_SOURCES_MISSING]);
+    assert!(project.sources().expect("an OMG project").is_empty());
 }
 
 /// An unrecognized metamodel never reaches the metamodel-dependent
@@ -1288,17 +1265,18 @@ fn an_unrecognized_metamodel_hides_the_sources_check() {
 #[test]
 fn stdlib_is_refused_unless_the_project_is_the_standard_library() {
     let stdlib = |publisher: &str, metamodel: &str| {
-        // A Syside project needs its `root`; this test is about
-        // `stdlib`, so the fixture supplies one.
-        let root = if metamodel.contains("sysand.com") {
+        // A Syside project names `root` where an OMG one lists `sources`;
+        // this test is about `stdlib`, so the fixture writes whichever the
+        // family needs.
+        let files = if metamodel.contains("sysand.com") {
             "root = \"Base.kerml\"\n"
         } else {
-            ""
+            "sources = [\"Base.kerml\"]\n"
         };
         manifest(&format!(
             "publisher = \"{publisher}\"\nname = \"Kernel Semantic Library\"\n\
-             version = \"1.0.0\"\nsources = [\"Base.kerml\"]\nstdlib = \"Semantic-Library\"\n\
-             metamodel = \"{metamodel}\"\n{root}"
+             version = \"1.0.0\"\n{files}stdlib = \"Semantic-Library\"\n\
+             metamodel = \"{metamodel}\"\n"
         ))
         .resolve(None)
     };
@@ -1358,20 +1336,20 @@ fn stdlib_is_not_checked_when_the_publisher_did_not_resolve() {
 }
 
 /// The check that waits for inheritance really does wait for it: the
-/// metamodel that decides the message comes from the group.
+/// metamodel that decides whether `sources` belongs comes from the group.
 #[test]
 fn an_inherited_metamodel_settles_the_sources_check() {
     let syside = workspace(
         "[workspace]\nmembers = []\nmetamodel = \"https://www.sysand.com/spec/SysML/20250201\"\n",
     );
     let report = manifest(&format!(
-        "{REQUIRED}metamodel.workspace = true\nroot = \"main.sysml\"\n"
+        "{REQUIRED}metamodel.workspace = true\nsources = []\nroot = \"main.sysml\"\n"
     ))
     .resolve(Some(&syside))
-    .expect_err("no sources");
+    .expect_err("`sources` in a Syside member");
     assert_eq!(
         texts(&report),
-        [SYSIDE_SOURCES_MISSING],
+        [SOURCES_IN_SYSIDE],
         "unexpected report: {report:?}"
     );
 }
@@ -1458,7 +1436,7 @@ fn a_built_manifest_resolves_like_one_that_was_read() {
     assert_eq!(resolved.name.as_str(), "widgets");
     assert_eq!(resolved.version, semver::Version::new(1, 0, 0));
     assert_eq!(
-        resolved.sources.as_slice(),
+        resolved.sources().expect("an OMG project").as_slice(),
         &[typed_path::Utf8UnixPathBuf::from("Widgets.sysml")]
     );
     assert_eq!(

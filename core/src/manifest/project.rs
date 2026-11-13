@@ -23,10 +23,11 @@ use spdx::Expression;
 use toml::Spanned;
 use toml::de::{DeTable, DeValue, ValueDeserializer};
 
+use thiserror::Error;
 use typed_path::Utf8UnixPathBuf;
 
 use crate::manifest::common::{
-    InheritFrom, Maintainer, NormalizedIdentity, ResolvedUrls, Sources, StdlibStem, UrlsG,
+    InheritFrom, Maintainer, NormalizedIdentity, PathKey, ResolvedUrls, Sources, StdlibStem, UrlsG,
     admitted_source, normalized_identity, root_path,
 };
 use crate::manifest::diagnostics::{
@@ -92,6 +93,9 @@ pub struct ProjectTable {
     /// Where each `sources` entry is, in the order they were written, for
     /// the check of each entry against the metamodel.
     sources_at: Vec<Option<Position>>,
+    /// Where the `sources` key is, for its refusal under the Syside
+    /// metamodel.
+    sources_key_at: Option<Position>,
     /// Where `stdlib` is, for the refusal that can only be decided once
     /// the metamodel is known.
     stdlib_at: Option<Position>,
@@ -118,8 +122,8 @@ pub struct ResolvedProject {
     pub name: IndexName,
     pub publisher: IndexPublisher,
     pub version: Version,
-    /// Carried straight over: `sources` is per project.
-    pub sources: Sources,
+    /// `sources` or `root`, as the metamodel family decides.
+    pub files: ProjectFiles,
     pub license: Option<Expression>,
     pub description: Option<String>,
     pub topics: Vec<String>,
@@ -128,11 +132,6 @@ pub struct ResolvedProject {
     pub metamodel: KnownMetamodel,
     pub maintainers: Vec<Maintainer>,
     pub stdlib: Option<StdlibStem>,
-    /// The Syside family's entry point: one of the `sources` entries, as
-    /// written. Always `Some` for a Syside project, which requires it,
-    /// and always `None` for an OMG one, which is built from `sources`
-    /// whether or not the key was written.
-    pub root: Option<Utf8UnixPathBuf>,
     pub urls: ResolvedUrls,
     /// Each usage with the directory its paths are relative to: the
     /// project's own entries against the project, inherited ones against
@@ -144,6 +143,49 @@ impl ResolvedProject {
     pub fn identity(&self) -> NormalizedIdentity {
         normalized_identity(&self.publisher, &self.name)
     }
+
+    /// The `sources` entries of an OMG-metamodel project. A
+    /// Syside-metamodel project lists no files: they are reached from its
+    /// `root`, which Sysand cannot follow yet.
+    pub fn sources(&self) -> Result<&Sources, UnlistedFiles> {
+        match &self.files {
+            ProjectFiles::Sources(sources) => Ok(sources),
+            ProjectFiles::Root(root) => Err(UnlistedFiles {
+                project: format!("{}/{}", self.publisher, self.name),
+                root: root.to_string(),
+            }),
+        }
+    }
+
+    /// The entry point of a Syside-metamodel project.
+    pub fn root(&self) -> Option<&Utf8UnixPathBuf> {
+        match &self.files {
+            ProjectFiles::Sources(_) => None,
+            ProjectFiles::Root(root) => Some(root),
+        }
+    }
+}
+
+/// How a project's files are given, which its metamodel family decides.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ProjectFiles {
+    /// An OMG-metamodel project lists every file in `sources`.
+    Sources(Sources),
+    /// A Syside-metamodel project names its entry point, `root`, from
+    /// which its other files are reached.
+    Root(Utf8UnixPathBuf),
+}
+
+/// A command needs the files of a Syside-metamodel project, which are
+/// reached from its `root`.
+#[derive(Clone, Debug, Error, PartialEq, Eq)]
+#[error(
+    "`{project}` is a Syside-metamodel project, whose files are reached from its `root` \
+     `{root}`; finding them is not supported yet"
+)]
+pub struct UnlistedFiles {
+    pub project: String,
+    pub root: String,
 }
 
 impl ProjectTable {
@@ -178,6 +220,7 @@ impl ProjectTable {
             root: None,
             urls: None,
             sources_at: Vec::new(),
+            sources_key_at: None,
             stdlib_at: None,
             table_at: None,
             root_at: None,
@@ -296,6 +339,7 @@ impl ProjectTable {
                 root,
                 urls,
                 sources_at,
+                sources_key_at: reader.at("sources"),
                 stdlib_at: reader.at("stdlib"),
                 table_at: reader.here(),
                 root_at: reader.at("root"),
@@ -447,6 +491,7 @@ impl ProjectManifest {
             root,
             urls,
             sources_at,
+            sources_key_at,
             stdlib_at,
             table_at,
             root_at,
@@ -568,13 +613,22 @@ impl ProjectManifest {
             (Some(_), None) => None,
         };
 
-        // Every metamodel requires `sources`; only the message differs.
-        let sources = sources.or_else(|| {
-            report.push(missing_sources(metamodel.as_ref()).at_opt(table_at.clone()));
-            None
-        });
-
+        // An OMG project lists its files in `sources`; a Syside one names
+        // `root` and lists none. Without a family neither is judged: the
+        // missing metamodel is already in the report.
         let syside = family == Some(MetamodelFamily::Syside);
+        if family == Some(MetamodelFamily::Omg) && sources.is_none() {
+            report.push(missing_sources().at_opt(table_at.clone()));
+        }
+        if syside && sources.is_some() {
+            report.push(
+                Diagnostic::error(format!(
+                    "`sources` in {location} is not used by the Syside metamodel; a Syside \
+                     project names `root`,\nand its other files are reached from it"
+                ))
+                .at_opt(sources_key_at.or_else(|| table_at.clone())),
+            );
+        }
         // A `root` that was written and refused above is not also missing.
         if syside && !root_written {
             report.push(
@@ -584,27 +638,17 @@ impl ProjectManifest {
                 .at_opt(table_at.clone()),
             );
         }
-        // `root` names one of the `sources` entries, compared as written.
-        // Skipped without `sources`, whose absence is already reported.
-        if syside
-            && let (Some(root), Some(sources)) = (root.as_ref(), sources.as_ref())
-            && !sources.iter().any(|entry| entry == root)
-        {
-            report.push(
-                Diagnostic::error(format!(
-                    "`root` is `{root}`, which is not listed in `sources`"
-                ))
-                .at_opt(root_at),
-            );
-        }
 
-        // The spec kind bounds what `sources` may list. Checked here
-        // because the metamodel may be inherited. A `root` with an
-        // extension the metamodel does not admit is refused here too, as
-        // one of these entries.
+        // The spec kind bounds which language `sources` and `root` may
+        // name. Checked here because the metamodel may be inherited.
+        if let (Some(root), Some(kind)) = (root.as_ref(), metamodel.as_ref())
+            && let Err(problem) = admitted_source(PathKey::Root, root, kind)
+        {
+            report.push(problem.at_opt(root_at.or_else(|| table_at.clone())));
+        }
         if let (Some(sources), Some(kind)) = (sources.as_ref(), metamodel.as_ref()) {
             for (index, entry) in sources.iter().enumerate() {
-                if let Err(problem) = admitted_source(entry, kind) {
+                if let Err(problem) = admitted_source(PathKey::Sources, entry, kind) {
                     report.push(
                         problem.at_opt(
                             sources_at
@@ -637,20 +681,24 @@ impl ProjectManifest {
         }
 
         report.sort_by_position();
-        match (publisher, version, sources, metamodel, urls) {
-            (Some(publisher), Some(version), Some(sources), Some(metamodel), Some(urls)) => report
+        let files = match (family, sources, root) {
+            (Some(MetamodelFamily::Omg), Some(sources), _) => Some(ProjectFiles::Sources(sources)),
+            (Some(MetamodelFamily::Syside), None, Some(root)) => Some(ProjectFiles::Root(root)),
+            _ => None,
+        };
+        match (publisher, version, files, metamodel, urls) {
+            (Some(publisher), Some(version), Some(files), Some(metamodel), Some(urls)) => report
                 .into_result(ResolvedProject {
                     name,
                     publisher,
                     version,
-                    sources,
+                    files,
                     license,
                     description,
                     topics,
                     metamodel,
                     maintainers,
                     stdlib,
-                    root,
                     urls,
                     usages,
                 }),
@@ -755,20 +803,12 @@ fn from_group_usage(
 
 /// The missing-`sources` error, one text per family. The Syside text
 /// says where `root` fits: the schema needs `sources` like the OMG one.
-fn missing_sources(metamodel: Option<&KnownMetamodel>) -> Diagnostic {
+fn missing_sources() -> Diagnostic {
     let location = KeyLocation::Table(TABLE.to_owned());
-    match metamodel {
-        Some(kind) if kind.family == MetamodelFamily::Syside => Diagnostic::error(format!(
-            "missing key `sources` in {location}; the Syside metamodel requires it\n\
-             (`root` names one of its entries)"
-        )),
-        // No metamodel to name.
-        None => missing_key("sources", &location, None),
-        Some(_) => Diagnostic::error(format!(
-            "missing key `sources` in {location}; the OMG metamodel requires it\n\
-             (a project with no source files writes `sources = []`)"
-        )),
-    }
+    Diagnostic::error(format!(
+        "missing key `sources` in {location}; the OMG metamodel requires it\n\
+         (a project with no source files writes `sources = []`)"
+    ))
 }
 
 #[cfg(test)]

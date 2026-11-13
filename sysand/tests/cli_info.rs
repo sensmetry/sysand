@@ -2459,10 +2459,7 @@ fn a_syside_project_reads_with_no_warning_from_the_cli() -> Result<(), Box<dyn E
         &cwd,
         "widgets",
         "1.0.0",
-        &format!(
-            "sources = [\"main.sysml\"]\nmetamodel = \"{SYSIDE_SYSML}\"\n\
-            root = \"main.sysml\"\n"
-        ),
+        &format!("metamodel = \"{SYSIDE_SYSML}\"\nroot = \"main.sysml\"\n"),
     )?;
     std::fs::write(cwd.join("main.sysml"), "package Widgets;\n")?;
 
@@ -2476,6 +2473,7 @@ fn a_syside_project_reads_with_no_warning_from_the_cli() -> Result<(), Box<dyn E
 
 /// `info index` on a project whose `.meta.json` has the Syside shape prints
 /// no symbols, as there is no `index`, and says why on stderr.
+#[cfg(feature = "syside-kpar")]
 #[test]
 fn info_index_get_on_a_root_shaped_project_prints_nothing_and_warns() -> Result<(), Box<dyn Error>>
 {
@@ -2513,10 +2511,7 @@ fn syside_toml_project_cwd() -> Result<(Utf8TempDir, Utf8PathBuf), Box<dyn Error
         &cwd,
         "widgets",
         "1.0.0",
-        &format!(
-            "sources = [\"main.sysml\", \"lib.sysml\"]\n\
-            metamodel = \"{SYSIDE_SYSML}\"\nroot = \"main.sysml\"\n"
-        ),
+        &format!("metamodel = \"{SYSIDE_SYSML}\"\nroot = \"main.sysml\"\n"),
     )?;
     wrapfs::write(cwd.join("main.sysml"), "package Main;\n")?;
     wrapfs::write(cwd.join("lib.sysml"), "package Lib;\n")?;
@@ -2550,10 +2545,6 @@ fn info_root_gets_sets_and_clears_on_a_toml_project() -> Result<(), Box<dyn Erro
         .failure()
         .stderr(predicate::str::contains("missing key `root`"));
     assert_eq!(std::fs::read_to_string(cwd.join("model.toml"))?, before);
-    run_sysand_in(&cwd, ["edit", "--metamodel", "sysml", "--clear-root"], None)?
-        .assert()
-        .success();
-    assert!(!std::fs::read_to_string(cwd.join("model.toml"))?.contains("root"));
     Ok(())
 }
 
@@ -2587,6 +2578,7 @@ fn edit_root_refuses_an_invalid_path() -> Result<(), Box<dyn Error>> {
 
 /// On a json project `root` lives in `.meta.json`, and `edit` edits it
 /// as it edits `metamodel`.
+#[cfg(feature = "syside-kpar")]
 #[test]
 fn info_root_gets_and_sets_on_a_json_project() -> Result<(), Box<dyn Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
@@ -2611,12 +2603,38 @@ fn info_root_gets_and_sets_on_a_json_project() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-/// `info --get exports` lists what a Syside project's KPAR exports
-/// (computed for a `model.toml` project, read for a json one) and says on
-/// stderr that an OMG project has none.
+/// The exports of a Syside `model.toml` project are the symbols of the
+/// files its `root` reaches, which cannot be found yet, so `info --get
+/// exports` is refused.
+#[test]
+fn info_exports_is_refused_on_a_syside_toml_project() -> Result<(), Box<dyn Error>> {
+    let (_temp_dir, cwd) = syside_toml_project_cwd()?;
+    run_sysand_in(&cwd, ["info", "--get", "exports"], None)?
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "`acme/widgets` is a Syside-metamodel project, whose files are reached from its \
+             `root` `main.sysml`; finding them is not supported yet",
+        ));
+    Ok(())
+}
+
+/// A Syside json project lists its `exports` array.
+#[cfg(feature = "syside-kpar")]
 #[test]
 fn info_exports_lists_a_syside_projects_exports() -> Result<(), Box<dyn Error>> {
-    let (_temp_dir, cwd) = syside_toml_project_cwd()?;
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    write_syside_json_project(
+        &cwd,
+        "widgets",
+        "1.0.0",
+        serde_json::json!([]),
+        &["Lib", "Main"],
+        &[
+            ("main.sysml", b"package Main;\n"),
+            ("lib.sysml", b"package Lib;\n"),
+        ],
+    )?;
     run_sysand_in(&cwd, ["info", "--get", "exports"], None)?
         .assert()
         .success()
@@ -2639,8 +2657,9 @@ fn info_exports_on_an_omg_project_prints_nothing_and_warns() -> Result<(), Box<d
     Ok(())
 }
 
-/// Switching to a Syside metamodel needs `root`; once `root` is set the
-/// switch goes through.
+/// A Syside project names `root` and lists no `sources`: a switch to a
+/// Syside metamodel needs `root`, removes an empty `sources`, and is
+/// refused while `sources` lists files.
 #[test]
 fn switching_to_a_syside_metamodel_needs_root() -> Result<(), Box<dyn Error>> {
     let (_temp_dir, cwd) = toml_project_cwd()?;
@@ -2661,12 +2680,43 @@ fn switching_to_a_syside_metamodel_needs_root() -> Result<(), Box<dyn Error>> {
     run_sysand_in(&cwd, ["include", "main.sysml"], None)?
         .assert()
         .success();
-    run_sysand_in(&cwd, ["edit", "--root", "main.sysml"], None)?
+    let listed = std::fs::read_to_string(cwd.join("model.toml"))?;
+    run_sysand_in(
+        &cwd,
+        [
+            "edit",
+            "--root",
+            "main.sysml",
+            "--custom-metamodel",
+            SYSIDE_SYSML,
+        ],
+        None,
+    )?
+    .assert()
+    .failure()
+    .stderr(predicate::str::contains(
+        "`sources` lists 1 file(s), and a Syside project lists none",
+    ));
+    assert_eq!(listed, std::fs::read_to_string(cwd.join("model.toml"))?);
+
+    run_sysand_in(&cwd, ["exclude", "main.sysml"], None)?
         .assert()
         .success();
-    run_sysand_in(&cwd, ["edit", "--custom-metamodel", SYSIDE_SYSML], None)?
-        .assert()
-        .success();
+    run_sysand_in(
+        &cwd,
+        [
+            "edit",
+            "--root",
+            "main.sysml",
+            "--custom-metamodel",
+            SYSIDE_SYSML,
+        ],
+        None,
+    )?
+    .assert()
+    .success();
+    let manifest = std::fs::read_to_string(cwd.join("model.toml"))?;
+    assert!(!manifest.contains("sources"), "{manifest}");
     run_sysand_in(&cwd, ["info"], None)?
         .assert()
         .success()
@@ -2674,8 +2724,9 @@ fn switching_to_a_syside_metamodel_needs_root() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-/// Switching to an OMG metamodel leaves `root` behind as a foreign key; the
-/// switch happens and says so.
+/// An OMG project lists `sources`, so a switch from a Syside metamodel
+/// writes `sources = []`; the `root` left behind is a foreign key, and
+/// the switch warns about it.
 #[test]
 fn switching_to_an_omg_metamodel_leaves_root_behind_with_a_warning() -> Result<(), Box<dyn Error>> {
     let (_temp_dir, cwd) = syside_toml_project_cwd()?;
@@ -2693,6 +2744,7 @@ fn switching_to_an_omg_metamodel_leaves_root_behind_with_a_warning() -> Result<(
         manifest.contains("https://www.omg.org/spec/SysML/"),
         "{manifest}"
     );
+    assert!(manifest.contains("sources = []"), "{manifest}");
     assert!(manifest.contains("root = \"main.sysml\""), "{manifest}");
     Ok(())
 }

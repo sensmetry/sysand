@@ -1325,8 +1325,38 @@ fn meta_texts(report: &Diagnostics) -> Vec<&str> {
         .collect()
 }
 
+/// A `.meta.json` read with the Syside shape accepted, as a build with the
+/// `syside-kpar` feature reads it.
 fn syside_meta(json: &str) -> Result<Validated<InterchangeProjectMetadataRaw>, Diagnostics> {
-    meta_partial(json).validate(".meta.json", None)
+    meta_partial(json).validate_with(".meta.json", None, true)
+}
+
+/// Without the `syside-kpar` feature the Syside shape is refused, however
+/// well-formed: its format is not final. The shape is still judged, so a
+/// malformed document gets its own errors beside the refusal.
+#[test]
+fn a_syside_meta_json_is_refused_unless_accepted() {
+    const REFUSED: &str = "`.meta.json` declares the Syside metamodel \
+                           `https://www.sysand.com/spec/SysML/20250201`, whose `.meta.json` \
+                           format is not final;\nSyside json projects and KPARs are not \
+                           accepted yet";
+    let report = meta_partial(SYSIDE_META)
+        .validate_with(".meta.json", None, false)
+        .expect_err("refused");
+    assert_eq!(meta_texts(&report), [REFUSED]);
+
+    let report = meta_partial(
+        r#"{"exports": [], "created": "2026-01-01T00:00:00Z",
+            "metamodel": "https://www.sysand.com/spec/SysML/20250201"}"#,
+    )
+    .validate_with(".meta.json", None, false)
+    .expect_err("refused");
+    assert_eq!(meta_texts(&report), [REFUSED, ROOT_MISSING]);
+
+    // An OMG document is untouched.
+    meta_partial(COMPLETE_META)
+        .validate_with(".meta.json", None, false)
+        .expect("an OMG document validates");
 }
 
 /// The Syside shape reads, types, and round-trips: `root` and `exports`
@@ -1525,7 +1555,7 @@ fn an_unrecognized_metamodel_reads_as_the_omg_shape() {
 fn the_callers_metamodel_overrides_the_documents() {
     let validated =
         meta_partial(r#"{"root": "main.sysml", "exports": [], "created": "2026-01-01T00:00:00Z"}"#)
-            .validate(".meta.json", Some(SYSIDE_SYSML_URL))
+            .validate_with(".meta.json", Some(SYSIDE_SYSML_URL), true)
             .expect("the caller says Syside");
     assert_eq!(
         validated.warnings,

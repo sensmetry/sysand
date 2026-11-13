@@ -269,7 +269,8 @@ fn a_model_toml_project_reads_as_its_manifest() {
     );
     assert_eq!(
         manifest
-            .sources
+            .sources()
+            .expect("an OMG project")
             .iter()
             .map(|p| p.as_str())
             .collect::<Vec<_>>(),
@@ -289,7 +290,10 @@ fn reading_a_model_toml_project_reads_no_source() {
     std::fs::write(dir.path().join("a.sysml"), "package Foo { /*").expect("write a.sysml");
 
     let manifest = toml_manifest(&toml_project(dir.path()));
-    assert_eq!(manifest.sources.iter().count(), 2);
+    assert_eq!(
+        manifest.sources().expect("an OMG project").iter().count(),
+        2
+    );
 }
 
 /// A `model.toml` project has no project checksum, so it cannot be a

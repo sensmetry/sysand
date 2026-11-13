@@ -16,6 +16,8 @@ default = ["tls-aws-lc-rs"]
 tls-aws-lc-rs = ["sysand-core/tls-aws-lc-rs"]
 tls-ring = ["sysand-core/tls-ring"]
 alltests = []
+# Accept Syside json projects and KPARs; see the `sysand-core` feature.
+syside-kpar = ["sysand-core/syside-kpar"]
 # Different compression methods for creating KPARs
 kpar-bzip2 = ["sysand-core/kpar-bzip2"]
 kpar-zstd = ["sysand-core/kpar-zstd"]

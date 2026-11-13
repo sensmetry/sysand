@@ -204,7 +204,7 @@ jobs:
           cargo test --locked
           --package sysand-core
           --package sysand
-          --features sysand-core/filesystem,sysand-core/networking,sysand-core/keyring,alltests,kpar-bzip2,kpar-zstd,kpar-xz,kpar-ppmd
+          --features sysand-core/filesystem,sysand-core/networking,sysand-core/keyring,alltests,syside-kpar,kpar-bzip2,kpar-zstd,kpar-xz,kpar-ppmd
 
   build:
     needs: [plan]

@@ -472,6 +472,8 @@ pub enum SourceSymbolsError {
     Read(Box<str>, #[source] io::Error),
     #[error(transparent)]
     Symbols(#[from] crate::symbols::SymbolsError),
+    #[error(transparent)]
+    Unlisted(#[from] crate::manifest::project::UnlistedFiles),
 }
 
 /// Every top-level symbol a `model.toml` project's sources declare,
@@ -482,8 +484,11 @@ pub fn symbol_index<P: ProjectRead + ?Sized>(
     project: &P,
     manifest: &ResolvedProject,
 ) -> Result<IndexMap<String, String>, SymbolIndexError<P::Error>> {
+    let sources = manifest
+        .sources()
+        .map_err(|e| SymbolIndexError::Source(e.into()))?;
     crate::manifest::kpar_view::symbol_index(
-        &manifest.sources,
+        sources,
         |source| {
             let mut contents = String::new();
             project
@@ -498,6 +503,7 @@ pub fn symbol_index<P: ProjectRead + ?Sized>(
     .map_err(|e| match e {
         crate::manifest::kpar_view::ViewError::Read(e) => e,
         crate::manifest::kpar_view::ViewError::Symbols(e) => SourceSymbolsError::from(e).into(),
+        crate::manifest::kpar_view::ViewError::Unlisted(e) => SourceSymbolsError::from(e).into(),
     })
 }
 

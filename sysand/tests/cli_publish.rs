@@ -1360,23 +1360,28 @@ fn publish_workspace_from_a_member_dir_publishes_every_member() -> TestResult {
     Ok(())
 }
 
-/// A built Syside KPAR passes publish's validation and is uploaded. The
-/// manifest is written by hand.
+/// A built Syside KPAR passes publish's validation and is uploaded. It is
+/// built from the extracted form of a Syside archive, since a Syside
+/// `model.toml` names `root` alone and is not built yet.
+#[cfg(feature = "syside-kpar")]
 #[test]
 fn publish_accepts_a_built_syside_kpar() -> TestResult {
     let (_temp_dir, cwd) = new_temp_cwd()?;
-    fs::create_dir_all(cwd.join("LICENSES"))?;
-    write_toml_project(
+    write_syside_json_project(
         &cwd,
         "widgets",
         "1.0.0",
-        "sources = [\"main.sysml\"]\nlicense = \"MIT\"\n\
-            metamodel = \"https://www.sysand.com/spec/SysML/20250201\"\n\
-            root = \"main.sysml\"\n",
+        serde_json::json!([]),
+        &["Widgets"],
+        &[
+            ("main.sysml", b"package Widgets;\n"),
+            ("README.md", b"# widgets\n"),
+            ("LICENSES/MIT.txt", b"MIT\n"),
+        ],
     )?;
-    fs::write(cwd.join("main.sysml"), "package Widgets;\n")?;
-    fs::write(cwd.join("README.md"), "# widgets\n")?;
-    fs::write(cwd.join("LICENSES/MIT.txt"), "MIT\n")?;
+    let info =
+        fs::read_to_string(cwd.join(".project.json"))?.replacen('{', "{\"license\":\"MIT\",", 1);
+    fs::write(cwd.join(".project.json"), info)?;
     run_sysand_ok(&cwd, &["build"], None)?;
 
     let mut server = Server::new();

@@ -1857,10 +1857,13 @@ mod prepare_publish {
     // ------------------------------------------------------------------
     // The Syside shape.
 
+    #[cfg(feature = "syside-kpar")]
     const SYSIDE_SYSML: &str = "https://www.sysand.com/spec/SysML/20250201";
+    #[cfg(feature = "syside-kpar")]
     const SYSIDE_KERML: &str = "https://www.sysand.com/spec/KerML/20250201";
 
     /// A root-shaped `.meta.json` whose `checksum` covers `entries`.
+    #[cfg(feature = "syside-kpar")]
     fn syside_meta(
         entries: &[(&str, &[u8])],
         root: &str,
@@ -1885,12 +1888,16 @@ mod prepare_publish {
         .into_bytes()
     }
 
+    #[cfg(feature = "syside-kpar")]
     const MAIN: &[u8] = b"package Main;\n";
+    #[cfg(feature = "syside-kpar")]
     const README: &[u8] = b"# widgets\n";
+    #[cfg(feature = "syside-kpar")]
     const LICENSE: &[u8] = b"MIT License";
 
     /// The entries of a valid Syside archive: one source, a readme, the
     /// license file, all three checksummed.
+    #[cfg(feature = "syside-kpar")]
     fn syside_entries(exports: &[&str], metamodel: &str) -> Vec<u8> {
         syside_meta(
             &[
@@ -1904,6 +1911,7 @@ mod prepare_publish {
         )
     }
 
+    #[cfg(feature = "syside-kpar")]
     fn syside_zip(meta: &[u8], extra: &[(&str, &[u8])]) -> (NamedUtf8TempFile, Utf8PathBuf) {
         let project = base_project();
         let mut entries: Vec<(&str, &[u8], SimpleFileOptions)> = vec![
@@ -1919,6 +1927,7 @@ mod prepare_publish {
         write_zip(&entries)
     }
 
+    #[cfg(feature = "syside-kpar")]
     #[test]
     fn a_syside_kpar_is_accepted() {
         let meta = syside_entries(&["Main"], SYSIDE_SYSML);
@@ -1926,6 +1935,7 @@ mod prepare_publish {
         prepare_publish_payload(&path).expect("a valid Syside archive publishes");
     }
 
+    #[cfg(feature = "syside-kpar")]
     #[test]
     fn publish_refuses_a_root_that_is_not_in_the_archive() {
         let meta = syside_meta(
@@ -1948,6 +1958,7 @@ mod prepare_publish {
 
     /// Every archive file but the two manifests is a `checksum` key: a
     /// stray file, a readme, a license file alike.
+    #[cfg(feature = "syside-kpar")]
     #[test]
     fn publish_refuses_an_archive_file_the_checksum_misses() {
         let meta = syside_entries(&["Main"], SYSIDE_SYSML);
@@ -1979,6 +1990,7 @@ mod prepare_publish {
 
     /// `root` in the archive but not in `checksum` is a file the checksum
     /// misses, not a `root` missing from the archive.
+    #[cfg(feature = "syside-kpar")]
     #[test]
     fn a_root_in_the_archive_but_not_in_checksum_is_a_file_the_checksum_misses() {
         let meta = syside_meta(
@@ -1994,6 +2006,7 @@ mod prepare_publish {
 
     /// The two manifests are the exception to
     /// "every file", and a `checksum` that lists one is wrong.
+    #[cfg(feature = "syside-kpar")]
     #[test]
     fn publish_refuses_a_manifest_as_a_checksum_key() {
         let project = base_project();
@@ -2017,6 +2030,7 @@ mod prepare_publish {
     }
 
     /// A name in `exports` that no file declares is refused.
+    #[cfg(feature = "syside-kpar")]
     #[test]
     fn publish_refuses_an_export_no_file_declares() {
         let meta = syside_entries(&["Main", "Ghost"], SYSIDE_SYSML);
@@ -2031,6 +2045,7 @@ mod prepare_publish {
 
     /// A non-model `checksum` key is hashed (a wrong hash is refused) but
     /// neither held to the extension rule nor lexed.
+    #[cfg(feature = "syside-kpar")]
     #[test]
     fn a_non_model_checksum_key_is_hashed_but_not_lexed() {
         let meta = syside_meta(
@@ -2055,6 +2070,7 @@ mod prepare_publish {
         );
     }
 
+    #[cfg(feature = "syside-kpar")]
     #[test]
     fn an_inadmissible_model_file_in_a_syside_kpar_is_refused() {
         let meta = syside_entries(&["Main"], SYSIDE_KERML);
@@ -2071,6 +2087,7 @@ mod prepare_publish {
 
     /// The reader's rule holds at publish: an `index` beside the shape is
     /// a warning, and the archive is accepted.
+    #[cfg(feature = "syside-kpar")]
     #[test]
     fn an_index_in_a_syside_kpar_is_a_warning_at_publish_too() {
         let meta = String::from_utf8(syside_entries(&["Main"], SYSIDE_SYSML)).unwrap();
@@ -2081,6 +2098,7 @@ mod prepare_publish {
 
     /// Directory entries never enter the file list, so they cannot be a
     /// file the checksum misses.
+    #[cfg(feature = "syside-kpar")]
     #[test]
     fn a_directory_entry_in_a_syside_kpar_is_ignored() {
         let meta = syside_entries(&["Main"], SYSIDE_SYSML);

@@ -26,10 +26,9 @@ pub enum ExcludeError<ProjectError> {
     Manifest(#[from] crate::project::ManifestError<ProjectError>),
     #[error(transparent)]
     ManifestWrite(#[from] crate::project::ManifestWriteError<ProjectError>),
-    /// Removing the `root` from `sources` would leave a manifest that
-    /// cannot be read.
-    #[error("`{0}` is the project's `root`; set another `root` before excluding it")]
-    RootExcluded(Box<str>),
+    /// A Syside-metamodel `model.toml` has no `sources` to remove from.
+    #[error("a Syside-metamodel project lists no `sources`; its files are reached from its `root`")]
+    RootOnly,
 }
 
 impl<ProjectError> From<ProjectOrIOError<ProjectError>> for ExcludeError<ProjectError> {
@@ -89,7 +88,12 @@ fn exclude_toml<Pr: ProjectMut, P: AsRef<Utf8UnixPath>, I: Iterator<Item = P>>(
     project: &mut Pr,
     paths: I,
 ) -> Result<Vec<SourceExclusionOutcome>, ExcludeError<Pr::Error>> {
-    crate::project::edit_manifest_document(project, |_, document| {
+    crate::project::edit_manifest_document(project, |project, document| {
+        if crate::include::project_metamodel(project, document)
+            .is_some_and(|kind| kind.family == crate::model::MetamodelFamily::Syside)
+        {
+            return Err(ExcludeError::RootOnly);
+        }
         let mut outcomes = Vec::new();
         for path in paths {
             let path = path.as_ref();
@@ -97,15 +101,6 @@ fn exclude_toml<Pr: ProjectMut, P: AsRef<Utf8UnixPath>, I: Iterator<Item = P>>(
             let header = crate::style::get_style_config().header;
             log::info!("{header}{excluding:>12}{header:#} file: `{path}`");
 
-            let root = document
-                .get("project")
-                .and_then(|project| project.get("root"))
-                .and_then(|root| root.as_str());
-            let normalized = crate::paths::normalize_relative(path.as_str())
-                .map_or_else(|_| path.as_str().to_owned(), |p| p.as_str().to_owned());
-            if root.is_some_and(|root| root == path.as_str() || root == normalized) {
-                return Err(ExcludeError::RootExcluded(path.as_str().into()));
-            }
             crate::manifest::edit::exclude_source(document, path.as_str()).map_err(|e| {
                 match e {
                     // Only this failure has json-arm wording.

@@ -137,6 +137,8 @@ pub enum KParBuildError<ProjectReadError: ErrorBound> {
     #[error(transparent)]
     ProjectRead(ProjectReadError),
     #[error(transparent)]
+    Unlisted(crate::manifest::project::UnlistedFiles),
+    #[error(transparent)]
     Io(#[from] Box<FsIoError>),
     #[error("project's `.{name}.json` is invalid")]
     Validation {
@@ -392,6 +394,7 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
             .map_err(|error| match error {
                 ViewError::Read(error) => KParBuildError::from(error),
                 ViewError::Symbols(error) => KParBuildError::from(error),
+                ViewError::Unlisted(error) => KParBuildError::Unlisted(error),
             })?;
             viewed = Some(contents);
             (info, meta, Some(manifest))

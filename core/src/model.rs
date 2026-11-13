@@ -1658,10 +1658,23 @@ impl InterchangeProjectMetadataPartial {
     ///
     /// The metamodel of the suffix is this document's own; `metamodel`
     /// overrides it where a caller knows better.
+    ///
+    /// The Syside shape is refused unless the `syside-kpar` feature is
+    /// enabled: its format is not final.
     pub fn validate(
         self,
         file: &str,
         metamodel: Option<&str>,
+    ) -> Result<Validated<InterchangeProjectMetadataRaw>, Diagnostics> {
+        self.validate_with(file, metamodel, cfg!(feature = "syside-kpar"))
+    }
+
+    /// [`Self::validate`], with whether the Syside shape is accepted given.
+    pub(crate) fn validate_with(
+        self,
+        file: &str,
+        metamodel: Option<&str>,
+        accept_syside: bool,
     ) -> Result<Validated<InterchangeProjectMetadataRaw>, Diagnostics> {
         let location = KeyLocation::File(file.to_owned());
         let declared = metamodel.or(self.metamodel.as_deref());
@@ -1697,6 +1710,17 @@ impl InterchangeProjectMetadataPartial {
                 (index, None, None, ok)
             }
             MetamodelFamily::Syside => {
+                // The Syside `.meta.json` format is not final; unless it is
+                // accepted, the document is refused, and the shape is still
+                // judged and its problems reported beside the refusal.
+                if !accept_syside {
+                    report.push(Diagnostic::error(format!(
+                        "{location} declares the Syside metamodel `{}`, whose `.meta.json` \
+                         format is not final;\nSyside json projects and KPARs are not accepted \
+                         yet",
+                        declared.unwrap_or_default()
+                    )));
+                }
                 // An `index` does not stand in for the two keys the shape
                 // requires.
                 if self.index.is_some() {
@@ -1707,7 +1731,6 @@ impl InterchangeProjectMetadataPartial {
                 }
                 // `root` is required, and held to the checks a `sources`
                 // entry is held to.
-                let root_written = self.root.is_some();
                 let root = match self.root {
                     None => {
                         report.push(Diagnostic::error(format!(
@@ -1729,7 +1752,7 @@ impl InterchangeProjectMetadataPartial {
                         "missing key `exports` in {location}; the Syside metamodel requires it"
                     )));
                 }
-                let ok = root_written && root.is_some() && self.exports.is_some();
+                let ok = accept_syside && root.is_some() && self.exports.is_some();
                 (None, root, self.exports, ok)
             }
         };

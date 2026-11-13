@@ -1508,32 +1508,103 @@ fn one_directory_spelled_two_ways_still_locks() {
     lock_workspace(&dir).expect("two spellings of one directory are one place");
 }
 
+/// A Syside json project (the extracted form of a Syside archive) in
+/// `dir`, whose `root` and `exports` are given, with `usage` as its
+/// `.project.json` usages and `files` as its model files, each
+/// checksummed.
+#[cfg(all(feature = "filesystem", feature = "syside-kpar"))]
+fn write_syside_json(
+    dir: &camino::Utf8Path,
+    name: &str,
+    exports: &[&str],
+    usage: serde_json::Value,
+    files: &[(&str, &str)],
+) {
+    std::fs::create_dir_all(dir).expect("a project directory");
+    let mut checksum = serde_json::Map::new();
+    for (path, contents) in files {
+        std::fs::write(dir.join(path), contents).expect("a source file");
+        checksum.insert(
+            (*path).to_owned(),
+            serde_json::json!({
+                "value": crate::utils::sha256_lowercase_hex(contents.as_bytes()),
+                "algorithm": "SHA256",
+            }),
+        );
+    }
+    std::fs::write(
+        dir.join(".project.json"),
+        serde_json::json!({
+            "name": name,
+            "publisher": "acme",
+            "version": "1.0.0",
+            "usage": usage,
+        })
+        .to_string(),
+    )
+    .expect("a `.project.json`");
+    std::fs::write(
+        dir.join(".meta.json"),
+        serde_json::json!({
+            "root": files[0].0,
+            "exports": exports,
+            "created": "2001-02-03T04:05:06Z",
+            "metamodel": "https://www.sysand.com/spec/SysML/20250201",
+            "checksum": checksum,
+        })
+        .to_string(),
+    )
+    .expect("a `.meta.json`");
+}
+
+/// Lock the json project in `dir` as the current project, resolving
+/// local paths against it.
+#[cfg(all(feature = "filesystem", feature = "syside-kpar"))]
+fn lock_json_project(dir: &camino::Utf8Path) -> Result<Lock, String> {
+    let ctx = ProjectContext::new(
+        None,
+        Some(crate::project::local_src::LocalSrcProject::new_access(
+            dir, None,
+        )),
+        None,
+    );
+    super::do_lock_local_editable(
+        ".",
+        dir,
+        None,
+        &HashMap::default(),
+        crate::resolve::file::FileResolver::default(),
+        &ctx,
+    )
+    .map_err(|e| crate::utils::format_err(&e))
+}
+
 /// A metamodel direction error stops the lock.
 ///
 /// The edge checks run once **before the lockfile is written** and
 /// again when the lockfile is validated.
-#[cfg(feature = "filesystem")]
+#[cfg(all(feature = "filesystem", feature = "syside-kpar"))]
 #[test]
 fn a_direction_error_fails_the_lock() {
     let dir = workspace_tree(
-        &[
-            (
-                "app",
-                &member_toml(
-                    "alpha",
-                    "\n[[inline-usages]]\npublisher = \"acme\"\nname = \"beta\"\ndir = \"../lib\"\n",
-                ),
+        &[(
+            "app",
+            &member_toml(
+                "alpha",
+                "\n[[inline-usages]]\npublisher = \"acme\"\nname = \"beta\"\ndir = \"../lib\"\n",
             ),
-            (
-                "lib",
-                "manifest-version = \"1.0\"\n\n[project]\npublisher = \"acme\"\nname = \"beta\"\n\
-                 version = \"1.0.0\"\nsources = [\"main.sysml\"]\n\
-                 metamodel = \"https://www.sysand.com/spec/SysML/20250201\"\nroot = \"main.sysml\"\n",
-            ),
-        ],
-        "",
+        )],
+        // The dependency sits under the workspace root, so it is
+        // excluded rather than a stray.
+        "exclude = [\"lib\"]\n",
     );
-    std::fs::write(dir.path().join("lib/main.sysml"), "package Beta;\n").expect("a source file");
+    write_syside_json(
+        &dir.path().join("lib"),
+        "beta",
+        &["Beta"],
+        serde_json::json!([]),
+        &[("main.sysml", "package Beta;\n")],
+    );
 
     let error = lock_workspace(&dir).expect_err("an OMG project may not depend on a Syside one");
     let message = error.to_string();
@@ -1584,16 +1655,7 @@ fn a_dir_usage_of_an_inheriting_member_resolves() -> Result<(), Box<dyn std::err
 #[cfg(feature = "filesystem")]
 #[test]
 fn a_members_own_entry_records_its_metamodel() -> Result<(), Box<dyn std::error::Error>> {
-    let dir = workspace_tree(
-        &[(
-            "app",
-            "manifest-version = \"1.0\"\n\n[project]\npublisher = \"acme\"\nname = \"alpha\"\n\
-             version = \"1.0.0\"\nsources = [\"main.sysml\"]\n\
-             metamodel = \"https://www.sysand.com/spec/SysML/20250201\"\nroot = \"main.sysml\"\n",
-        )],
-        "",
-    );
-    std::fs::write(dir.path().join("app/main.sysml"), "package Alpha;\n")?;
+    let dir = workspace_tree(&[("app", &member_toml("alpha", ""))], "");
     let lock = lock_workspace(&dir).map_err(|e| e.to_string())?;
     let member = lock
         .projects
@@ -1602,46 +1664,60 @@ fn a_members_own_entry_records_its_metamodel() -> Result<(), Box<dyn std::error:
         .expect("the member is in the lockfile");
     assert_eq!(
         member.metamodel.as_deref(),
-        Some("https://www.sysand.com/spec/SysML/20250201")
+        Some("https://www.omg.org/spec/SysML/20250201")
     );
     Ok(())
 }
 
-/// A Syside dependency's `exports` come from its `.meta.json`'s
-/// `exports` array, and a Syside member's from the symbols of its
-/// sources, the same input to the collision check as an OMG project's
-/// `index` keys.
+/// A Syside `model.toml` member names `root` alone, and the symbols it
+/// exports cannot be found yet, so the lock is refused.
 #[cfg(feature = "filesystem")]
 #[test]
-fn a_syside_json_dependency_locks_with_its_exports() -> Result<(), Box<dyn std::error::Error>> {
+fn a_syside_toml_member_is_not_locked() {
     let dir = workspace_tree(
         &[(
             "app",
             "manifest-version = \"1.0\"\n\n[project]\npublisher = \"acme\"\nname = \"alpha\"\n\
-             version = \"1.0.0\"\nsources = [\"main.sysml\"]\n\
-             metamodel = \"https://www.sysand.com/spec/SysML/20250201\"\nroot = \"main.sysml\"\n\
-             \n[[inline-usages]]\npublisher = \"acme\"\nname = \"dep\"\ndir = \"../dep\"\n",
+             version = \"1.0.0\"\n\
+             metamodel = \"https://www.sysand.com/spec/SysML/20250201\"\nroot = \"main.sysml\"\n",
         )],
-        // The dependency sits under the workspace root, so it is
-        // excluded rather than a stray.
-        "exclude = [\"dep\"]\n",
+        "",
     );
-    std::fs::write(dir.path().join("app/main.sysml"), "package Alpha;\n")?;
-    let dep = dir.path().join("dep");
-    std::fs::create_dir_all(&dep)?;
-    std::fs::write(
-        dep.join(".project.json"),
-        r#"{"name": "dep", "publisher": "acme", "version": "1.0.0", "usage": []}"#,
-    )?;
-    std::fs::write(
-        dep.join(".meta.json"),
-        r#"{"root": "lib.sysml", "exports": ["A", "B"], "created": "2001-02-03T04:05:06Z",
-            "metamodel": "https://www.sysand.com/spec/SysML/20250201",
-            "checksum": {"lib.sysml": {"value": "0000000000000000000000000000000000000000000000000000000000000000", "algorithm": "SHA256"}}}"#,
-    )?;
-    std::fs::write(dep.join("lib.sysml"), "package A; package B;\n")?;
+    std::fs::write(dir.path().join("app/main.sysml"), "package Alpha;\n").expect("a source file");
+    let error = lock_workspace(&dir).expect_err("the member's exports cannot be found");
+    let message = crate::utils::format_err(&error);
+    assert!(
+        message.contains(
+            "`acme/alpha` is a Syside-metamodel project, whose files are reached from its `root` \
+             `main.sysml`; finding them is not supported yet"
+        ),
+        "got: {message}"
+    );
+}
 
-    let lock = lock_workspace(&dir).map_err(crate::utils::format_err)?;
+/// A Syside dependency's `exports` come from its `.meta.json`'s
+/// `exports` array, the same input to the collision check as an OMG
+/// project's `index` keys.
+#[cfg(all(feature = "filesystem", feature = "syside-kpar"))]
+#[test]
+fn a_syside_json_dependency_locks_with_its_exports() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = camino_tempfile::tempdir()?;
+    write_syside_json(
+        &dir.path().join("app"),
+        "alpha",
+        &["Alpha"],
+        serde_json::json!([{"dir": "../dep", "publisher": "acme", "name": "dep"}]),
+        &[("main.sysml", "package Alpha;\n")],
+    );
+    write_syside_json(
+        &dir.path().join("dep"),
+        "dep",
+        &["A", "B"],
+        serde_json::json!([]),
+        &[("lib.sysml", "package A; package B;\n")],
+    );
+
+    let lock = lock_json_project(&dir.path().join("app"))?;
     let dep = lock
         .projects
         .iter()
@@ -1652,39 +1728,36 @@ fn a_syside_json_dependency_locks_with_its_exports() -> Result<(), Box<dyn std::
         .projects
         .iter()
         .find(|p| p.name == "alpha")
-        .expect("the member is in the lockfile");
+        .expect("the input project is in the lockfile");
     assert_eq!(app.exports, ["Alpha".to_owned()]);
     Ok(())
 }
 
 /// A Syside archive is a usable `kpar-path` target, and the lockfile takes its `exports` from
 /// the archive's array.
-#[cfg(feature = "filesystem")]
+#[cfg(all(feature = "filesystem", feature = "syside-kpar"))]
 #[test]
 fn a_syside_kpar_is_a_usable_kpar_path_target() -> Result<(), Box<dyn std::error::Error>> {
     use crate::commands::build::{KparCompressionMethod, do_build_kpar};
     use crate::project::local_src::LocalSrcProject;
 
-    let dir = workspace_tree(
-        &[(
-            "app",
-            "manifest-version = \"1.0\"\n\n[project]\npublisher = \"acme\"\nname = \"alpha\"\n\
-             version = \"1.0.0\"\nsources = [\"main.sysml\"]\n\
-             metamodel = \"https://www.sysand.com/spec/SysML/20250201\"\nroot = \"main.sysml\"\n\
-             \n[[inline-usages]]\npublisher = \"acme\"\nname = \"dep\"\nkpar-path = \"../dep.kpar\"\n",
-        )],
-        "",
+    let dir = camino_tempfile::tempdir()?;
+    write_syside_json(
+        &dir.path().join("app"),
+        "alpha",
+        &["Alpha"],
+        serde_json::json!([{"kparPath": "../dep.kpar", "publisher": "acme", "name": "dep"}]),
+        &[("main.sysml", "package Alpha;\n")],
     );
-    std::fs::write(dir.path().join("app/main.sysml"), "package Alpha;\n")?;
 
     let target = camino_tempfile::tempdir()?;
-    std::fs::write(
-        target.path().join("model.toml"),
-        "manifest-version = \"1.0\"\n\n[project]\npublisher = \"acme\"\nname = \"dep\"\n\
-         version = \"2.0.0\"\nsources = [\"lib.sysml\"]\n\
-         metamodel = \"https://www.sysand.com/spec/SysML/20250201\"\nroot = \"lib.sysml\"\n",
-    )?;
-    std::fs::write(target.path().join("lib.sysml"), "package A; package B;\n")?;
+    write_syside_json(
+        target.path(),
+        "dep",
+        &["A", "B"],
+        serde_json::json!([]),
+        &[("lib.sysml", "package A; package B;\n")],
+    );
     do_build_kpar(
         &LocalSrcProject::new_access(target.path(), None),
         dir.path().join("dep.kpar"),
@@ -1693,13 +1766,13 @@ fn a_syside_kpar_is_a_usable_kpar_path_target() -> Result<(), Box<dyn std::error
         false,
     )?;
 
-    let lock = lock_workspace(&dir).map_err(|e| e.to_string())?;
+    let lock = lock_json_project(&dir.path().join("app"))?;
     let dep = lock
         .projects
         .iter()
         .find(|p| p.name == "dep")
         .expect("the archive is in the lockfile");
     assert_eq!(dep.exports, ["A".to_owned(), "B".to_owned()]);
-    assert_eq!(dep.version.clone(), "2.0.0");
+    assert_eq!(dep.version.clone(), "1.0.0");
     Ok(())
 }

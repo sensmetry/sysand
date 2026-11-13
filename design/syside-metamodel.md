@@ -10,9 +10,9 @@ behaves as a dependency.
 
 The Syside family is the two values `https://www.sysand.com/spec/KerML/<date>`
 and `https://www.sysand.com/spec/SysML/<date>` (model-toml.md,
-Metamodel). Everything model-toml.md says that is not about `sources`'
-companion key `root` or about the shape of the KPAR applies to a Syside
-project unchanged: names, versions, licences, usages, the standard
+Metamodel). Everything model-toml.md says that is not about `sources`,
+which a Syside project replaces with `root`, or about the shape of the
+KPAR applies to a Syside project unchanged: names, versions, licences, usages, the standard
 library, normalization, editing, the release and direction checks.
 This document does not restate them.
 
@@ -25,8 +25,8 @@ validating.
 
 ## `root`
 
-A Syside-metamodel project names one of its source files as its
-**root**:
+A Syside-metamodel project names one source file, its **root**, and
+lists no `sources`: its other files are the ones `root` reaches.
 
 ```toml
 manifest-version = "1.0"
@@ -35,35 +35,27 @@ manifest-version = "1.0"
 publisher = "acme"
 name = "widgets"
 version = "1.0.0"
-sources = ["Widgets.sysml", "Parts.sysml", "Ports.sysml"]
 metamodel = "https://www.sysand.com/spec/SysML/20250201"
 root = "Widgets.sysml"
 ```
 
-- `root` is **required** of every Syside-metamodel project, as `sources`
-  is required of every project (see `sources` below). A Syside project
-  without it is an error naming the key and the family (see Messages
-  under Reading and validating).
-- `root` **names one of the `sources` entries**, compared as written --
-  the entries themselves are compared as written (model-toml.md, `sources`:
-  "Two equal entries are a duplicate and rejected", equal, not
-  equivalent), and so is this. A `root` that is not an entry is an
-  error. Because `root` must be an entry, a project with
-  `sources = []` cannot have a valid `root`, and so a Syside project
-  always has at least one source file.
-- `root`'s **syntax is exactly a `sources` entry's**: relative,
-  `/`-separated, no `.` or `..` component, no repeated or leading slash,
-  not a directory, a `.kerml` or `.sysml` file (model-toml.md, `sources`).
-  There is one path rule in a manifest, not two. A `root` that breaks a
-  rule is an error worded for the key; a `root` that is not a
-  string is the type error every other key gets. Whether the file
-  exists is checked only for build/publish, as for every `sources`
-  entry.
+- `root` is **required** of every Syside-metamodel project. A Syside
+  project without it is an error naming the key and the family (see
+  Messages under Reading and validating).
+- `root` and `sources` **exclude each other**: a Syside project that
+  writes `sources` is an error at the key, whatever it lists (see
+  `sources` below).
+- `root`'s **syntax is a `sources` entry's**: relative, `/`-separated,
+  no `.` or `..` component, no repeated or leading slash, not a
+  directory, a `.kerml` or `.sysml` file (model-toml.md, `sources`), and
+  in addition never a wildcard entry: `root` names a single file. There
+  is one path rule in a manifest, not two. A `root` that breaks a rule
+  is an error worded for the key; a `root` that is not a string is the
+  type error every other key gets. Whether the file exists is checked
+  only where the files are read, as for every `sources` entry.
 - Which of `.kerml` and `.sysml` the `root` may be is the metamodel's
-  spec kind's decision, exactly as for the entry it is (model-toml.md,
-  Metamodel, "Second"). Because `root` is an entry, a `root` the
-  metamodel does not admit is reported once, as the entry; there is no
-  second complaint about the same file.
+  spec kind's decision, exactly as for a `sources` entry (model-toml.md,
+  Metamodel, "Second"), with the message worded for `root`.
 - `root` is **not inheritable**. It is the one thing about a project's
   files that names a file, and "the file layout of one project says
   nothing about another's" (workspaces.md, Common metadata). A marker
@@ -91,33 +83,22 @@ are specified, both on the Oxide side:
   first, one level deep, to learn what the dependency exports before
   deciding whether to load the rest. `root` is the file it opens.
 
-Neither use asks Sysand to know which files `root` reaches. Sysand
-packages `sources`, checks that `root` is one of them, and carries the
-value into the KPAR; the consumer does the rest. **Specification
-commitment, deferred check:** every `sources` entry _should_ be reachable
-from `root` through imports -- a file no import reaches is dead weight in
-the archive and invisible to a consumer that starts at `root`. Sysand
-cannot compute reachability today (its symbol extractor is a lexer
-that does not follow imports), so this is stated as the intent and will
-become a **warning** when the check exists. It is not an error now and
-will not become one without a `manifest-version` discussion, because a
-build that succeeds today must not start failing.
+A Syside project's files are the ones `root` reaches through imports,
+and `root` is what defines them: there is no list to keep in step with
+the files, and nothing in the archive a consumer starting at `root`
+cannot reach. **Finding them is not implemented yet**: Sysand's symbol
+extractor is a lexer that does not follow imports. Until it is, every
+command that needs a Syside `model.toml` project's files or the
+symbols they declare refuses the project, naming it and its `root`
+(see Commands). A Syside json project (the extracted form of an
+archive) is unaffected: its files are the ones its `checksum` lists.
 
 ## `sources`
 
-Unchanged from model-toml.md. `sources` is the project's file list for
-both families: the files that are packaged, checksummed and, for the
-OMG family, indexed. It is required, per-project, taken as written,
-edited by `sysand include` and `sysand exclude` exactly as for an OMG
-project. A Syside project without it is an error that says where
-`root` fits.
-
-`root` is _in addition to_ `sources`, not instead of it. The reason:
-what the consumers need is the `index` _map_ collapsed into one entry
-point, not the file list removed; a build whose contents
-depend on what happens to be on disk is what `sources` exists to
-prevent; and reachability, the only rule under which `root` alone could
-define the file set, is a check Sysand cannot make.
+A Syside project lists no `sources`: `root` replaces it. A Syside
+`model.toml` that writes `sources` is an error at the key, whatever it
+lists, `sources = []` included, so that a manifest says one thing about
+its files and not two.
 
 ## Reading and validating
 
@@ -127,11 +108,12 @@ parse time, every rule is Sysand's, and "everything that depends on
 this schema, everything about `root` depends on the metamodel:
 
 - **Under a Syside family** -- declared, or inherited from a group --
-  `root` is judged: its type, its shape, its presence and its
-  membership of `sources`; `sources` is required. All of it in one
-  report with everything else that is wrong, and a `root` that was
-  written and refused is not _also_ reported missing.
-- **Under the OMG family**, `root` is a key that "belongs to another
+  `root` is judged: its type, its shape, its language and its presence;
+  `sources` is refused. All of it in one report with everything else
+  that is wrong, and a `root` that was written and refused is not
+  _also_ reported missing.
+- **Under the OMG family**, `sources` is required, and `root` is a key
+  that "belongs to another
   metamodel's schema" (model-toml.md, Metamodel, first rule): a warning
   naming the family that supports it, and **nothing else, whatever the
   value** (a marker excepted, above). The project is built from
@@ -139,7 +121,7 @@ this schema, everything about `root` depends on the metamodel:
   the same one warning as a path does.
 - **Under no family** -- the `metamodel` is missing, or a marker on it
   did not resolve -- nothing is said about `root` (a marker excepted,
-  again): the missing metamodel is already in the report, and a
+  again) or about a missing or present `sources`: the missing metamodel is already in the report, and a
   metamodel that says nothing about the schema decides nothing about
   the key. This is where the `model.toml` reader and the `.meta.json`
   reader differ, and why: `metamodel` is mandatory in a `model.toml`, so
@@ -148,12 +130,9 @@ this schema, everything about `root` depends on the metamodel:
   json reader warns about `root` there.
 
 A reader that recognizes the Syside values but predates this schema
-does not refuse a Syside project _with_ `sources` -- it builds it as an
-OMG project, `root` warned about and ignored -- and refuses one
-_without_ `sources` with a message naming the Syside metamodel as
-unsupported. Both are the behaviours model-toml.md promised for a
-schema a reader does not know; the second is the missing-`sources`
-error in a reader that knows this one.
+refuses a Syside project, which has no `sources`, with a message naming
+the Syside metamodel as unsupported: the behaviour model-toml.md
+promised for a schema a reader does not know.
 
 A member may inherit a Syside metamodel from a group and carry its own
 `root`:
@@ -165,13 +144,12 @@ manifest-version = "1.0"
 name = "ports"
 publisher.workspace = "syside"
 version.workspace = "syside"
-sources = ["Ports.sysml"]
 metamodel.workspace = "syside"
 root = "Ports.sysml"
 ```
 
 (all three markers name one group, `syside`, which supplies the three
-values; `root` and `sources` are the member's own)
+values; `root` is the member's own)
 
 And an OMG project carrying `root` is a valid OMG project with one
 warning:
@@ -193,20 +171,22 @@ root = "Legacy.sysml"
 Messages follow the house rules: lowercase, user input in backticks,
 the fix named where there is one.
 
-| situation                                                            | text                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Syside project, `root` absent                                        | missing key `root` in `[project]`; the Syside metamodel requires it                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| `root` breaks a `sources` entry rule                                 | one of six: `root` `<path>` is absolute; `root` is relative to the project root, like a `sources` entry · `root` `<path>` contains a backslash `\`; it is `/`-separated, so that a manifest reads the same way on every operating system · `root` `<path>` contains a NULL character · `root` `<path>` is not in the form a `sources` entry takes: relative, `/`-separated, with no `.` or `..` component and no repeated or leading slash · `root` `<path>` names a directory; `root` names a single model file · `root` `<path>` is not a KerML (`.kerml`) or SysML (`.sysml`) file |
-| `root` is not a string                                               | `root` in `[project]` must be a string, but it is `<type>`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| `root`'s extension is not admitted by the metamodel                  | _subsumed_: `root` is a `sources` entry, and the entry's own complaint is the one message                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| `root` is not a `sources` entry                                      | `root` is `<path>`, which is not listed in `sources`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| `root` in an OMG-metamodel project                                   | `root` in `[project]` is only supported by the Syside metamodel and is ignored here _(warning)_                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| `root.workspace = true`                                              | `root` in `[project]` cannot be inherited from the workspace; it is a per-project entry point                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| Syside project, `sources` absent                                     | missing key `sources` in `[project]`; the Syside metamodel requires it (`root` names one of its entries)                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| `info metamodel` switching to a Syside metamodel with no `root`      | changing the metamodel to `<url>` requires `root`; `model.toml` does not have it                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| `exclude` of the `root` file                                         | `<path>` is the project's `root`; set another `root` before excluding it                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| `info metamodel` switching to an OMG metamodel with a `root` present | `root` is only supported by the Syside metamodel and will be ignored under `<url>`; `sysand info root --clear` removes it _(warning; the switch is written)_                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| `info exports` on a project whose `.meta.json` has the OMG shape     | the project has no `exports`; an OMG KPAR carries `index` _(warning on stderr; stdout prints the empty list)_                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| situation                                                                | text                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Syside project, `root` absent                                            | missing key `root` in `[project]`; the Syside metamodel requires it                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `root` breaks a `sources` entry rule                                     | one of six: `root` `<path>` is absolute; `root` is relative to the project root, like a `sources` entry · `root` `<path>` contains a backslash `\`; it is `/`-separated, so that a manifest reads the same way on every operating system · `root` `<path>` contains a NULL character · `root` `<path>` is not in the form a `sources` entry takes: relative, `/`-separated, with no `.` or `..` component and no repeated or leading slash · `root` `<path>` names a directory; `root` names a single model file · `root` `<path>` is not a KerML (`.kerml`) or SysML (`.sysml`) file |
+| `root` is not a string                                                   | `root` in `[project]` must be a string, but it is `<type>`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `root`'s extension is not admitted by the metamodel                      | `root` `<path>` is a `<language>` file, which the metamodel `<url>` does not admit; a KerML project lists `.kerml` files, a SysML project `.sysml` and `.kerml` files                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `root` contains `*`                                                      | `root` `<path>` contains `*`; it must name a single file                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `root` in an OMG-metamodel project                                       | `root` in `[project]` is only supported by the Syside metamodel and is ignored here _(warning)_                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `root.workspace = true`                                                  | `root` in `[project]` cannot be inherited from the workspace; it is a per-project entry point                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| Syside project, `sources` present                                        | `sources` in `[project]` is not used by the Syside metamodel; a Syside project names `root`, and its other files are reached from it                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| a command needs a Syside `model.toml` project's files or symbols         | `<publisher>/<name>` is a Syside-metamodel project, whose files are reached from its `root` `<path>`; finding them is not supported yet                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `info metamodel` switching to a Syside metamodel with no `root`          | changing the metamodel to `<url>` requires `root`; `model.toml` does not have it                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `include` or `exclude` on a Syside `model.toml` project                  | a Syside-metamodel project lists no `sources`; its files are reached from its `root`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `info metamodel` switching to a Syside metamodel with files in `sources` | `` `sources` lists <n> file(s), and a Syside project lists none; `sysand exclude` removes them `` _(an empty `sources` is removed)_                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `info metamodel` switching to an OMG metamodel with a `root` present     | `root` is only supported by the Syside metamodel and will be ignored under `<url>`; `sysand info root --clear` removes it _(warning; the switch is written, with `sources = []`)_                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `info exports` on a project whose `.meta.json` has the OMG shape         | the project has no `exports`; an OMG KPAR carries `index` _(warning on stderr; stdout prints the empty list)_                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 
 The multi-line texts are shown with their line breaks as `;`, as a
 parenthesis, or as a space after a comma; the exact bytes are the
@@ -217,6 +197,14 @@ tests'.
 _One question in this section is open: how format detection classifies
 the extracted form beside a `model.toml`. Detection by file presence
 treats it as the json project it is._
+
+**Not accepted yet.** The format below is not final. Every reader of a
+`.meta.json` (a json project, a KPAR, an index entry) refuses one that
+declares a Syside metamodel, unless Sysand is built with the
+non-default `syside-kpar` feature; the shape is still judged, and its
+problems reported beside the refusal. Shipped builds do not enable the
+feature. A Syside `model.toml` project is unaffected: it is read, and
+the commands that need its files refuse it until they can be found.
 
 A KPAR built from a Syside-metamodel project carries `.project.json` and
 `.meta.json` as any KPAR does (model-toml.md, TOML to KPAR), and never
@@ -274,7 +262,7 @@ And in one way that is not a difference in shape:
 
 The archive contains no `model.toml` (a `model.toml` at a KPAR root is
 already an error, `LocalKParError::TomlInKpar`); its model files are
-exactly the manifest's `sources`, so `root` is among them.
+`root` and the files it reaches.
 
 A Syside KPAR is **not a KerML-specification KPAR**: KerML 1.0, 10.3
 mandates `index`. That is accepted: only
@@ -314,7 +302,9 @@ KPAR is published.
 
 ### Build
 
-`sysand build` on a Syside project writes the shape above. The two
+`sysand build` on a Syside project writes the shape above. A Syside
+`model.toml` project is refused until the files `root` reaches can be
+found (see What `root` is for); the extracted form builds. The two
 flags that concern the computed index are refused on a Syside project,
 each naming the flag and saying why: `build --keep-index`,
 which keeps a hand-maintained `index` map a Syside KPAR does not have,
@@ -365,7 +355,9 @@ The lockfile's format is the same for both families: this schema does
 not affect `lock_version`, and the optional `metamodel` field carries
 the family. A Syside project's `exports` come from the KPAR's `exports`
 array rather than the keys of its `index`, so that the collision check
-has the same input for both families.
+has the same input for both families. A Syside `model.toml` project's
+exports are the symbols of the files `root` reaches, so locking one is
+refused until those can be found.
 
 ## JSON to TOML
 
@@ -377,22 +369,14 @@ has no `index` and whose `checksum` covers `LICENSES/`, `README.md` and
 `CHANGELOG.md`. For a json project whose `.meta.json` declares a Syside
 metamodel, `sysand migrate`:
 
-- takes `sources` as the `checksum` keys that are model files (`.kerml`
-  or `.sysml`, compared as the extension rule compares them), rewritten
-  into the strict form as for an OMG project and deduplicated; the
-  other keys are the conventional files a build packages, not an error,
-  and a key that is neither a model file nor one of those is dropped
-  with a warning naming it;
-- takes `root` from `.meta.json`'s `root`, rewritten the same way, and
-  refuses with the `model.toml` reader's text if the result is not
-  among `sources`;
-- refuses a `.meta.json` with neither `index` nor `root` with the
-  missing-`root` error, and warns about an `index`, as any reader does.
+- takes `root` from `.meta.json`'s `root`, and writes no `sources`: a
+  Syside `model.toml` lists none, and its files are the ones `root`
+  reaches. The `checksum` keys are not read;
+- refuses a `.meta.json` with no `root` with the missing-`root` error,
+  naming `.meta.json`, and warns about an `index`, as any reader does.
 
-A model-file `checksum` key the metamodel does not admit is the error
-model-toml.md already specifies, since `sources` admits only the types
-the metamodel admits. `exports`, like `index`, is not migrated: the
-names are computed when the project is built, and `migrate` says so.
+`exports`, like `index`, is not migrated: the names are computed when
+the project is built, and `migrate` says so.
 
 ## Dependencies
 
@@ -414,10 +398,9 @@ stating:
   check would have silently stopped covering the family. That is the
   alternative `exports` exists to reject.
 
-A Syside project's source list, for `sysand sources --deps` and for
-every command that walks a dependency's files, is its `sources` --
-recovered from a KPAR as **the `checksum` keys that are model files**
-(`.kerml`/`.sysml`), which equals `sources` by construction. Not every
+A Syside dependency's source list, for `sysand sources --deps` and for
+every command that walks a dependency's files, is recovered from a KPAR
+as **the `checksum` keys that are model files** (`.kerml`/`.sysml`). Not every
 `checksum` key: under this document's rule the keys include
 `LICENSES/`, `README.md` and `CHANGELOG.md`, and a reader that took all
 of them -- as the OMG-shape reader does, since for an OMG KPAR
@@ -440,36 +423,35 @@ all of them are sources -- would list `README.md` as a source.
 - **Changing the metamodel** with `sysand info metamodel` (a Syside
   value is reached through `--set-custom <url>`): a switch to a Syside
   metamodel on a project with no `root` is refused and the manifest is
-  left as it was -- set `root` first; a switch to an OMG metamodel on a
-  project with a `root` is written and warns that `root` is now a
-  foreign key. The required-key consequences are thus reported at the
+  left as it was -- set `root` first; it removes an empty `sources`,
+  and is refused while `sources` lists files. A switch to an OMG
+  metamodel writes `sources = []` where there is none, and on a project
+  with a `root` warns that `root` is now a foreign key. The required-key consequences are thus reported at the
   switch rather than found on the next read.
 - **`sysand init --metamodel <syside value>`** writes the Syside
-  layout: `sources` listing one file named after the project
-  (`<normalized name>.sysml`, or `.kerml` for the KerML metamodel),
-  `root` naming it, and the file itself -- one line, `package <name>;`,
+  layout: `root` naming one file named after the project
+  (`<normalized name>.sysml`, or `.kerml` for the KerML metamodel), no
+  `sources`, and the file itself -- one line, `package <name>;`,
   the name quoted when it is not an identifier -- created when it does
   not exist and left alone when it does. Inside a workspace whose
   default group declares a Syside metamodel, the marker is written and
   the layout still follows the group's value. Because the file is
-  created, a generated project never lists a file that is not there.
+  created, a generated project's `root` names a file that is there.
 - **`sysand migrate`** converts a legacy json project to the schema its
   `.meta.json` declares -- the OMG one as model-toml.md says, the
   Syside one as JSON to TOML above says. It does not convert _between_
   metamodels: a project changes family with `sysand info metamodel`,
   above.
-- **`sysand sources`**, with and without `--deps`, reports `sources` for
-  a Syside project and for a Syside dependency as for any other: the
-  file list is `sources` for both families (Dependencies above).
-- **`sysand include` / `exclude`** are as for an OMG project, but for
-  the index flag -- `include --no-index-symbols` on a Syside project,
-  the authored `model.toml` or the extracted form alike, is refused with
-  the text `build --keep-index` gets, which says the project has no
-  `index`, where an OMG
-  `model.toml` project is refused with "`index` is computed when the
-  KPAR is built" -- and for the `root` file: `exclude` refuses to remove
-  it from `sources`, since the manifest it would leave fails the
-  membership check on the next read; set another `root` first.
+- **`sysand sources`** refuses a Syside `model.toml` project, whose
+  files cannot be found yet; for a Syside dependency it reports the
+  model files its archive checksums (Dependencies above).
+- **`sysand build`**, **`sysand lock`** (and so `sync`), and **`sysand
+info exports`** likewise refuse a Syside `model.toml` project, with
+  the message in Messages.
+- **`sysand include` / `exclude`** refuse a Syside `model.toml`
+  project, which lists no `sources`. On the extracted form,
+  `include --no-index-symbols` is refused with the text
+  `build --keep-index` gets, which says the project has no `index`.
 
 ## Editing the manifest
 
@@ -495,8 +477,9 @@ index usage requires one.
 
 ## Non-goals
 
-- Computing reachability from `root`. Stated as a commitment above;
-  not a check Sysand makes.
+- Computing reachability from `root`, for now: until it exists, the
+  commands that need a Syside `model.toml` project's files refuse it
+  (What `root` is for).
 - Per-usage aliases and two coexisting majors of one identity: they
   wait on a language change, and no rule here depends on them.
 - A second packaging format (model-toml.md, Non-goals).

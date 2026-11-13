@@ -499,13 +499,13 @@ fn a_member_that_does_not_inherit_declares_its_own() -> Result<(), Box<dyn std::
     write_workspace_root(
         &cwd,
         &["project1"],
-        "metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
+        "metamodel = \"https://www.omg.org/spec/KerML/20250201\"\n",
     )?;
     write_toml_member(
         &cwd.join("project1"),
         "project1",
         "1.0.0",
-        "metamodel = \"https://www.sysand.com/spec/SysML/20250201\"\nroot = \"test.sysml\"\n",
+        "metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
     )?;
 
     run_sysand_in(&cwd, ["build"], None)?.assert().success();
@@ -521,7 +521,7 @@ fn a_member_that_does_not_inherit_declares_its_own() -> Result<(), Box<dyn std::
     };
     assert_eq!(
         meta.metamodel.as_deref(),
-        Some("https://www.sysand.com/spec/SysML/20250201")
+        Some("https://www.omg.org/spec/SysML/20250201")
     );
 
     Ok(())
@@ -570,13 +570,13 @@ fn a_member_declares_its_own_metamodel() -> Result<(), Box<dyn std::error::Error
     write_workspace_root(
         &cwd,
         &["project1"],
-        "metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
+        "metamodel = \"https://www.omg.org/spec/KerML/20250201\"\n",
     )?;
     write_toml_member(
         &cwd.join("project1"),
         "project1",
         "1.0.0",
-        "metamodel = \"https://www.sysand.com/spec/SysML/20250201\"\nroot = \"test.sysml\"\n",
+        "metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
     )?;
 
     run_sysand_in(&cwd, ["build"], None)?.assert().success();
@@ -592,7 +592,7 @@ fn a_member_declares_its_own_metamodel() -> Result<(), Box<dyn std::error::Error
     };
     assert_eq!(
         meta.metamodel.as_deref(),
-        Some("https://www.sysand.com/spec/SysML/20250201"),
+        Some("https://www.omg.org/spec/SysML/20250201"),
         "the member's own metamodel, not the workspace's"
     );
 
@@ -1366,17 +1366,20 @@ fn the_stdlib_workspace_builds_in_members_order() -> Result<(), Box<dyn std::err
     Ok(())
 }
 
-/// A Syside project builds the Syside `.meta.json` (`root`, `exports`
-/// from the sources' symbols, no `index`), and the same binary reads
-/// the archive back.
+/// A Syside archive is built from the extracted form of one, a json
+/// project carrying `root` and `exports`: it keeps that shape, with no
+/// `index`.
+#[cfg(feature = "syside-kpar")]
 #[test]
 fn a_syside_project_builds_the_root_shape() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
-    write_toml_member(
+    write_syside_json_project(
         &cwd,
         "widgets",
         "1.0.0",
-        "metamodel = \"https://www.sysand.com/spec/SysML/20250201\"\nroot = \"test.sysml\"\n",
+        json!([]),
+        &["P"],
+        &[("test.sysml", b"package P;\n")],
     )?;
 
     run_sysand_in(&cwd, ["build", "./widgets.kpar"], None)?
@@ -1403,16 +1406,43 @@ fn a_syside_project_builds_the_root_shape() -> Result<(), Box<dyn std::error::Er
     Ok(())
 }
 
-/// `--keep-index` keeps a hand-maintained `index` a Syside project's
-/// KPAR does not have, so it is refused.
+/// A Syside `model.toml` names `root` alone, and the files it reaches
+/// cannot be found yet, so it is not built.
 #[test]
-fn build_keep_index_is_refused_on_a_syside_project() -> Result<(), Box<dyn std::error::Error>> {
+fn a_syside_toml_project_is_not_built() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
-    write_toml_member(
+    write_toml_project(
         &cwd,
         "widgets",
         "1.0.0",
         "metamodel = \"https://www.sysand.com/spec/SysML/20250201\"\nroot = \"test.sysml\"\n",
+    )?;
+    std::fs::write(cwd.join("test.sysml"), b"package P;\n")?;
+
+    run_sysand_in(&cwd, ["build", "./widgets.kpar"], None)?
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "`acme/widgets` is a Syside-metamodel project, whose files are reached from its \
+             `root` `test.sysml`; finding them is not supported yet",
+        ));
+    assert!(!cwd.join("widgets.kpar").exists());
+    Ok(())
+}
+
+/// `--keep-index` keeps a hand-maintained `index` a Syside project's
+/// KPAR does not have, so it is refused.
+#[cfg(feature = "syside-kpar")]
+#[test]
+fn build_keep_index_is_refused_on_a_syside_project() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    write_syside_json_project(
+        &cwd,
+        "widgets",
+        "1.0.0",
+        json!([]),
+        &["P"],
+        &[("test.sysml", b"package P;\n")],
     )?;
 
     run_sysand_in(&cwd, ["build", "./widgets.kpar", "--keep-index"], None)?
@@ -1426,28 +1456,38 @@ fn build_keep_index_is_refused_on_a_syside_project() -> Result<(), Box<dyn std::
     Ok(())
 }
 
-/// A Syside project with the conventional files beside its sources.
+/// The extracted form of a Syside archive in `dir`, with a readme, a
+/// changelog and a licence file beside its two model files, all of them
+/// checksummed.
+#[cfg(feature = "syside-kpar")]
 fn write_syside_project_with_extras(
     dir: &camino::Utf8Path,
     name: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    std::fs::create_dir_all(dir.join("LICENSES"))?;
-    write_toml_project(
+    write_syside_json_project(
         dir,
         name,
         "1.0.0",
-        "sources = [\"a.sysml\", \"b.sysml\"]\nlicense = \"MIT\"\n\
-            metamodel = \"https://www.sysand.com/spec/SysML/20250201\"\n\
-            root = \"a.sysml\"\n",
+        json!([]),
+        &["A", "B"],
+        &[
+            ("a.sysml", b"package A;\n"),
+            ("b.sysml", b"package B; package A;\n"),
+            ("README.md", b"# widgets\n"),
+            ("CHANGELOG.md", b"# changes\n"),
+            ("LICENSES/MIT.txt", b"MIT\n"),
+        ],
     )?;
-    std::fs::write(dir.join("a.sysml"), b"package A;\n")?;
-    std::fs::write(dir.join("b.sysml"), b"package B; package A;\n")?;
-    std::fs::write(dir.join("README.md"), b"# widgets\n")?;
-    std::fs::write(dir.join("CHANGELOG.md"), b"# changes\n")?;
-    std::fs::write(dir.join("LICENSES/MIT.txt"), b"MIT\n")?;
+    let info = std::fs::read_to_string(dir.join(".project.json"))?.replacen(
+        '{',
+        "{\"license\":\"MIT\",",
+        1,
+    );
+    std::fs::write(dir.join(".project.json"), info)?;
     Ok(())
 }
 
+#[cfg(feature = "syside-kpar")]
 fn archive_names(path: &camino::Utf8Path) -> Result<Vec<String>, Box<dyn std::error::Error>> {
     let mut zip = zip::ZipArchive::new(std::fs::File::open(path)?)?;
     let mut names: Vec<String> = (0..zip.len())
@@ -1464,6 +1504,7 @@ fn archive_names(path: &camino::Utf8Path) -> Result<Vec<String>, Box<dyn std::er
 /// appearance, no `index`, and `checksum` over every file in the archive
 /// but the two manifests. An OMG sibling built from the same files
 /// checksums its sources only.
+#[cfg(feature = "syside-kpar")]
 #[test]
 fn a_syside_kpar_checksums_every_file_but_the_manifests() -> Result<(), Box<dyn std::error::Error>>
 {
@@ -1514,14 +1555,19 @@ fn a_syside_kpar_checksums_every_file_but_the_manifests() -> Result<(), Box<dyn 
     // The OMG sibling.
     let omg = cwd.join("omg");
     std::fs::create_dir_all(&omg)?;
-    write_syside_project_with_extras(&omg, "gadgets")?;
-    let manifest = std::fs::read_to_string(omg.join("model.toml"))?
-        .replace(
-            "https://www.sysand.com/spec/SysML/20250201",
-            "https://www.omg.org/spec/SysML/20250201",
-        )
-        .replace("root = \"a.sysml\"\n", "");
-    std::fs::write(omg.join("model.toml"), manifest)?;
+    std::fs::create_dir_all(omg.join("LICENSES"))?;
+    write_toml_project(
+        &omg,
+        "gadgets",
+        "1.0.0",
+        "sources = [\"a.sysml\", \"b.sysml\"]\nlicense = \"MIT\"\n\
+            metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
+    )?;
+    std::fs::write(omg.join("a.sysml"), b"package A;\n")?;
+    std::fs::write(omg.join("b.sysml"), b"package B; package A;\n")?;
+    std::fs::write(omg.join("README.md"), b"# widgets\n")?;
+    std::fs::write(omg.join("CHANGELOG.md"), b"# changes\n")?;
+    std::fs::write(omg.join("LICENSES/MIT.txt"), b"MIT\n")?;
     run_sysand_in(&omg, ["build", "./gadgets.kpar"], None)?
         .assert()
         .success();
@@ -1540,21 +1586,31 @@ fn a_syside_kpar_checksums_every_file_but_the_manifests() -> Result<(), Box<dyn 
     Ok(())
 }
 
-/// A mixed-family workspace builds each member to its own shape, into one `output/`.
+/// In a mixed-family workspace the Syside member, which names `root`
+/// alone, is not built, and the failure is that member's: the OMG member
+/// is built beside it.
 #[test]
-fn a_mixed_family_workspace_builds_both_shapes_into_one_output()
+fn a_syside_member_fails_alone_in_a_mixed_family_workspace()
 -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
     write_workspace_root(&cwd, &["omg", "syside"], "")?;
     write_toml_member(&cwd.join("omg"), "omg-member", "1.0.0", "")?;
-    write_toml_member(
-        &cwd.join("syside"),
+    std::fs::create_dir_all(cwd.join("syside"))?;
+    write_toml_project(
+        cwd.join("syside"),
         "syside-member",
         "1.0.0",
         "metamodel = \"https://www.sysand.com/spec/SysML/20250201\"\nroot = \"test.sysml\"\n",
     )?;
+    std::fs::write(cwd.join("syside/test.sysml"), b"package P;\n")?;
 
-    run_sysand_in(&cwd, ["build"], None)?.assert().success();
+    run_sysand_in(&cwd, ["build"], None)?
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "`acme/syside-member` is a Syside-metamodel project, whose files are reached from \
+             its `root` `test.sysml`; finding them is not supported yet",
+        ));
 
     let omg =
         LocalKParProjectRaw::new_guess_root(cwd.join("output").join("omg_member-1.0.0.kpar"))?;
@@ -1566,23 +1622,12 @@ fn a_mixed_family_workspace_builds_both_shapes_into_one_output()
         panic!("omg meta");
     };
     assert!(meta.index.is_some() && meta.root.is_none());
-
-    let syside =
-        LocalKParProjectRaw::new_guess_root(cwd.join("output").join("syside_member-1.0.0.kpar"))?;
-    let (Some(_), Some(meta)) = syside
-        .get_project()?
-        .and_then(sysand_core::project::ProjectDefinition::into_json)
-        .unzip()
-    else {
-        panic!("syside meta");
-    };
-    assert_eq!(meta.root.as_deref(), Some("test.sysml"));
-    assert_eq!(meta.exports, Some(vec!["P".to_owned()]));
-    assert!(meta.index.is_none());
+    assert!(!cwd.join("output").join("syside_member-1.0.0.kpar").exists());
     Ok(())
 }
 
 /// Every file under `dir`, as `(relative path, bytes)`.
+#[cfg(feature = "syside-kpar")]
 fn files_under(
     dir: &camino::Utf8Path,
 ) -> Result<Vec<(String, Vec<u8>)>, Box<dyn std::error::Error>> {
@@ -1612,6 +1657,7 @@ fn files_under(
 /// `info`, a local index accepts it, and a usage resolves from the index's
 /// files, served the way an index serves them, and records the archive's
 /// `exports`.
+#[cfg(feature = "syside-kpar")]
 #[test]
 fn a_syside_kpar_round_trips_through_info_and_a_local_index()
 -> Result<(), Box<dyn std::error::Error>> {
@@ -1672,17 +1718,14 @@ fn a_syside_kpar_round_trips_through_info_and_a_local_index()
     drop(mocks);
 
     let app = cwd.join("app");
-    std::fs::create_dir_all(&app)?;
-    write_toml_project(
+    write_syside_json_project(
         &app,
         "app",
         "1.0.0",
-        "sources = [\"main.sysml\"]\n\
-            metamodel = \"https://www.sysand.com/spec/SysML/20250201\"\n\
-            root = \"main.sysml\"\n\n[[inline-usages]]\n\
-            publisher = \"acme\"\nname = \"widgets\"\nversion = \"^1\"\n",
+        json!([{"resource": "pkg:sysand/acme/widgets", "versionConstraint": "^1"}]),
+        &["App"],
+        &[("main.sysml", b"package App;\n")],
     )?;
-    std::fs::write(app.join("main.sysml"), b"package App;\n")?;
     run_sysand_in(
         &app,
         ["lock", "--default-index", server.url().as_str()],

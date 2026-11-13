@@ -323,14 +323,10 @@ fn including_a_language_the_metamodel_does_not_admit_is_refused() {
     );
 }
 
-/// `--no-index-symbols` applies to a project whose KPAR has an `index`.
-/// A Syside project's has none, in the authored `model.toml` or in the
-/// extracted archive.
+/// A Syside `model.toml` names `root` and lists no `sources`, so there is
+/// nothing to include into, whatever the flags.
 #[test]
-fn include_no_index_symbols_is_refused_on_a_syside_project() {
-    const NO_INDEX_SYMBOLS_ON_SYSIDE: &str = "`--no-index-symbols` applies to projects with a computed index; a Syside \
-                         project's KPAR carries `root` and `exports` instead";
-
+fn include_is_refused_on_a_syside_toml_project() {
     let mut toml = InMemoryProject::default();
     toml.put_manifest_document(
         &MANIFEST
@@ -338,7 +334,10 @@ fn include_no_index_symbols_is_refused_on_a_syside_project() {
                 "https://www.omg.org/spec/SysML/20250201",
                 "https://www.sysand.com/spec/SysML/20250201",
             )
-            .replace("\nmetamodel", "\nroot = \"Base.kerml\"\nmetamodel")
+            .replace(
+                "sources = [\n    \"Base.kerml\",\n]\n",
+                "root = \"Base.kerml\"\n",
+            )
             .parse()
             .expect("a manifest"),
         false,
@@ -346,15 +345,31 @@ fn include_no_index_symbols_is_refused_on_a_syside_project() {
     .expect("stores a manifest");
     toml.files
         .insert("Parts.sysml".into(), "package Parts;\n".to_owned());
-    let error = do_include(
-        &mut toml,
-        [Utf8UnixPathBuf::from("Parts.sysml")].into_iter(),
-        false,
-        false,
-        None,
-    )
-    .expect_err("refused on the toml form");
-    assert_eq!(error.to_string(), NO_INDEX_SYMBOLS_ON_SYSIDE);
+    let before = toml.model_toml.clone();
+    for index_symbols in [true, false] {
+        let error = do_include(
+            &mut toml,
+            [Utf8UnixPathBuf::from("Parts.sysml")].into_iter(),
+            false,
+            index_symbols,
+            None,
+        )
+        .expect_err("refused on the toml form");
+        assert_matches!(error, IncludeError::RootOnly);
+        assert_eq!(
+            error.to_string(),
+            "a Syside-metamodel project lists no `sources`; its files are reached from its `root`"
+        );
+    }
+    assert_eq!(toml.model_toml, before, "nothing was written");
+}
+
+/// `--no-index-symbols` applies to a project whose KPAR has an `index`;
+/// the extracted form of a Syside KPAR has none.
+#[test]
+fn include_no_index_symbols_is_refused_on_an_extracted_syside_project() {
+    const NO_INDEX_SYMBOLS_ON_SYSIDE: &str = "`--no-index-symbols` applies to projects with a computed index; a Syside \
+                         project's KPAR carries `root` and `exports` instead";
 
     let mut json = InMemoryProject::from_info_meta(
         serde_json::from_str(r#"{"name": "widgets", "publisher": "acme", "version": "1.0.0"}"#)

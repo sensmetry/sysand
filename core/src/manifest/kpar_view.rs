@@ -24,7 +24,7 @@ use typed_path::Utf8UnixPath;
 use crate::manifest::ModelToml;
 use crate::manifest::common::Sources;
 use crate::manifest::diagnostics::{Diagnostics, Validated};
-use crate::manifest::project::{ProjectManifest, ResolvedProject};
+use crate::manifest::project::{ProjectManifest, ResolvedProject, UnlistedFiles};
 use crate::manifest::usage::Usage;
 use crate::manifest::workspace_table::WorkspaceTable;
 use crate::model::{
@@ -51,6 +51,8 @@ pub enum ViewError<E> {
     Read(E),
     #[error(transparent)]
     Symbols(#[from] SymbolsError),
+    #[error(transparent)]
+    Unlisted(UnlistedFiles),
 }
 
 /// Why a json usage has no `model.toml` form.
@@ -281,7 +283,7 @@ pub fn meta(
 ) -> InterchangeProjectMetadataRaw {
     // A project with a `root` writes the Syside shape: `root` and a flat
     // `exports` array (the map's keys, sorted), no `index`.
-    let (index, root, exports) = match &project.root {
+    let (index, root, exports) = match project.root() {
         Some(root) => {
             let mut exports: Vec<String> = index.into_keys().collect();
             exports.sort();
@@ -359,7 +361,8 @@ pub fn view<E>(
     created: &jiff::Timestamp,
     read: impl FnMut(&Utf8UnixPath) -> Result<String, E>,
 ) -> Result<(InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw), ViewError<E>> {
-    let (index, checksum) = source_maps(&project.sources, read)?;
+    let sources = project.sources().map_err(ViewError::Unlisted)?;
+    let (index, checksum) = source_maps(sources, read)?;
     Ok((info(project), meta(project, created, index, checksum)))
 }
 

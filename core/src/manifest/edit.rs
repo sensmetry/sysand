@@ -353,6 +353,13 @@ pub enum EditError {
     UnknownKey(String),
     #[error("`[project]` has no `sources` array; add one")]
     NoSources,
+    /// A switch to a metamodel family that names `root` meets a `sources`
+    /// with entries.
+    #[error(
+        "`sources` lists {0} file(s), and a Syside project lists none;\n\
+         `sysand exclude` removes them"
+    )]
+    SourcesListed(usize),
     #[error(transparent)]
     Sources(#[from] SourcesError),
     #[error("`{0}` is not listed in `sources`")]
@@ -717,6 +724,32 @@ fn list_mut(doc: &mut DocumentMut, key: ListKey) -> Result<&mut Array, EditError
         .get_mut(key)
         .and_then(Item::as_array_mut)
         .ok_or_else(|| EditError::NotAList(key.to_owned()))
+}
+
+/// Remove an empty `sources`, for a switch to a metamodel family that
+/// names `root` instead. A `sources` with entries is
+/// [`EditError::SourcesListed`] and is kept.
+pub fn remove_empty_sources(doc: &mut DocumentMut) -> Result<(), EditError> {
+    let project = project_mut(doc)?;
+    let listed = project
+        .get("sources")
+        .and_then(Item::as_array)
+        .map_or(0, Array::len);
+    if listed > 0 {
+        return Err(EditError::SourcesListed(listed));
+    }
+    project.remove("sources");
+    Ok(())
+}
+
+/// Write `sources = []` where the manifest has no `sources`, for a switch
+/// to a metamodel family that lists its files.
+pub fn add_empty_sources(doc: &mut DocumentMut) -> Result<(), EditError> {
+    let project = project_mut(doc)?;
+    if !project.contains_key("sources") {
+        project.insert("sources", value(Array::new()));
+    }
+    Ok(())
 }
 
 fn sources_mut(doc: &mut DocumentMut) -> Result<&mut Array, EditError> {

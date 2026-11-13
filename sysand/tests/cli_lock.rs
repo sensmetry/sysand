@@ -1657,15 +1657,19 @@ fn write_metamodel_member(
 }
 
 const OMG_SYSML: &str = "https://www.omg.org/spec/SysML/20250201";
+#[cfg(feature = "syside-kpar")]
 const SYSIDE_SYSML: &str = "https://www.sysand.com/spec/SysML/20250201";
 
 /// The metamodel direction check runs before the lockfile is written,
 /// not only when one is read.
 ///
+#[cfg(feature = "syside-kpar")]
 #[test]
 fn lock_refuses_a_metamodel_direction_error() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
-    write_workspace_root(&cwd, &["app", "lib"], "")?;
+    // The Syside dependency is the extracted form of an archive, which
+    // sits under the workspace root and so is excluded.
+    write_workspace_root(&cwd, &["app"], "exclude = [\"lib\"]\n")?;
     write_metamodel_member(
         &cwd,
         "app",
@@ -1673,16 +1677,7 @@ fn lock_refuses_a_metamodel_direction_error() -> Result<(), Box<dyn std::error::
         OMG_SYSML,
         "\n[[inline-usages]]\npublisher = \"acme\"\nname = \"beta\"\ndir = \"../lib\"\n",
     )?;
-    // A Syside project names its `root` among its `sources`; the
-    // helper's `sources = []` is for OMG members.
-    write_metamodel_member(
-        &cwd,
-        "lib",
-        "beta",
-        SYSIDE_SYSML,
-        "root = \"main.sysml\"\nsources = [\"main.sysml\"]\n",
-    )?;
-    std::fs::write(cwd.join("lib/main.sysml"), "package Beta;\n")?;
+    write_syside_project(&cwd.join("lib"), "beta", "1.0.0", "Beta", json!([]))?;
 
     run_sysand_in(&cwd, ["lock", "--no-index"], None)?
         .assert()
@@ -1777,29 +1772,30 @@ fn lock_reports_a_non_semver_dependency_version() -> Result<(), Box<dyn std::err
 // ---------------------------------------------------------------------
 // Syside projects as dependencies, end to end.
 
-/// A Syside `model.toml` project at `dir` declaring one package.
+/// A Syside json project at `dir` (the extracted form of a Syside
+/// archive) declaring and exporting one package, with `usage` as its
+/// usages. A Syside `model.toml` names `root` alone, and neither builds
+/// nor locks until the files it reaches can be found.
+#[cfg(feature = "syside-kpar")]
 fn write_syside_project(
     dir: &camino::Utf8Path,
     name: &str,
     version: &str,
     package: &str,
-    extra: &str,
+    usage: serde_json::Value,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    std::fs::create_dir_all(dir)?;
-    write_toml_project(
+    write_syside_json_project(
         dir,
         name,
         version,
-        &format!(
-            "sources = [\"main.sysml\"]\nmetamodel = \"{SYSIDE_SYSML}\"\n\
-            root = \"main.sysml\"\n{extra}"
-        ),
-    )?;
-    std::fs::write(dir.join("main.sysml"), format!("package {package};\n"))?;
-    Ok(())
+        usage,
+        &[package],
+        &[("main.sysml", format!("package {package};\n").as_bytes())],
+    )
 }
 
 /// An OMG `model.toml` project at `dir` declaring one package.
+#[cfg(feature = "syside-kpar")]
 fn write_omg_project(
     dir: &camino::Utf8Path,
     name: &str,
@@ -1819,15 +1815,17 @@ fn write_omg_project(
     Ok(())
 }
 
+#[cfg(feature = "syside-kpar")]
 const DIRECTION_TEXT: &str =
     "only Syside-metamodel projects may depend on Syside-metamodel projects";
 
 /// The direction rule in archive form: an OMG project with a `kpar-path`
 /// usage of a built Syside KPAR.
+#[cfg(feature = "syside-kpar")]
 #[test]
 fn an_omg_project_cannot_depend_on_a_syside_kpar() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
-    write_syside_project(&cwd.join("leaf-src"), "leaf", "1.0.0", "Leaf", "")?;
+    write_syside_project(&cwd.join("leaf-src"), "leaf", "1.0.0", "Leaf", json!([]))?;
     run_sysand_in(&cwd.join("leaf-src"), ["build", "../leaf.kpar"], None)?
         .assert()
         .success();
@@ -1854,6 +1852,7 @@ fn an_omg_project_cannot_depend_on_a_syside_kpar() -> Result<(), Box<dyn std::er
 /// Every edge is checked, so the rule is transitive without
 /// bookkeeping: an OMG project reaching a Syside leaf through an OMG
 /// intermediate is refused at the intermediate's edge.
+#[cfg(feature = "syside-kpar")]
 #[test]
 fn the_direction_rule_reaches_a_syside_leaf_through_an_omg_intermediate()
 -> Result<(), Box<dyn std::error::Error>> {
@@ -1874,7 +1873,7 @@ fn the_direction_rule_reaches_a_syside_leaf_through_an_omg_intermediate()
         OMG_SYSML,
         "\n[[inline-usages]]\npublisher = \"acme\"\nname = \"leaf\"\ndir = \"../leaf\"\n",
     )?;
-    write_syside_project(&cwd.join("leaf"), "leaf", "1.0.0", "Leaf", "")?;
+    write_syside_project(&cwd.join("leaf"), "leaf", "1.0.0", "Leaf", json!([]))?;
 
     run_sysand_in(&cwd.join("app"), ["lock", "--no-index"], None)?
         .assert()
@@ -1889,22 +1888,24 @@ fn the_direction_rule_reaches_a_syside_leaf_through_an_omg_intermediate()
 /// on an OMG project and a Syside project by `dir`, and on an OMG
 /// archive by `kpar-path`. Each lockfile entry carries its metamodel
 /// and the Syside entries export their files' names.
+#[cfg(feature = "syside-kpar")]
 #[test]
 fn a_syside_project_may_depend_on_omg_and_syside_projects_and_archives()
 -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
-    write_workspace_root(&cwd, &["app", "omg", "lib"], "exclude = [\"deps\"]\n")?;
     write_syside_project(
         &cwd.join("app"),
         "app",
         "1.0.0",
         "App",
-        "\n[[inline-usages]]\npublisher = \"acme\"\nname = \"omg\"\ndir = \"../omg\"\n\
-         \n[[inline-usages]]\npublisher = \"acme\"\nname = \"lib\"\ndir = \"../lib\"\n\
-         \n[[inline-usages]]\npublisher = \"acme\"\nname = \"gadget\"\nkpar-path = \"../deps/gadget.kpar\"\n",
+        json!([
+            {"dir": "../omg", "publisher": "acme", "name": "omg"},
+            {"dir": "../lib", "publisher": "acme", "name": "lib"},
+            {"kparPath": "../deps/gadget.kpar", "publisher": "acme", "name": "gadget"},
+        ]),
     )?;
     write_omg_project(&cwd.join("omg"), "omg", "1.0.0", "Omg", OMG_SYSML, "")?;
-    write_syside_project(&cwd.join("lib"), "lib", "1.0.0", "Lib", "")?;
+    write_syside_project(&cwd.join("lib"), "lib", "1.0.0", "Lib", json!([]))?;
     write_omg_project(
         &cwd.join("deps/gadget-src"),
         "gadget",
@@ -1921,10 +1922,10 @@ fn a_syside_project_may_depend_on_omg_and_syside_projects_and_archives()
     .assert()
     .success();
 
-    run_sysand_in(&cwd, ["lock", "--no-index"], None)?
+    run_sysand_in(&cwd.join("app"), ["lock", "--no-index"], None)?
         .assert()
         .success();
-    let lock = Lockfile::read(&cwd)?.into_lock();
+    let lock = Lockfile::read(cwd.join("app"))?.into_lock();
     let by_name = |name: &str| {
         lock.projects
             .iter()
@@ -1944,6 +1945,7 @@ fn a_syside_project_may_depend_on_omg_and_syside_projects_and_archives()
 /// The standard library stays an OMG project, and a Syside project
 /// depending on it is legal and normal. The staged release workspace gains
 /// a Syside member depending on the Kernel Semantic Library.
+#[cfg(feature = "syside-kpar")]
 #[test]
 fn a_syside_project_may_depend_on_the_standard_library() -> Result<(), Box<dyn std::error::Error>> {
     let Some(sources) = stdlib_sources() else {
@@ -1954,7 +1956,11 @@ fn a_syside_project_may_depend_on_the_standard_library() -> Result<(), Box<dyn s
 
     // The staged copy of the root is edited, not the shared fixture.
     let root = std::fs::read_to_string(cwd.join("model.toml"))?;
-    let root = root.replacen("members = [", "members = [\"syside-app\", ", 1);
+    let root = root.replacen(
+        "[workspace]\n",
+        "[workspace]\nexclude = [\"syside-app\"]\n",
+        1,
+    );
     assert!(root.contains("\"syside-app\""), "{root}");
     std::fs::write(cwd.join("model.toml"), root)?;
     write_syside_project(
@@ -1962,33 +1968,32 @@ fn a_syside_project_may_depend_on_the_standard_library() -> Result<(), Box<dyn s
         "app",
         "1.0.0",
         "App",
-        "\n[[inline-usages]]\npublisher = \"OMG\"\nname = \"Kernel Semantic Library\"\n\
-         dir = \"../semantic-library\"\n",
+        json!([{
+            "dir": "../semantic-library",
+            "publisher": "OMG",
+            "name": "Kernel Semantic Library",
+        }]),
     )?;
 
-    run_sysand_in(&cwd, ["lock", "--no-index"], None)?
+    run_sysand_in(&cwd.join("syside-app"), ["lock", "--no-index"], None)?
         .assert()
         .success();
-    let lock = std::fs::read_to_string(cwd.join("sysand-lock.toml"))?;
-    assert_eq!(
-        lock.matches("[[project]]").count(),
-        11,
-        "ten library members and the Syside app:\n{lock}"
-    );
+    let lock = std::fs::read_to_string(cwd.join("syside-app/sysand-lock.toml"))?;
+    assert!(lock.contains("Kernel Semantic Library"), "{lock}");
     Ok(())
 }
 
 /// The release warning runs across families: only the date is compared.
+#[cfg(feature = "syside-kpar")]
 #[test]
 fn a_release_mismatch_warns_across_families() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
-    write_workspace_root(&cwd, &["app", "lib"], "")?;
     write_syside_project(
         &cwd.join("app"),
         "app",
         "1.0.0",
         "App",
-        "\n[[inline-usages]]\npublisher = \"acme\"\nname = \"lib\"\ndir = \"../lib\"\n",
+        json!([{"dir": "../lib", "publisher": "acme", "name": "lib"}]),
     )?;
     write_omg_project(
         &cwd.join("lib"),
@@ -1999,24 +2004,31 @@ fn a_release_mismatch_warns_across_families() -> Result<(), Box<dyn std::error::
         "",
     )?;
 
-    run_sysand_in(&cwd, ["lock", "--no-index"], None)?
+    run_sysand_in(&cwd.join("app"), ["lock", "--no-index"], None)?
         .assert()
         .success()
         .stderr(predicate::str::contains("20250201"))
         .stderr(predicate::str::contains("20230201"));
-    assert!(cwd.join("sysand-lock.toml").exists());
+    assert!(cwd.join("app/sysand-lock.toml").exists());
     Ok(())
 }
 
 /// The collision check's input is what a project exports, and a Syside
 /// archive's `exports` array feeds it. Two Syside archives declaring one
 /// name collide; the same two declaring different names lock.
+#[cfg(feature = "syside-kpar")]
 #[test]
 fn two_syside_archives_exporting_one_name_collide() -> Result<(), Box<dyn std::error::Error>> {
     for (second_package, collides) in [("Shared", true), ("Other", false)] {
         let (_temp_dir, cwd) = new_temp_cwd()?;
-        write_syside_project(&cwd.join("one-src"), "one", "1.0.0", "Shared", "")?;
-        write_syside_project(&cwd.join("two-src"), "two", "1.0.0", second_package, "")?;
+        write_syside_project(&cwd.join("one-src"), "one", "1.0.0", "Shared", json!([]))?;
+        write_syside_project(
+            &cwd.join("two-src"),
+            "two",
+            "1.0.0",
+            second_package,
+            json!([]),
+        )?;
         for name in ["one", "two"] {
             run_sysand_in(
                 &cwd.join(format!("{name}-src")),
@@ -2032,8 +2044,10 @@ fn two_syside_archives_exporting_one_name_collide() -> Result<(), Box<dyn std::e
             "app",
             "1.0.0",
             "App",
-            "\n[[inline-usages]]\npublisher = \"acme\"\nname = \"one\"\nkpar-path = \"../one.kpar\"\n\
-             \n[[inline-usages]]\npublisher = \"acme\"\nname = \"two\"\nkpar-path = \"../two.kpar\"\n",
+            json!([
+                {"kparPath": "../one.kpar", "publisher": "acme", "name": "one"},
+                {"kparPath": "../two.kpar", "publisher": "acme", "name": "two"},
+            ]),
         )?;
 
         let out = run_sysand_in(&cwd.join("app"), ["lock", "--no-index"], None)?;
