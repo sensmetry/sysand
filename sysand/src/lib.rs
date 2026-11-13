@@ -103,6 +103,8 @@ pub use error::CliError;
 mod globs;
 pub use globs::expand_globs;
 
+mod hints;
+
 /// Whether this invocation owns the process it runs in.
 ///
 /// Two process-wide things care:
@@ -183,7 +185,25 @@ where
 /// Unlike [`lib_main_with`], it installs no crash hook, whatever `ownership`
 /// says: a caller that parses its own command line runs Rust code of its own,
 /// and its panics are its own to report.
+///
+/// Hints beneath an error spell this command line `sysand`; an embedder whose
+/// users type something else wants [`run_parsed_as`].
 pub fn run_parsed(
+    global_opts: cli::GlobalOptions,
+    command: cli::Command,
+    ownership: ProcessOwnership,
+) -> u8 {
+    run_parsed_as("sysand", global_opts, command, ownership)
+}
+
+/// [`run_parsed`], with `program` as the way the user spells this command
+/// line -- `sysand`, or an embedder's own name such as `syside project`.
+///
+/// It is used only in the hints printed beneath some errors, which name the
+/// command that leads out of the condition, so that what the hint says to
+/// run is what the user can type.
+pub fn run_parsed_as(
+    program: &str,
     global_opts: cli::GlobalOptions,
     command: cli::Command,
     ownership: ProcessOwnership,
@@ -198,6 +218,13 @@ pub fn run_parsed(
     _ = causes.next();
     for cause in causes {
         eprintln!("{style}  caused by:{style:#} {cause}");
+    }
+    if let Some(hint) = err
+        .downcast_ref::<CliError>()
+        .and_then(|e| hints::for_error(e, program))
+    {
+        let hint_style = style::NOTE;
+        eprintln!("\n{hint_style}hint{hint_style:#}: {hint}");
     }
     let note_style = style::GOOD;
     if log::max_level() < log::Level::Debug {
@@ -444,10 +471,11 @@ fn run_cli_with(
     let env = match (&current_workspace, &current_project) {
         // TODO: does it make sense to support env unassociated with a project
         // when index and env are different?
-        (None, None) => get_env(&cwd)?,
-        (None, Some(pr)) => get_env(pr.root_path())?,
-        (Some(w), _) => get_env(w.root_path())?,
-    };
+        (None, None) => get_env(&cwd),
+        (None, Some(pr)) => get_env(pr.root_path()),
+        (Some(w), _) => get_env(w.root_path()),
+    }
+    .map_err(CliError::InvalidEnvironment)?;
     let ctx = ProjectContext {
         env,
         current_workspace,
@@ -673,7 +701,7 @@ fn run_cli_with(
             };
 
             let project_root = project_root.unwrap_or_else(|| ctx.current_directory.clone());
-            let lock = match Lockfile::try_read(&project_root)? {
+            let lock = match Lockfile::try_read(&project_root).map_err(CliError::InvalidLockfile)? {
                 Some(lockfile) => lockfile.into_lock(),
                 None => command_lock(
                     ".",

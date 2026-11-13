@@ -35,6 +35,23 @@ def changed(entries: list[sysand.SyncedProject]) -> set[tuple[str, str]]:
     return {(e["iri"], e["version"]) for e in entries}
 
 
+def test_sync_names_the_way_out_of_a_lockfile_a_newer_release_wrote(
+    tmp_path: Path, mock_index: MockIndex
+) -> None:
+    root = project_with(tmp_path, [])
+    (root / "sysand-lock.toml").write_text('lock_version = "99.0"\n')
+
+    with pytest.raises(sysand.ProjectError) as raised:
+        sysand.sync(path=root, resolution=resolution(mock_index))
+
+    message = str(raised.value)
+    assert (
+        "lockfile version `99.0` is newer than the latest this release reads" in message
+    )
+    assert "call `lock()`" in message
+    assert not raised.value.wrote
+
+
 def test_sync_installs_then_keeps(tmp_path: Path, mock_index: MockIndex) -> None:
     mock_index.publish(DEP, "1.0.0", files={"dep.sysml": b"package Dep;"})
     root = project_with(tmp_path, [usage(DEP, ">=1.0.0")])
