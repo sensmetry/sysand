@@ -48,6 +48,10 @@ jobs:
           workspaces: ". -> target/prek"
 
       - uses: j178/prek-action@5337cb91e0fa35a7ff31b9ca345126d8bbbcdf16 # v2.0.6
+        env:
+          # CI checks out `main` on pushes to it, which this local-only guard
+          # would reject.
+          SKIP: no-commit-to-branch
 
   ci-gate:
     name: Prek CI Gate
