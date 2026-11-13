@@ -89,6 +89,52 @@ fn only_non_semver_versions_is_an_error() {
     );
 }
 
+/// When no candidate can be read, the error says why for each, instead
+/// of claiming non-semver versions that were never found.
+#[test]
+fn no_readable_project_names_the_reasons() {
+    let mut missing_meta = project("1.0.0");
+    missing_meta.meta = None;
+    let resolver = MemoryResolver::from_iter([(
+        Identifier::from_iri_unchecked_str(IRI),
+        vec![missing_meta, InMemoryProject::default()],
+    )]);
+
+    let error = do_info(&iri(IRI), &resolver).unwrap_err();
+    let InfoError::NoReadableProject { usage: _, reasons } = &error else {
+        panic!("not a read failure: {error:?}");
+    };
+    assert_eq!(reasons.len(), 2, "{reasons:?}");
+    assert_eq!(
+        error.to_string(),
+        format!(
+            "IRI `{IRI}` resolved to no project that could be read:\n{}",
+            reasons
+                .iter()
+                .map(|reason| format!("        {reason}"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        )
+    );
+    assert!(
+        reasons
+            .iter()
+            .any(|reason| reason.contains("project is missing")),
+        "{reasons:?}"
+    );
+}
+
+/// A candidate that cannot be read is skipped when another one works.
+#[test]
+fn an_unreadable_candidate_beside_a_readable_one_is_skipped() {
+    let resolver = MemoryResolver::from_iter([(
+        Identifier::from_iri_unchecked_str(IRI),
+        vec![InMemoryProject::default(), project("1.0.0")],
+    )]);
+
+    assert_eq!(do_info(&iri(IRI), &resolver).unwrap().version(), "1.0.0");
+}
+
 // --- prerelease versions --------------------------------------------------
 //
 // `info` considers every version, prereleases included, for every locator

@@ -1592,7 +1592,7 @@ def test_syside_metadata_shapes() -> None:
         )
         (root / "main.sysml").write_text("package Widgets;\n")
 
-        with pytest.raises(sysand.ResolutionError):
+        with pytest.raises(sysand.ResolutionError, match="not accepted yet"):
             sysand.info(iri=root.resolve().as_uri())
 
     # A dict without the three keys is accepted, and comes back with them.
