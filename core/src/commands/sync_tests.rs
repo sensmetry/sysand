@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
-use std::{collections::HashMap, convert::Infallible, num::NonZeroU64};
+use std::{collections::HashMap, num::NonZeroU64};
 
 use indexmap::IndexMap;
 use semver::Version;
@@ -106,10 +106,7 @@ fn try_install_installs_project() {
     let checksum = storage.checksum_canonical_variant().unwrap();
     let mut env = new_env();
 
-    try_install::<_, InMemoryProject, Infallible, Infallible, _>(
-        uri, "1.2.3", &checksum, storage, &mut env,
-    )
-    .unwrap();
+    try_install::<_, InMemoryProject, !, !, _>(uri, "1.2.3", &checksum, storage, &mut env).unwrap();
 
     let uris = env.uris().unwrap();
 
@@ -134,10 +131,7 @@ fn try_install_fails_to_install_wrong_checksum() {
         id: iri,
         expected,
         actual,
-    } = try_install::<_, _, Infallible, Infallible, _>(
-        &uri, "1.2.3", &checksum, &storage, &mut env,
-    )
-    .unwrap_err()
+    } = try_install::<_, _, !, !, _>(&uri, "1.2.3", &checksum, &storage, &mut env).unwrap_err()
     else {
         panic!()
     };
@@ -200,10 +194,10 @@ fn has_version_verified_version_not_found_for_known_uri() {
 
 // --- do_sync outcome ------------------------------------------------------
 
-type NoRemoteSrc = fn(String, String) -> Result<InMemoryProject, Infallible>;
+type NoRemoteSrc = fn(String, String) -> Result<InMemoryProject, !>;
 type NoKparPath = fn(Utf8UnixPathBuf, NonZeroU64, String) -> InMemoryProject;
-type NoRemoteKpar = fn(String, NonZeroU64, String) -> Result<InMemoryProject, Infallible>;
-type NoGit = fn(String) -> Result<InMemoryProject, Infallible>;
+type NoRemoteKpar = fn(String, NonZeroU64, String) -> Result<InMemoryProject, !>;
+type NoGit = fn(String) -> Result<InMemoryProject, !>;
 
 const URI: &str = "urn:kpar:install_test";
 
@@ -240,7 +234,7 @@ fn run_sync(
     env: &mut MemoryStorageEnvironment<InMemoryProject>,
     no_prune: bool,
 ) -> (
-    Result<(), SyncError<Infallible, Infallible, MemoryStorageEnvironment<InMemoryProject>>>,
+    Result<(), SyncError<!, !, MemoryStorageEnvironment<InMemoryProject>>>,
     SyncOutcome,
 ) {
     let mut outcome = SyncOutcome::default();
@@ -331,7 +325,7 @@ fn sync_outcome_reports_pruned_unless_no_prune() {
 fn run_sync_git(
     lock: &Lock,
     env: &mut MemoryStorageEnvironment<InMemoryProject>,
-) -> Result<(), SyncError<Infallible, Infallible, MemoryStorageEnvironment<InMemoryProject>>> {
+) -> Result<(), SyncError<!, !, MemoryStorageEnvironment<InMemoryProject>>> {
     do_sync(
         lock,
         env,
@@ -340,9 +334,7 @@ fn run_sync_git(
         None::<NoKparPath>,
         None::<NoRemoteKpar>,
         None::<NoRemoteKpar>,
-        Some(
-            |_remote_git: String| -> Result<InMemoryProject, Infallible> { Ok(storage_example()) },
-        ),
+        Some(|_remote_git: String| -> Result<InMemoryProject, !> { Ok(storage_example()) }),
         &HashMap::default(),
         false,
         &mut SyncOutcome::default(),

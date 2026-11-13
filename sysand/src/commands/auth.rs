@@ -331,7 +331,7 @@ fn read_token(key: &str, token_stdin: bool) -> Result<String> {
             .read_to_string(&mut raw)
             .context("could not read the token from stdin")?;
         let trimmed = match raw.strip_suffix('\n') {
-            Some(rest) => rest.strip_suffix('\r').unwrap_or(rest),
+            Some(rest) => rest.trim_suffix('\r'),
             None => raw.as_str(),
         };
         trimmed.to_owned()

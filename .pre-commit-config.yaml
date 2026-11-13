@@ -111,7 +111,7 @@ repos:
         entry: cargo fmt
         description: Formats all bin and lib files of the current workspace using rustfmt.
         language: rust
-        language_version: "1.99"
+        language_version: "1.100"
         types: [rust]
         args: ["--"]
 
@@ -120,7 +120,7 @@ repos:
         entry: cargo clippy
         description: Checks all packages in the workspace to catch common mistakes and improve your Rust code.
         language: rust
-        language_version: "1.99"
+        language_version: "1.100"
         # Isolate this from all other invocations of any `run_tests.sh`
         # file/manual cargo build/check/clippy, since these run with different
         # features enabled, which causes constant build cache invalidation

@@ -14,7 +14,7 @@ homepage.workspace = true
 [features]
 # Whether we should be more lenient when validating data in cases where the
 # KerML specification is vague.
-lenient_checks = []
+lenient-checks = []
 # Binding support (but not binding libraries themselves)
 python = ["dep:pyo3"]
 js = ["jiff/js"]  # ["dep:wasm-bindgen"]

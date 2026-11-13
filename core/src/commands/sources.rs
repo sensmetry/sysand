@@ -261,7 +261,7 @@ pub enum SourcesEnvError {
     EnvRead(#[from] LocalReadError),
     #[error(transparent)]
     ProjectRead(#[from] LocalSrcError),
-    #[error("unable to find project `{project}`{} in local environment", version.as_ref().map(|vr| format!(" ({vr})")).unwrap_or_default())]
+    #[error("unable to find project `{project}`{} in local environment", version.as_ref().map_or_default(|vr| format!(" ({vr})")))]
     NotFound {
         project: Box<str>,
         version: Option<VersionReq>,

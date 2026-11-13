@@ -424,7 +424,7 @@ struct RecordingResolver {
 
 #[cfg(feature = "filesystem")]
 impl ResolveRead for RecordingResolver {
-    type Error = std::convert::Infallible;
+    type Error = !;
 
     type ProjectStorage = crate::project::null::NullProject;
 

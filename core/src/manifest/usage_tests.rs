@@ -26,14 +26,13 @@ fn entries(table: &toml::Table, key: &str) -> Vec<UsageRaw> {
     table
         .get(key)
         .and_then(toml::Value::as_array)
-        .map(|array| {
+        .map_or_default(|array| {
             array
                 .iter()
                 .filter_map(toml::Value::as_table)
                 .map(UsageRaw::from_table)
                 .collect()
         })
-        .unwrap_or_default()
 }
 
 fn site(index: usize) -> UsageSite<'static> {

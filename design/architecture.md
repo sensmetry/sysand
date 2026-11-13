@@ -163,7 +163,7 @@ compiled in:
 | `keyring`        | OS-keyring-backed credential store (`keyring`); not for WASM                 |
 | `tls-aws-lc-rs`  | Installs the `aws-lc-rs` rustls crypto provider (see below)                  |
 | `tls-ring`       | Installs the `ring` rustls crypto provider instead                           |
-| `lenient_checks` | More lenient validation where the KerML spec is vague                        |
+| `lenient-checks` | More lenient validation where the KerML spec is vague                        |
 | `kpar-*`         | Additional KPAR compression methods (bzip2, zstd, xz, ppmd)                  |
 
 Each binding crate enables different features on `sysand-core`:

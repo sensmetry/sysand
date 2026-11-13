@@ -2334,7 +2334,7 @@ fn a_candidate_whose_format_cannot_be_read_is_skipped_unless_typed() {
     struct OneCandidate;
 
     impl ResolveRead for OneCandidate {
-        type Error = std::convert::Infallible;
+        type Error = !;
 
         type ProjectStorage = NoFormat;
 
@@ -2373,9 +2373,7 @@ fn a_candidate_whose_format_cannot_be_read_is_skipped_unless_typed() {
     )
     .expect_err("a typed usage has nowhere else to look");
     // The reason is the error's cause (`Error::source`).
-    let msg = std::error::Error::source(&typed)
-        .map(ToString::to_string)
-        .unwrap_or_default();
+    let msg = std::error::Error::source(&typed).map_or_default(ToString::to_string);
     assert!(
         msg.contains("failed to obtain manifest format of resolved usage"),
         "got: {typed} / {msg}"

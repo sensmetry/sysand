@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-use std::convert::Infallible;
-
 use crate::{
     project::null::NullProject,
     resolve::{ResolutionInfo, ResolveRead},
@@ -12,11 +10,11 @@ use crate::{
 pub struct NullResolver;
 
 impl ResolveRead for NullResolver {
-    type Error = Infallible;
+    type Error = !;
 
     type ProjectStorage = NullProject;
 
-    type ResolvedStorages = std::iter::Empty<Result<Self::ProjectStorage, Infallible>>;
+    type ResolvedStorages = std::iter::Empty<Result<Self::ProjectStorage, !>>;
 
     fn resolve_read(
         &self,

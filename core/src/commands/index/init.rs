@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
 use std::{
-    fs::{self},
+    fs,
     io::{ErrorKind, Write as _},
 };
 

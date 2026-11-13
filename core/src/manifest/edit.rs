@@ -491,23 +491,19 @@ impl KeyComments {
             },
             // A dotted table: the comments are on its one inner key.
             Some(Item::Table(inner)) if inner.is_dotted() => {
-                let (above, after) = inner
-                    .iter()
-                    .next()
-                    .map(|(name, _)| {
-                        (
-                            inner
-                                .key(name)
-                                .and_then(|key| key.leaf_decor().prefix())
-                                .and_then(|prefix| prefix.as_str())
-                                .map(str::to_owned),
-                            inner
-                                .get(name)
-                                .and_then(Item::as_value)
-                                .and_then(|value| decor_suffix(value.decor())),
-                        )
-                    })
-                    .unwrap_or_default();
+                let (above, after) = inner.iter().next().map_or_default(|(name, _)| {
+                    (
+                        inner
+                            .key(name)
+                            .and_then(|key| key.leaf_decor().prefix())
+                            .and_then(|prefix| prefix.as_str())
+                            .map(str::to_owned),
+                        inner
+                            .get(name)
+                            .and_then(Item::as_value)
+                            .and_then(|value| decor_suffix(value.decor())),
+                    )
+                });
                 Self { above, after }
             }
             _ => Self {

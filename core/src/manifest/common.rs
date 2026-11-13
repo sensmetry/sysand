@@ -350,8 +350,7 @@ impl Sources {
                 let first = normalized
                     .iter()
                     .find(|(seen, _)| *seen == path)
-                    .map(|(_, first)| first.clone())
-                    .unwrap_or_default();
+                    .map_or_default(|(_, first)| first.clone());
                 return Err(SourcesError::Duplicate {
                     first,
                     second: raw.to_owned(),

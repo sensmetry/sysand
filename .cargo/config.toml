@@ -1,3 +1,8 @@
+# Dependency cooldown: the resolver ignores registry versions published less
+# than 7 days ago, unless they are already in `Cargo.lock`.
+[registry]
+global-min-publish-age = "7 days"
+
 # Cargo configuration for the sysand workspace.
 #
 # Config reference: https://doc.rust-lang.org/cargo/reference/config.html

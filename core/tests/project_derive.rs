@@ -208,7 +208,7 @@ struct FixedDigestProject {
 }
 
 impl ProjectRead for FixedDigestProject {
-    type Error = std::convert::Infallible;
+    type Error = !;
 
     fn get_project(
         &self,

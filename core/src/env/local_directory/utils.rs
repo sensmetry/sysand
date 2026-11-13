@@ -1,10 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-use std::{
-    fs,
-    io::{self},
-};
+use std::{fs, io};
 
 use camino::Utf8Path;
 use thiserror::Error;

@@ -379,7 +379,7 @@ mod spell_index_usage {
 }
 
 mod index_usage_to_add {
-    use std::{assert_matches, convert::Infallible};
+    use std::assert_matches;
 
     use semver::VersionReq;
 
@@ -393,7 +393,7 @@ mod index_usage_to_add {
         usages: &[InterchangeProjectUsageRaw],
         spelling: (&str, &str),
         constraint: Option<&str>,
-    ) -> Result<IndexUsageToAdd, AddError<Infallible>> {
+    ) -> Result<IndexUsageToAdd, AddError<!>> {
         let (publisher, name) = crate::model::parse_index_usage_spelling(spelling.0, spelling.1)?;
         index_usage_to_add(
             usages,
