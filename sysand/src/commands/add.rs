@@ -19,7 +19,6 @@ use sysand_core::{
     },
     context::{EditError, ProjectContext},
     lock::{Lock, Lockfile},
-    manifest::MODEL_TOML_FILE,
     model::{
         IndexName, IndexPublisher, InterchangeProjectUsage, InterchangeProjectUsageRaw,
         ProjectName, ProjectPublisher, UsageRef,
@@ -393,13 +392,7 @@ impl ManifestBackup {
 /// `.project.json` into a `model.toml` project would leave both, which
 /// cannot be read.
 fn manifest_backup(ctx: &ProjectContext) -> Result<ManifestBackup> {
-    let project = ctx
-        .current_project()
-        .ok_or(CliError::MissingProjectCurrentDir)?;
-    let path = match ctx.current_definition() {
-        Some(ProjectDefinition::Toml(_)) => project.root_path().join(MODEL_TOML_FILE),
-        _ => project.info_path(),
-    };
+    let path = crate::manifest_path(ctx).ok_or(CliError::MissingProjectCurrentDir)?;
     let text = wrapfs::read_to_string(&path)?;
     Ok(ManifestBackup { path, text })
 }

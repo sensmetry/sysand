@@ -455,7 +455,7 @@ fn http_options_from(lookup: impl Fn(&str) -> Option<OsString>) -> Result<HttpOp
 }
 
 /// The manifest a project's writing commands touch.
-fn manifest_path(ctx: &ProjectContext) -> Option<Utf8PathBuf> {
+pub(crate) fn manifest_path(ctx: &ProjectContext) -> Option<Utf8PathBuf> {
     let project = ctx.current_project()?;
     Some(match ctx.current_definition() {
         Some(sysand_core::project::ProjectDefinition::Toml(_)) => project
