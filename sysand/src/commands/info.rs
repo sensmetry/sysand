@@ -20,11 +20,8 @@ use sysand_core::{
         local_kpar::KparInnerPath, local_src::LocalSrcProject, symbol_index, utils::Identifier,
     },
     resolve::{
-        ResolutionInfo,
-        file::{FileResolverProject, FileResolverProjectError},
-        memory::MemoryResolver,
-        priority::PriorityResolver,
-        standard::standard_resolver,
+        ResolutionInfo, file::FileResolverProject, memory::MemoryResolver,
+        priority::PriorityResolver, standard::standard_resolver,
     },
     style,
     utils::{ProvidedIdentifiers, format_err},
@@ -201,48 +198,42 @@ fn interpret_kpar_path<P: AsRef<Utf8Path>>(path: P) -> Result<FileResolverProjec
     ))
 }
 
+/// `info` on the KPAR at `path`: the whole report, or the field `get`.
 pub fn command_info_path<P: AsRef<Utf8Path>>(
     path: P,
-    excluded_iris: &HashSet<Identifier>,
+    get: Option<InfoField>,
+    excluded_iris: &ProvidedIdentifiers,
 ) -> Result<()> {
     let project = interpret_kpar_path(&path)?;
-    report_info(do_info_project(&project), path.as_ref(), excluded_iris)
+    let definition = do_info_project(&project).map_err(|source| CliError::InvalidProject {
+        iri: path.as_ref().to_string(),
+        source,
+    })?;
+    print_info(&project, &definition, get, excluded_iris)
 }
 
-/// Report the context's current project.
+/// `info` on the context's current project: the whole report, or the
+/// field `get`.
 pub fn command_info_current(
     ctx: &ProjectContext,
-    iri: &Utf8Path,
-    excluded_iris: &HashSet<Identifier>,
+    project: &LocalSrcProject,
+    get: Option<InfoField>,
+    excluded_iris: &ProvidedIdentifiers,
 ) -> Result<()> {
     let definition = ctx
         .current_definition()
-        .cloned()
-        .ok_or(InfoProjectError::MissingProject);
-    report_info(definition, iri, excluded_iris)
+        .ok_or_else(|| CliError::InvalidProject {
+            iri: project.root_path().to_string(),
+            source: InfoProjectError::MissingProject,
+        })?;
+    print_info(project, definition, get, excluded_iris)
 }
 
-fn report_info(
-    definition: Result<ProjectDefinition, InfoProjectError<FileResolverProjectError>>,
-    iri: &Utf8Path,
-    excluded_iris: &HashSet<Identifier>,
-) -> Result<()> {
-    match definition {
-        Ok(definition) => {
-            report_project(&definition, excluded_iris);
-
-            Ok(())
-        }
-        Err(err) => bail!(CliError::InvalidProject {
-            iri: iri.to_string(),
-            source: err
-        }),
-    }
-}
-
+/// `info` on the project `resolve` resolves to: the whole report, or the
+/// field `get`.
 pub fn command_info_resolve<Policy: HTTPAuthentication>(
     resolve: ResolutionInfo,
-    _normalise: bool,
+    get: Option<InfoField>,
     client: reqwest_middleware::ClientWithMiddleware,
     index_urls: Option<Vec<IndexSource>>,
     excluded_iris: &ProvidedIdentifiers,
@@ -269,8 +260,21 @@ pub fn command_info_resolve<Policy: HTTPAuthentication>(
         )?,
     );
 
-    let (definition, _) = do_info_usage(resolve, &combined_resolver)?;
-    report_project(&definition, excluded_iris);
+    let (definition, project) = do_info_usage(resolve, &combined_resolver)?;
+    print_info(&project, &definition, get, excluded_iris)
+}
+
+/// Print `definition`'s report, or the value of its field `get`.
+fn print_info<Project: ProjectRead>(
+    project: &Project,
+    definition: &ProjectDefinition,
+    get: Option<InfoField>,
+    excluded_iris: &ProvidedIdentifiers,
+) -> Result<()> {
+    match get {
+        None => report_project(definition, excluded_iris),
+        Some(field) => print_lines(field_lines(field, project, definition)?),
+    }
     Ok(())
 }
 
@@ -285,55 +289,6 @@ pub fn log_license_files_note() {
         just note that some of them have placeholder copyright\n\
         holder/dates in the text that should be replaced"
     )
-}
-
-/// Prints the value of `field` of `project`, a list field one entry per line
-pub fn command_info_field<Project: ProjectRead>(project: &Project, field: InfoField) -> Result<()> {
-    print_lines(field_lines(field, project, &get_project_or_bail(project)?)?);
-    Ok(())
-}
-
-/// [`command_info_field`] for the context's current project.
-pub fn command_info_current_field(
-    ctx: &ProjectContext,
-    project: &LocalSrcProject,
-    field: InfoField,
-) -> Result<()> {
-    let Some(definition) = ctx.current_definition() else {
-        bail!("project does not appear to have a manifest");
-    };
-    print_lines(field_lines(field, project, definition)?);
-    Ok(())
-}
-
-pub fn command_info_field_path<P: AsRef<Utf8Path>>(path: P, field: InfoField) -> Result<()> {
-    command_info_field(&interpret_kpar_path(&path)?, field)
-}
-
-pub fn command_info_field_resolve<Policy: HTTPAuthentication>(
-    resolve: ResolutionInfo,
-    field: InfoField,
-    client: reqwest_middleware::ClientWithMiddleware,
-    index_urls: Option<Vec<IndexSource>>,
-    overrides: Vec<(Identifier, Vec<OverrideProject<Policy>>)>,
-    runtime: Arc<tokio::runtime::Runtime>,
-    auth_policy: Arc<Policy>,
-    ctx: ProjectContext,
-) -> Result<()> {
-    let combined_resolver = PriorityResolver::new(
-        MemoryResolver::resources_only(overrides),
-        standard_resolver(
-            ctx.env,
-            Some(client),
-            index_urls,
-            runtime,
-            auth_policy,
-            ctx.cancellation,
-        )?,
-    );
-    let (definition, project) = do_info_usage(resolve, &combined_resolver)?;
-    print_lines(field_lines(field, &project, &definition)?);
-    Ok(())
 }
 
 /// The lines of one `--get`: one per line in text mode, the `values`
@@ -502,23 +457,6 @@ fn index_lines<'a>(index: impl IntoIterator<Item = (&'a String, &'a String)>) ->
         .into_iter()
         .map(|(symbol, path)| format!("`{symbol}` in `{path}`"))
         .collect()
-}
-
-/// A project's manifest, or the reason it has none.
-pub(crate) fn get_project_or_bail<Project: ProjectRead>(
-    project: &Project,
-) -> Result<ProjectDefinition> {
-    definition_or_bail(project.get_project())
-}
-
-fn definition_or_bail<Error: std::error::Error>(
-    read: Result<Option<ProjectDefinition>, Error>,
-) -> Result<ProjectDefinition> {
-    match read {
-        Ok(Some(definition)) => Ok(definition),
-        Ok(None) => bail!("project does not appear to have a manifest"),
-        Err(err) => bail!("failed to read the project manifest: {}", format_err(err)),
-    }
 }
 
 pub(crate) fn set_info_or_bail<Project: ProjectMut>(

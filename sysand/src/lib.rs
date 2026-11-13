@@ -64,7 +64,7 @@ use crate::{
         exclude::command_exclude,
         include::command_include,
         index::{command_index_add, command_index_init, command_index_remove, command_index_yank},
-        info::{command_info_field_path, command_info_path},
+        info::command_info_path,
         init::{command_init, parse_metamodel},
         lock::command_lock,
         print_root::command_print_root,
@@ -1187,19 +1187,12 @@ fn run_cli_with(
                 (Location::WorkDir, get) => {
                     let ctx = required(ctx);
                     if let Some(current_project) = ctx.current_project() {
-                        if let Some(field) = get {
-                            crate::commands::info::command_info_current_field(
-                                &ctx,
-                                current_project,
-                                field,
-                            )
-                        } else {
-                            crate::commands::info::command_info_current(
-                                &ctx,
-                                current_project.root_path(),
-                                &excluded_usages,
-                            )
-                        }
+                        crate::commands::info::command_info_current(
+                            &ctx,
+                            current_project,
+                            get,
+                            &excluded_usages,
+                        )
                     } else {
                         // All members, from the root or a non-member
                         // directory under it.
@@ -1231,32 +1224,19 @@ fn run_cli_with(
                         runtime.clone(),
                         auth_policy.clone(),
                     )?;
-                    match get {
-                        None => crate::commands::info::command_info_resolve(
-                            *resolve,
-                            true, // !no_normalise,
-                            client,
-                            index_urls,
-                            &excluded_usages,
-                            overrides,
-                            runtime,
-                            auth_policy,
-                            required(ctx),
-                        ),
-                        Some(field) => crate::commands::info::command_info_field_resolve(
-                            *resolve,
-                            field,
-                            client,
-                            index_urls,
-                            overrides,
-                            runtime,
-                            auth_policy,
-                            required(ctx),
-                        ),
-                    }
+                    crate::commands::info::command_info_resolve(
+                        *resolve,
+                        get,
+                        client,
+                        index_urls,
+                        &excluded_usages,
+                        overrides,
+                        runtime,
+                        auth_policy,
+                        required(ctx),
+                    )
                 }
-                (Location::KparPath(path), None) => command_info_path(&path, &excluded_usages),
-                (Location::KparPath(path), Some(field)) => command_info_field_path(&path, field),
+                (Location::KparPath(path), get) => command_info_path(&path, get, &excluded_usages),
             }
         }
         Command::Edit {
