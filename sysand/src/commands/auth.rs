@@ -12,7 +12,7 @@ use anstream::println;
 use anyhow::{Context as _, Result, bail};
 use sysand_core::utils::format_err;
 use sysand_core::{
-    auth::{GlobMapBuilder, StandardHTTPAuthentication, StandardHTTPAuthenticationBuilder},
+    auth::{StandardHTTPAuthentication, StandardHTTPAuthenticationBuilder},
     commands::auth::{
         AuthCommandError, AuthLoginNotice, AuthLoginOutcome, AuthStatus, EnvCredentialEntry,
         IndexKey, ProbeSurface, StoredCredentialStatus, StoredCredentialsStatus,
@@ -646,23 +646,21 @@ fn lenient_env_auth_policy() -> Result<StandardHTTPAuthentication> {
 
     let mut builder = StandardHTTPAuthenticationBuilder::new();
     for (stem, pattern) in &groups.patterns {
-        // Pre-compile each pattern individually: `build` below fails
-        // wholesale on one bad glob, and one bad group must not hide the
-        // other credentials.
-        let mut check: GlobMapBuilder<()> = GlobMapBuilder::new();
-        check.add(pattern, ());
-        if check.build().is_err() {
-            log::debug!("skipping SYSAND_CRED_{stem}: invalid URL glob pattern");
-            continue;
-        }
-        if let (Some(user), Some(password)) = (
+        let basic = match (
             groups.basic_users.get(stem),
             groups.basic_passwords.get(stem),
         ) {
-            builder.add_basic_auth(pattern, user, password);
-        }
-        if let Some(token) = groups.bearer_tokens.get(stem) {
-            builder.add_bearer_auth(pattern, token, stem);
+            (Some(user), Some(password)) => builder.add_basic_auth(pattern, user, password),
+            _ => Ok(()),
+        };
+        let added = basic.and_then(|()| match groups.bearer_tokens.get(stem) {
+            Some(token) => builder.add_bearer_auth(pattern, token, stem),
+            None => Ok(()),
+        });
+        // The pattern is not echoed: an unvalidated group's pattern can
+        // be a misnamed secret.
+        if added.is_err() {
+            log::debug!("skipping SYSAND_CRED_{stem}: invalid URL glob pattern");
         }
     }
     builder

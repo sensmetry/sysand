@@ -11,7 +11,8 @@ use std::{
 
 use crate::auth::{
     CredentialStoreAuthentication, GlobMapBuilder, GlobMapResultMut, HTTPAuthentication,
-    StandardHTTPAuthentication, StandardHTTPAuthenticationBuilder,
+    StandardHTTPAuthentication, StandardHTTPAuthenticationBuilder, UrlGlobError, compile_url_glob,
+    url_glob_under,
 };
 use crate::credential_store::keyring_store::{BlobBackend, LockedBlobStore};
 use crate::credential_store::test_support::{InMemoryBlobBackend, unique_lock_path};
@@ -23,52 +24,254 @@ use crate::resolve::net_utils::{HttpOptions, create_reqwest_client_with};
 #[test]
 fn basic_globmap_lookup() -> Result<(), Box<dyn std::error::Error>> {
     let mut builder = GlobMapBuilder::new();
-    builder.add("a*.com/*", 1);
-    builder.add("a*.com/**", 2);
-    builder.add("b.com/*", 3);
-    builder.add("a*.com/*/*", 4);
+    builder.add("https://h.com/a*/*", 1)?;
+    builder.add("https://h.com/a*/**", 2)?;
+    builder.add("https://h.com/b/*", 3)?;
+    builder.add("https://h.com/a*/*/*", 4)?;
     let mut globmap = builder.build()?;
 
-    if let GlobMapResultMut::Ambiguous(vals) = globmap.lookup_mut("axx.com/xxx") {
+    if let GlobMapResultMut::Ambiguous(vals) = globmap.lookup_mut("https://h.com/axx/xxx") {
         let vals: Vec<i32> = vals.into_iter().map(|(_, i)| *i).collect();
         assert_eq!(vals, vec![1, 2]);
     } else {
         panic!("Expected ambiguous result.");
     }
 
-    if let GlobMapResultMut::Ambiguous(vals) = globmap.lookup_mut("axx.com/xxx/xxx") {
+    if let GlobMapResultMut::Ambiguous(vals) = globmap.lookup_mut("https://h.com/axx/xxx/xxx") {
         let vals: Vec<i32> = vals.into_iter().map(|(_, i)| *i).collect();
         assert_eq!(vals, vec![2, 4]);
     } else {
         panic!("Expected ambiguous result.");
     }
 
-    let key = "axx.com/xxx/xxx/xxx";
-    if let GlobMapResultMut::Found(k, val) = globmap.lookup_mut(key) {
-        assert_eq!(k, key);
+    let key = "https://h.com/axx/xxx/xxx/xxx";
+    if let GlobMapResultMut::Found(val) = globmap.lookup_mut(key) {
         assert_eq!(*val, 2);
     } else {
         panic!("Expected unambiguous result.");
     }
 
-    let key = "b.com/xxx";
-    if let GlobMapResultMut::Found(k, val) = globmap.lookup_mut(key) {
-        assert_eq!(k, key);
+    let key = "https://h.com/b/xxx";
+    if let GlobMapResultMut::Found(val) = globmap.lookup_mut(key) {
         assert_eq!(*val, 3);
     } else {
         panic!("Expected unambiguous result.");
     }
 
-    assert_matches!(globmap.lookup_mut("axx.com"), GlobMapResultMut::NotFound);
     assert_matches!(
-        globmap.lookup_mut("bxx.com/xxx"),
+        globmap.lookup_mut("https://h.com/axx"),
         GlobMapResultMut::NotFound
     );
     assert_matches!(
-        globmap.lookup_mut("cxx.com/xxx"),
+        globmap.lookup_mut("https://h.com/bxx/xxx"),
+        GlobMapResultMut::NotFound
+    );
+    assert_matches!(
+        globmap.lookup_mut("https://h.com/cxx/xxx"),
         GlobMapResultMut::NotFound
     );
 
+    Ok(())
+}
+
+#[test]
+fn url_glob_is_normalized_as_a_request_url() -> Result<(), UrlGlobError> {
+    for (pattern, url) in [
+        (
+            "http://[::1]:8080/**",
+            "http://[::1]:8080/index/versions.json",
+        ),
+        (
+            "HTTP://[0:0::1]:8080/**",
+            "http://[::1]:8080/index/versions.json",
+        ),
+        (
+            "http://[::1]:8080/index/*.json",
+            "http://[::1]:8080/index/versions.json",
+        ),
+        ("https://Example.COM:443/a/**", "https://example.com/a/b"),
+        ("http://127.1/**", "http://127.0.0.1/a"),
+        ("https://ex%61mple.com/**", "https://example.com/a"),
+        ("https://Bücher.de/**", "https://xn--bcher-kva.de/a"),
+        ("https://*.Bücher.de/**", "https://www.xn--bcher-kva.de/a"),
+        ("https://example.com/a b/**", "https://example.com/a%20b/c"),
+        ("https://example.com/a\\b/**", "https://example.com/a/b/c"),
+    ] {
+        assert!(
+            compile_url_glob(pattern)?.compile_matcher().is_match(url),
+            "`{pattern}` should match `{url}`"
+        );
+    }
+    let url = "http://[::1]:8080/index/versions.json";
+    for pattern in [
+        "http://[::2]:8080/**",
+        "http://[::1]/**",
+        "https://[::1]:8080/**",
+    ] {
+        assert!(
+            !compile_url_glob(pattern)?.compile_matcher().is_match(url),
+            "`{pattern}` should not match `{url}`"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn url_glob_wildcards_match() -> Result<(), UrlGlobError> {
+    for (pattern, url) in [
+        ("https://*.example.com/**", "https://www.example.com/a"),
+        ("HTTPS://*.Example.COM/**", "https://www.example.com/a"),
+        (
+            "https://example.com/v?/*.json",
+            "https://example.com/v1/a.json",
+        ),
+        ("https://example.com/a?b/**", "https://example.com/a?b/c"),
+        (
+            "https://example.com/raw?ref=main",
+            "https://example.com/raw?ref=main",
+        ),
+        ("http://127.0.0.1:*/**", "http://127.0.0.1:5000/a"),
+        ("http://127.0.0.1:*/**", "http://127.0.0.1/a"),
+        ("http://[::1]:80??/**", "http://[::1]:8080/a"),
+        ("https://*.example.com:4?3/**", "https://www.example.com/a"),
+        ("https://*.example.com:443/**", "https://www.example.com/a"),
+        ("http://*.example.com:080/**", "http://www.example.com/a"),
+        (
+            "https://*.example.com:080/**",
+            "https://www.example.com:80/a",
+        ),
+    ] {
+        assert!(
+            compile_url_glob(pattern)?.compile_matcher().is_match(url),
+            "`{pattern}` should match `{url}`"
+        );
+    }
+    for (pattern, url) in [
+        ("https://*.example.com/**", "https://example.com/a"),
+        (
+            "https://*.example.com/**",
+            "https://evil.com/.example.com/a",
+        ),
+        ("https://*.example.com/**", "https://www.example.com:8443/a"),
+        ("http://127.0.0.1:9*/**", "http://127.0.0.1/a"),
+        ("https://example.com/v?/**", "https://example.com/v/a"),
+    ] {
+        assert!(
+            !compile_url_glob(pattern)?.compile_matcher().is_match(url),
+            "`{pattern}` should not match `{url}`"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn url_glob_brackets_and_braces_are_literal() -> Result<(), UrlGlobError> {
+    let matcher = compile_url_glob("https://example.com/a[bc]/{d,e}/**")?.compile_matcher();
+    assert!(matcher.is_match("https://example.com/a[bc]/%7Bd,e%7D/x"));
+    assert!(!matcher.is_match("https://example.com/ab/d/x"));
+    Ok(())
+}
+
+#[test]
+fn url_glob_rejects_an_invalid_or_non_http_origin() {
+    for pattern in [
+        "example.com/**",
+        "**",
+        "ftp://example.com/**",
+        "*://example.com/**",
+        "{http,https}://example.com/**",
+        "http*://example.com/**",
+        "ftp://*.example.com/**",
+        "**/x://example.com/**",
+    ] {
+        assert_matches!(
+            compile_url_glob(pattern),
+            Err(UrlGlobError::NoHttpOrigin(p)) if p == pattern
+        );
+    }
+    for pattern in [
+        "http://[::1/**",
+        "http://[::*]:8080/**",
+        "https://[ab].example.com/**",
+        "https://www?.example.com/**",
+        "http://127.0.0.1:8*a/**",
+        "http://127.0.0.1:80:*/**",
+        "http://*.example.com:65536/**",
+        "https://user@example.com/**",
+        "https://user:pw@*.example.com/**",
+        "https://:pw@example.com/**",
+        "https://:*/**",
+        "https:///**",
+        "https://:443/a/**",
+    ] {
+        assert_matches!(
+            compile_url_glob(pattern),
+            Err(UrlGlobError::InvalidOrigin { pattern: p, source: _ }) if p == pattern
+        );
+    }
+}
+
+#[test]
+fn url_glob_rejects_an_ambiguous_path() {
+    for pattern in [
+        "https://example.com/a/../**",
+        "https://example.com/./**",
+        "https://example.com/a/%2E%2e/**",
+        "https://example.com/a\\..\\**",
+    ] {
+        assert_matches!(
+            compile_url_glob(pattern),
+            Err(UrlGlobError::DotSegment(p)) if p == pattern
+        );
+    }
+    for pattern in [
+        "https://example.com/a%3Fb/**",
+        "https://example.com/a%3f/**",
+    ] {
+        assert_matches!(
+            compile_url_glob(pattern),
+            Err(UrlGlobError::EncodedQuestionMark(p)) if p == pattern
+        );
+    }
+    assert_matches!(
+        compile_url_glob("https://example.com/a#b/**"),
+        Err(UrlGlobError::Fragment(_))
+    );
+}
+
+#[test]
+fn url_glob_rejects_a_pattern_without_a_path() {
+    for pattern in [
+        "https://example.com",
+        "http://[::1]:8080",
+        "https://*.example.com",
+    ] {
+        assert_matches!(
+            compile_url_glob(pattern),
+            Err(UrlGlobError::NoPath(p)) if p == pattern
+        );
+    }
+}
+
+#[test]
+fn url_glob_error_names_the_pattern_as_written() {
+    let pattern = "HTTP://Example.com:x/**";
+    let err = compile_url_glob(pattern).unwrap_err();
+    assert!(err.to_string().contains(pattern), "{err}");
+}
+
+#[test]
+fn url_glob_under_appends_any_path() -> Result<(), UrlGlobError> {
+    let glob = url_glob_under("http://[::1]:8080/a[b]/")?;
+    assert_eq!(glob, "http://[::1]:8080/a[b]/**");
+    assert!(
+        compile_url_glob(&glob)?
+            .compile_matcher()
+            .is_match("http://[::1]:8080/a[b]/c/d")
+    );
+    for root in ["https://*.example.com/", "https://example.com/a*/"] {
+        assert_matches!(url_glob_under(root), Err(UrlGlobError::LiteralWildcard(r)) if r == root);
+    }
     Ok(())
 }
 
@@ -85,7 +288,7 @@ fn globmap_matches_template_expanded_urls() -> Result<(), Box<dyn std::error::Er
     builder.add(
         "https://gitlab.com/api/v4/projects/123/repository/files/admin%2F*/raw?ref=main",
         1,
-    );
+    )?;
     let mut globmap = builder.build()?;
 
     let template = crate::index_location::IndexLocation::parse(
@@ -104,7 +307,7 @@ fn globmap_matches_template_expanded_urls() -> Result<(), Box<dyn std::error::Er
         GlobMapResultMut::NotFound
     );
     // ...but the expanded request URL does.
-    if let GlobMapResultMut::Found(_, val) = globmap.lookup_mut(expanded.as_str()) {
+    if let GlobMapResultMut::Found(val) = globmap.lookup_mut(expanded.as_str()) {
         assert_eq!(*val, 1);
     } else {
         panic!("expected credential glob to match expanded template URL");
@@ -127,7 +330,7 @@ mod select_bearer {
     fn map(entries: &[(&str, &str)]) -> GlobMap<String> {
         let mut builder = GlobMapBuilder::new();
         for (pattern, token) in entries {
-            builder.add(*pattern, (*token).to_owned());
+            builder.add(*pattern, (*token).to_owned()).unwrap();
         }
         builder.build().unwrap()
     }
@@ -183,9 +386,9 @@ mod select_bearer {
 fn publish_bearer_auth_map_keeps_bearer_drops_basic_and_carries_labels()
 -> Result<(), Box<dyn std::error::Error>> {
     let mut builder = crate::auth::StandardHTTPAuthenticationBuilder::new();
-    builder.add_basic_auth("https://basic.example.com/*", "user", "password");
-    builder.add_bearer_auth("https://bearer.example.com/*", "tok", "MYIDX");
-    builder.add_bearer_auth("https://labeled.example.com/*", "tok2", "TEAMIDX");
+    builder.add_basic_auth("https://basic.example.com/*", "user", "password")?;
+    builder.add_bearer_auth("https://bearer.example.com/*", "tok", "MYIDX")?;
+    builder.add_bearer_auth("https://labeled.example.com/*", "tok2", "TEAMIDX")?;
     let policy = builder.build()?;
 
     // By-ref extraction: the policy stays usable afterwards.
@@ -424,7 +627,9 @@ fn sequence_auth_does_not_try_lower_on_rate_limiting() {
     let bearer_mock = versions_mock(&mut server, Some("env-token"), 200, 0);
 
     let mut env_builder = StandardHTTPAuthenticationBuilder::new();
-    env_builder.add_bearer_auth(format!("{}/**", server.url()), "env-token", "ENVIDX");
+    env_builder
+        .add_bearer_auth(format!("{}/**", server.url()), "env-token", "ENVIDX")
+        .unwrap();
     let policy = env_builder.build().unwrap();
     let runtime = runtime();
 
@@ -489,7 +694,9 @@ fn lazy_layer_env_credential_wins_without_store_read() {
     let env_mock = versions_mock(&mut server, Some("env-token"), 200, 1);
 
     let mut env_builder = StandardHTTPAuthenticationBuilder::new();
-    env_builder.add_bearer_auth(format!("{}/**", server.url()), "env-token", "ENVIDX");
+    env_builder
+        .add_bearer_auth(format!("{}/**", server.url()), "env-token", "ENVIDX")
+        .unwrap();
     let (store, lists) = counting_store(vec![bearer_record(
         &[format!("{}/**", server.url())],
         "stored-token",
@@ -513,7 +720,9 @@ fn lazy_layer_failed_env_credential_escalates_to_store() {
     let stored_mock = versions_mock(&mut server, Some("stored-token"), 200, 1);
 
     let mut env_builder = StandardHTTPAuthenticationBuilder::new();
-    env_builder.add_bearer_auth(format!("{}/**", server.url()), "stale-env-token", "ENVIDX");
+    env_builder
+        .add_bearer_auth(format!("{}/**", server.url()), "stale-env-token", "ENVIDX")
+        .unwrap();
     let (store, lists) = counting_store(vec![bearer_record(
         &[format!("{}/**", server.url())],
         "stored-token",
@@ -576,6 +785,26 @@ fn lazy_layer_ambiguous_distinct_records_try_all_in_order() {
     unauth_mock.assert();
     rejected_mock.assert();
     accepted_mock.assert();
+}
+
+#[test]
+fn lazy_layer_skips_a_stored_glob_with_wildcards() {
+    let mut server = mockito::Server::new();
+    let unauth_mock = versions_mock(&mut server, None, 401, 1);
+    let bearer_mock = versions_mock(&mut server, Some("stored-token"), 200, 0);
+
+    let (store, _lists) = counting_store(vec![bearer_record(
+        &["http://127.0.0.1:*/**".to_owned()],
+        "stored-token",
+    )]);
+    let policy = CredentialStoreAuthentication::new(empty_env_policy(), store);
+    let runtime = runtime();
+
+    let response = get_versions(&runtime, &policy, &server);
+
+    assert_eq!(response.status().as_u16(), 401);
+    unauth_mock.assert();
+    bearer_mock.assert();
 }
 
 #[test]
@@ -710,7 +939,9 @@ fn debug_never_renders_secrets() {
     // The composed policy: env credentials in `inner`, stored credentials
     // in the populated cache. Neither secret may surface.
     let mut env_builder = StandardHTTPAuthenticationBuilder::new();
-    env_builder.add_bearer_auth("https://bearer.example.com/**", "env-secret", "ENVIDX");
+    env_builder
+        .add_bearer_auth("https://bearer.example.com/**", "env-secret", "ENVIDX")
+        .unwrap();
     let (store, _lists) = counting_store(vec![bearer_record(
         &["https://other.example.com/**".to_owned()],
         "stored-secret",

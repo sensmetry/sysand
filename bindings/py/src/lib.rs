@@ -320,19 +320,18 @@ fn build_auth_policy(spec: &AuthSpec) -> PyResult<Arc<CliAuthPolicy>> {
             let url_glob = spec.url_glob.as_deref().ok_or_else(missing)?;
             let secret = spec.secret.as_deref().ok_or_else(missing)?;
             let mut builder = StandardHTTPAuthenticationBuilder::new();
-            if spec.kind == "bearer" {
-                builder.add_bearer_auth(
-                    url_glob,
-                    secret,
-                    spec.label.as_deref().unwrap_or("python"),
-                );
+            let added = if spec.kind == "bearer" {
+                builder.add_bearer_auth(url_glob, secret, spec.label.as_deref().unwrap_or("python"))
             } else {
                 let username = spec.username.as_deref().ok_or_else(missing)?;
-                builder.add_basic_auth(url_glob, username, secret);
-            }
-            CliAuthPolicy::without_store(builder.build().map_err(|e| {
-                PyValueError::new_err(format!("invalid URL glob `{url_glob}`: {e}"))
-            })?)
+                builder.add_basic_auth(url_glob, username, secret)
+            };
+            added.map_err(|e| PyValueError::new_err(format_err(e)))?;
+            CliAuthPolicy::without_store(
+                builder
+                    .build()
+                    .map_err(|e| PyValueError::new_err(format_err(e)))?,
+            )
         }
         other => {
             return Err(PyValueError::new_err(format!(

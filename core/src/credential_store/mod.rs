@@ -264,7 +264,7 @@ impl Default for CredentialBlob {
 /// [`CredentialStoreError::Unreadable`], an unknown `version` as
 /// [`CredentialStoreError::UnsupportedBlobVersion`].
 pub fn parse_blob(raw: &str) -> Result<CredentialBlob, CredentialStoreError> {
-    let blob: CredentialBlob = serde_json::from_str(raw)
+    let mut blob: CredentialBlob = serde_json::from_str(raw)
         .map_err(|_ignored_because_may_include_secrets| CredentialStoreError::Unreadable)?;
     if blob.version != BLOB_VERSION {
         return Err(CredentialStoreError::UnsupportedBlobVersion {
@@ -272,7 +272,32 @@ pub fn parse_blob(raw: &str) -> Result<CredentialBlob, CredentialStoreError> {
             expected: BLOB_VERSION,
         });
     }
+    for record in &mut blob.credentials {
+        for glob in &mut record.globs {
+            *glob = unescape_glob_metacharacters(glob);
+        }
+    }
     Ok(blob)
+}
+
+/// `glob` with each glob metacharacter escaped as a one-character class
+/// (`[*]`) replaced by itself. sysand 0.2 stored globs with their whole
+/// root escaped this way, as in `http://[[]::1[]]:8080/**`.
+fn unescape_glob_metacharacters(glob: &str) -> String {
+    let mut unescaped = String::with_capacity(glob.len());
+    let mut chars = glob.chars();
+    while let Some(c) = chars.next() {
+        let mut ahead = chars.clone();
+        if let ('[', Some(escaped @ ('*' | '?' | '[' | ']' | '{' | '}')), Some(']')) =
+            (c, ahead.next(), ahead.next())
+        {
+            unescaped.push(escaped);
+            chars = ahead;
+        } else {
+            unescaped.push(c);
+        }
+    }
+    unescaped
 }
 
 /// Serialize a credential blob to its JSON wire form.

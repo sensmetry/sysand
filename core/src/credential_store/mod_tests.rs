@@ -186,3 +186,14 @@ fn parse_fails_closed_on_garbage() {
         );
     }
 }
+
+#[test]
+fn parse_unescapes_escaped_glob_metacharacters() {
+    let mut escaped = record("http://[::1]:8080/", "tok");
+    escaped.globs = vec!["http://[[]::1[]]:8080/a[*]b[{]c[}][x]/**".to_owned()];
+    let parsed = parse_blob(&serialize_blob(&CredentialBlob::new(vec![escaped]))).unwrap();
+    assert_eq!(
+        parsed.credentials[0].globs,
+        ["http://[::1]:8080/a*b{c}[x]/**"]
+    );
+}

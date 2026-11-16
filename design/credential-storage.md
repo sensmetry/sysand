@@ -324,28 +324,24 @@ logout` removes) may fall back to the default index.
   additionally covers the resolved `index_root` and `api_root` when they
   diverge from it, minimal and non-overlapping. Templated URLs are anchored
   before `{path}` / `{path_raw}`.
-- **Glob derivation is escaped and pinned.** URLs can legally contain
-  glob metacharacters (an IPv6 literal reads as a globset character
-  class; `{path}` templates as alternation), and `GlobMapBuilder` uses
-  `literal_separator(true)`. So the derived glob is
-  `globset::escape(<normalized root>)` + `**`, with the root normalized
-  to end in `/` (for example `https://example.com/idx/**`), and both
-  derivation and runtime matching use the same serialization
-  (`url::Url::as_str()`) so IDN/percent-encoding agree on both sides. Two
-  refinements: a plain root's anchor is the **query-stripped** URL
-  (resolved request URLs continue the path before any query, so a query
-  in the anchor would match nothing); a templated root's anchor is the
-  normalized literal
-  prefix cut back to its **last `/`** (prefix normalization gives every
-  template an explicit path `/`, so the anchor always parses as
-  `scheme://authority/` or deeper; a placeholder directly after the
-  authority anchors at the host root); and within
-  one login's derived set (the login URL plus its resolved `index_root`
-  and `api_root`, never other stored records), a newly derived root that
-  **subsumes** an already-derived one replaces it, keeping the set
-  minimal and non-overlapping. Normative test requirements: the
-  discovery-document URL, the `index.json` URL, and the upload URL
-  (if present) each match the compiled derived set, and an IPv6-literal
+- **URL globs.** A credential URL glob (derived or from `SYSAND_CRED_*`)
+  is an `http(s)` URL with a path, whose wildcards are `*`, `?` and `**`.
+  It is normalized as a request URL is and matched against
+  `url::Url::as_str()` with `literal_separator(true)`, so spelling
+  differences such as host case or an explicit default port do not
+  matter. A port wildcard also matches URLs without a port when it can
+  match the default one.
+- **Glob derivation is literal and pinned.** A derived glob is the root,
+  normalized to end in `/`, followed by `**` (for example
+  `https://example.com/idx/**`). A root that would contain a wildcard is
+  refused, so a login covers only the URLs it names. A plain root is
+  anchored without its query (request URLs continue the path before the
+  query); a templated root at its literal prefix cut back to the last
+  `/`. Within one login's derived set, a root that subsumes another
+  replaces it. sysand 0.2 stored roots escaped (`[[]::1[]]`); such globs
+  are unescaped when read. Normative test requirements: the
+  discovery-document URL, the `index.json` URL, and the upload URL (if
+  present) each match the compiled derived set, and an IPv6-literal
   login (`https://[::1]:8000/`) works.
 - **Divergent `api_root` (Case B).** If `api_root` nests under the derived
   root (Case A), one glob suffices. If it is a disjoint host/path, store the
