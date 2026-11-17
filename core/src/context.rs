@@ -11,6 +11,13 @@ use crate::{
 };
 
 #[derive(Debug, Default)]
+#[cfg_attr(
+    not(feature = "filesystem"),
+    expect(
+        missing_copy_implementations,
+        reason = "the struct has no fields without the `filesystem` feature"
+    )
+)]
 pub struct ProjectContext {
     /// Current workspace if found
     #[cfg(feature = "filesystem")]
