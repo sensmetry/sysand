@@ -11,7 +11,7 @@ use pyo3::{
         PyValueError,
     },
     prelude::*,
-    types::{PyAny, PyDict},
+    types::PyDict,
 };
 use semver::Version;
 use sysand::{

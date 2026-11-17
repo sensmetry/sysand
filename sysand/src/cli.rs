@@ -318,7 +318,7 @@ pub enum Command {
     },
 }
 
-#[derive(clap::Args, Debug, Clone)]
+#[derive(clap::Args, Debug, Clone, Copy)]
 #[group(required = false, multiple = true)]
 pub struct LockSyncPrune {
     // TODO: consider enforcing the implication here via e.g. default_value_if(s);
@@ -682,7 +682,7 @@ fn parse_index_value<T, E: std::error::Error>(
 }
 
 /// Parses an [`IndexLocation`], see [`parse_index_value`].
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Copy)]
 pub struct IndexLocationParser;
 
 impl clap::builder::TypedValueParser for IndexLocationParser {
@@ -1137,7 +1137,7 @@ pub struct IndexRemoveTarget {
     pub project: bool,
 }
 
-#[derive(clap::Args, Debug, Clone)]
+#[derive(clap::Args, Debug, Clone, Copy)]
 #[group(required = false, multiple = true)]
 pub struct InstallOptions {
     /// Allow overwriting existing installation
@@ -1271,7 +1271,7 @@ impl ProjectSourceOptions {
     }
 }
 
-#[derive(clap::Args, Debug, Clone)]
+#[derive(clap::Args, Debug, Clone, Copy)]
 pub struct SourcesOptions {
     /// Do not include sources for dependencies
     #[arg(long, default_value = "deps")]
@@ -1476,7 +1476,7 @@ impl ValueEnum for MetamodelVersion {
         &[Self::Release_20250201]
     }
 
-    fn to_possible_value(&self) -> Option<clap::builder::PossibleValue> {
+    fn to_possible_value(&self) -> Option<PossibleValue> {
         Some(match self {
             Self::Release_20250201 => {
                 PossibleValue::new(Self::RELEASE).help("SysMLv2/KerML Release or Beta4")

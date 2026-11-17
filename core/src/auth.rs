@@ -826,7 +826,7 @@ where
     /// The stored bearer credentials, read and cached on first use.
     pub async fn stored_bearer_map(&self) -> &GlobMap<StoredBearerAuth> {
         self.cache
-            .get_or_init(|| async {
+            .get_or_init(async || {
                 let Some(store) = self.store.clone() else {
                     return GlobMap::default();
                 };

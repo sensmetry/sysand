@@ -588,7 +588,7 @@ pub enum PathError {
     #[error("path `{0}` is unsafe")]
     UnsafePath(Utf8PathBuf, #[source] typed_path::CheckedPathError),
     #[error("path `{0}` is absolute")]
-    AbsolutePath(typed_path::Utf8UnixPathBuf),
+    AbsolutePath(Utf8UnixPathBuf),
 }
 
 impl ProjectRead for LocalSrcProject {
@@ -780,7 +780,7 @@ fn relativize_path_in<P: AsRef<Utf8Path>, Q: AsRef<Utf8Path>>(
 
     path.strip_prefix(canonicalize_prefix(relative_to))
         .ok()
-        .map(camino::Utf8Path::to_path_buf)
+        .map(Utf8Path::to_path_buf)
 }
 
 #[cfg(test)]

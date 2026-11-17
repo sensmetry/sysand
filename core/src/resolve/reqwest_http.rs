@@ -48,6 +48,10 @@ pub enum HTTPProjectError<Policy: HTTPAuthentication> {
     KparDownloaded(<ReqwestRemoteKparDownloadedProject<Policy> as ProjectReadAsync>::Error),
 }
 
+#[expect(
+    missing_debug_implementations,
+    reason = "fields include trait objects and associated iterator types without `Debug`"
+)]
 pub enum HTTPProjectAsyncReader<'a, Policy: HTTPAuthentication> {
     SrcProjectReader(<ReqwestSrcProjectAsync<Policy> as ProjectReadAsync>::SourceReader<'a>),
     //KParRangedReader(<ReqwestKparRangedProject as ProjectRead>::SourceReader<'a>),
@@ -243,6 +247,7 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for HTTPProjectAsync<Policy> {
     }
 }
 
+#[derive(Debug)]
 pub struct HTTPProjects<Policy> {
     client: reqwest_middleware::ClientWithMiddleware,
     url: reqwest::Url,

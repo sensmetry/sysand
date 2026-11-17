@@ -179,6 +179,7 @@ impl From<FsIoError> for FileResolverProjectError {
     }
 }
 
+#[derive(Debug)]
 pub enum FileResolverProjectReader<'a> {
     File(<LocalSrcProject as ProjectRead>::SourceReader<'a>),
     Archive(<LocalKParProject as ProjectRead>::SourceReader<'a>),

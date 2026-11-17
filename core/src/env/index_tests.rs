@@ -316,7 +316,7 @@ mod uris {
                 ));
             assert_matches!(
                 err,
-                super::IndexEnvironmentError::MalformedIri(ParseIriError::MalformedSysandPurl {
+                IndexEnvironmentError::MalformedIri(ParseIriError::MalformedSysandPurl {
                     iri: _,
                     source: _
                 }),
@@ -447,10 +447,7 @@ mod uris {
             .uris()
             .expect_err("`yanked` is not valid for index.json project status");
         match err {
-            super::IndexEnvironmentError::Fetch(super::HttpFetchError::JsonParse {
-                url,
-                source: _,
-            }) => assert!(
+            IndexEnvironmentError::Fetch(HttpFetchError::JsonParse { url, source: _ }) => assert!(
                 url.requested()
                     .unredacted()
                     .as_str()
@@ -485,10 +482,7 @@ mod uris {
             .uris()
             .expect_err("missing index.json must error, not be treated as empty");
         match err {
-            super::IndexEnvironmentError::Fetch(super::HttpFetchError::BadHttpStatus {
-                url,
-                status,
-            }) => {
+            IndexEnvironmentError::Fetch(HttpFetchError::BadHttpStatus { url, status }) => {
                 assert_eq!(status, reqwest::StatusCode::NOT_FOUND);
                 assert!(
                     url.requested()
@@ -522,7 +516,7 @@ mod uris {
             .create();
 
         let uris: Result<Vec<_>, _> = env.uris()?.collect();
-        assert_eq!(uris?, [] as [String; 0]);
+        assert_eq!(uris?, Vec::<String>::new());
         index_mock.assert();
 
         Ok(())
@@ -566,10 +560,7 @@ mod uris {
 
         let err = env.uris().expect_err("malformed JSON must error");
         match err {
-            super::IndexEnvironmentError::Fetch(super::HttpFetchError::JsonParse {
-                url,
-                source: _,
-            }) => {
+            IndexEnvironmentError::Fetch(HttpFetchError::JsonParse { url, source: _ }) => {
                 assert!(
                     url.requested()
                         .unredacted()
@@ -713,7 +704,7 @@ mod versions {
             .versions(purl("admin/proj0"))
             .expect_err("ascending order must be rejected as a protocol violation");
         match err {
-            super::IndexEnvironmentError::VersionsOutOfOrder { prev, curr, url: _ } => {
+            IndexEnvironmentError::VersionsOutOfOrder { prev, curr, url: _ } => {
                 assert_eq!(prev, "1.0.0");
                 assert_eq!(curr, "2.0.0");
             }
@@ -745,7 +736,7 @@ mod versions {
             .versions(purl("admin/proj0"))
             .expect_err("prerelease before release must be rejected");
         match err {
-            super::IndexEnvironmentError::VersionsOutOfOrder { prev, curr, url: _ } => {
+            IndexEnvironmentError::VersionsOutOfOrder { prev, curr, url: _ } => {
                 assert_eq!(prev, "10.0.0-beta.1");
                 assert_eq!(curr, "10.0.0");
             }
@@ -775,7 +766,7 @@ mod versions {
             .versions(purl("admin/proj0"))
             .expect_err("build metadata must be rejected as a protocol violation");
         match err {
-            super::IndexEnvironmentError::VersionHasBuildMetadata { value, url: _ } => {
+            IndexEnvironmentError::VersionHasBuildMetadata { value, url: _ } => {
                 assert_eq!(value, "1.2.3+build.42");
             }
             other => panic!("expected VersionHasBuildMetadata, got {other:?}"),
@@ -828,7 +819,7 @@ mod versions {
             .versions(purl("admin/proj0"))
             .expect_err("non-semver version must surface as a protocol error");
         match err {
-            super::IndexEnvironmentError::InvalidSemverVersion {
+            IndexEnvironmentError::InvalidSemverVersion {
                 value,
                 url: _,
                 source: _,
@@ -893,10 +884,7 @@ mod versions {
             .versions(purl("admin/proj0"))
             .expect_err("403 on root versions.json must be a hard error");
         match err {
-            super::IndexEnvironmentError::Fetch(super::HttpFetchError::BadHttpStatus {
-                status,
-                url: _,
-            }) => {
+            IndexEnvironmentError::Fetch(HttpFetchError::BadHttpStatus { status, url: _ }) => {
                 assert_eq!(status, reqwest::StatusCode::FORBIDDEN);
             }
             other => panic!("expected BadHttpStatus(403), got {other:?}"),
@@ -928,10 +916,7 @@ mod versions {
             .expect_err("missing required field must reject the document");
         assert_matches!(
             err,
-            super::IndexEnvironmentError::Fetch(super::HttpFetchError::JsonParse {
-                url: _,
-                source: _
-            }),
+            IndexEnvironmentError::Fetch(HttpFetchError::JsonParse { url: _, source: _ }),
             "expected Fetch(JsonParse), got {err:?}"
         );
 
@@ -959,7 +944,7 @@ mod versions {
             .versions(purl("admin/proj0"))
             .expect_err("duplicate versions must reject the document");
         match err {
-            super::IndexEnvironmentError::DuplicateVersion { version, url: _ } => {
+            IndexEnvironmentError::DuplicateVersion { version, url: _ } => {
                 assert_eq!(version, "1.0.0");
             }
             other => panic!("expected DuplicateVersion, got {other:?}"),
@@ -1022,10 +1007,7 @@ mod versions {
             .versions(purl("admin/proj0"))
             .expect_err("malformed JSON must error");
         match err {
-            super::IndexEnvironmentError::Fetch(super::HttpFetchError::JsonParse {
-                url,
-                source: _,
-            }) => {
+            IndexEnvironmentError::Fetch(HttpFetchError::JsonParse { url, source: _ }) => {
                 assert!(
                     url.requested()
                         .unredacted()
@@ -1118,7 +1100,7 @@ mod get_project {
             .get_project(purl("nope/nope"), "1.0.0")
             .expect_err("versions.json 404 must surface as ProjectNotInIndex");
         match err {
-            super::IndexEnvironmentError::ProjectNotInIndex { url, iri } => {
+            IndexEnvironmentError::ProjectNotInIndex { url, iri } => {
                 assert_eq!(iri, purl("nope/nope"));
                 assert!(
                     url.unredacted().as_str().contains("/versions.json"),
@@ -1153,10 +1135,7 @@ mod get_project {
             .get_project(purl("admin/proj0"), "1.0.0")
             .expect_err("5xx on root versions.json must be a hard error");
         match err {
-            super::IndexEnvironmentError::Fetch(super::HttpFetchError::BadHttpStatus {
-                status,
-                url: _,
-            }) => {
+            IndexEnvironmentError::Fetch(HttpFetchError::BadHttpStatus { status, url: _ }) => {
                 assert_eq!(status, reqwest::StatusCode::SERVICE_UNAVAILABLE);
             }
             other => panic!("expected BadHttpStatus(503), got {other:?}"),
@@ -1195,7 +1174,7 @@ mod get_project {
             .get_project(purl("admin/proj0"), "0.3.0")
             .expect_err("removed entries must hard-fail with VersionRemoved");
         match err {
-            super::IndexEnvironmentError::VersionRemoved { iri, version, url } => {
+            IndexEnvironmentError::VersionRemoved { iri, version, url } => {
                 assert_eq!(iri, purl("admin/proj0"));
                 assert_eq!(version, "0.3.0");
                 assert!(
@@ -1810,7 +1789,7 @@ mod get_project {
             .get_project(purl("admin/proj0"), "9.9.9")
             .expect_err("requesting an absent version must error");
         match err {
-            super::IndexEnvironmentError::VersionNotInIndex { url, version } => {
+            IndexEnvironmentError::VersionNotInIndex { url, version } => {
                 assert!(
                     url.unredacted()
                         .as_str()
@@ -1991,7 +1970,7 @@ mod digest {
             .get_project(purl("admin/proj0"), "0.3.0")
             .expect_err("malformed kpar_digest must surface as a protocol error");
         match err {
-            super::IndexEnvironmentError::InvalidVersionEntry {
+            IndexEnvironmentError::InvalidVersionEntry {
                 version,
                 field,
                 value,
@@ -2032,7 +2011,7 @@ mod digest {
             .versions(purl("admin/proj0"))
             .expect_err("malformed kpar_digest must reject the document at parse time");
         match err {
-            super::IndexEnvironmentError::InvalidVersionEntry {
+            IndexEnvironmentError::InvalidVersionEntry {
                 version,
                 field,
                 value,
@@ -2141,11 +2120,11 @@ mod caching {
 
         let project = env.get_project(purl("admin/proj0"), "0.3.0")?;
         // Hit each accessor multiple times in mixed order; cache must hold.
-        let _ = project.get_info()?;
-        let _ = project.get_meta()?;
-        let _ = project.get_project()?;
-        let _ = project.get_info()?;
-        let _ = project.get_meta()?;
+        drop(project.get_info()?);
+        drop(project.get_meta()?);
+        drop(project.get_project()?);
+        drop(project.get_info()?);
+        drop(project.get_meta()?);
 
         versions_mock.assert();
         project_json_mock.assert();
@@ -2281,8 +2260,7 @@ mod sources {
         let project = env.get_project(purl("admin/proj0"), "0.3.0")?;
         let err = project
             .read_source("anything.sysml")
-            .err()
-            .expect("mismatched kpar digest must error");
+            .expect_err("mismatched kpar digest must error");
         match err {
             IndexEntryProjectError::Downloaded(ReqwestKparDownloadedError::DigestMismatch {
                 expected,
@@ -2338,10 +2316,11 @@ mod sources {
             .create();
 
         let project = env.get_project(purl("admin/proj0"), "0.3.0")?;
-        let _ = project
-            .read_source("anything.sysml")
-            .err()
-            .expect("mismatched kpar digest must error");
+        drop(
+            project
+                .read_source("anything.sysml")
+                .expect_err("mismatched kpar digest must error"),
+        );
 
         assert!(
             !project.inner.archive.is_downloaded_and_verified(),
@@ -2395,8 +2374,7 @@ mod sources {
         let project = env.get_project(purl("admin/proj0"), "0.3.0")?;
         let err = project
             .read_source("anything.sysml")
-            .err()
-            .expect("invalid zip must error, but not with DigestMismatch");
+            .expect_err("invalid zip must error, but not with DigestMismatch");
         if matches!(
             err,
             IndexEntryProjectError::Downloaded(ReqwestKparDownloadedError::DigestMismatch {

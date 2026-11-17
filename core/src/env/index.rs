@@ -97,7 +97,7 @@ pub struct IndexEnvironmentAsync<Policy> {
     ///
     // This is a Mutex to enable caching in &self methods of ReadEnvironment
     // trait.
-    versions_cache: tokio::sync::Mutex<HashMap<String, VersionsCacheEntry>>,
+    versions_cache: Mutex<HashMap<String, VersionsCacheEntry>>,
 }
 
 impl<Policy> IndexEnvironmentAsync<Policy> {
@@ -188,7 +188,7 @@ impl TryFrom<&str> for Sha256HexDigest {
 /// the raw [`VersionEntry`] is only alive briefly during deserialization.
 #[derive(Debug, Clone)]
 pub(crate) struct AdvertisedVersion {
-    pub(crate) version: semver::Version,
+    pub(crate) version: Version,
     pub(crate) usage: Vec<InterchangeProjectUsageRaw>,
     pub(crate) kpar_size: NonZeroU64,
     pub(crate) kpar_digest: Sha256HexDigest,
@@ -350,7 +350,7 @@ impl<Policy: HTTPAuthentication> IndexEnvironmentAsync<Policy> {
         if let Some(discovery_root) = self.discovery_root.as_ref() {
             return self
                 .endpoints
-                .get_or_try_init(|| async {
+                .get_or_try_init(async || {
                     fetch_index_config(&self.client, &*self.auth_policy, discovery_root).await
                 })
                 .await

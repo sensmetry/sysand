@@ -64,13 +64,13 @@ fn env_with_installed_project(
 ) -> (LocalDirectoryEnvironment, String) {
     let env_dir = root.join(".sysand");
     let project_dir = env_dir.join("lib/example_1.0.0");
-    std::fs::create_dir_all(&project_dir).unwrap();
-    std::fs::write(
+    fs::create_dir_all(&project_dir).unwrap();
+    fs::write(
         project_dir.join(".project.json"),
         r#"{"name":"example","version":"1.0.0"}"#,
     )
     .unwrap();
-    std::fs::write(
+    fs::write(
         project_dir.join(".meta.json"),
         r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#,
     )

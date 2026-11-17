@@ -53,7 +53,7 @@ fn trivial_memory_project<'a>(
             .into_iter()
             .map(|(d, dv)| InterchangeProjectUsageRaw::Resource {
                 resource: d.to_owned(),
-                version_constraint: dv.map(std::borrow::ToOwned::to_owned),
+                version_constraint: dv.map(ToOwned::to_owned),
             })
             .collect(),
     )
@@ -414,7 +414,7 @@ fn diamond_selection() -> Result<(), Box<dyn std::error::Error>> {
         vec![
             InterchangeProjectUsage::Resource {
                 resource: Iri::parse("urn:kpar:diamond_selection_a")?.into(),
-                version_constraint: Some(semver::VersionReq::parse(">=0.1.0")?),
+                version_constraint: Some(VersionReq::parse(">=0.1.0")?),
             },
             InterchangeProjectUsage::Resource {
                 resource: Iri::parse("urn:kpar:diamond_selection_b")?.into(),
@@ -451,11 +451,11 @@ fn incompatible_versions_fail() {
         vec![
             InterchangeProjectUsage::Resource {
                 resource: Iri::parse("urn:kpar:widget").unwrap().into(),
-                version_constraint: Some(semver::VersionReq::parse("=1.0.0").unwrap()),
+                version_constraint: Some(VersionReq::parse("=1.0.0").unwrap()),
             },
             InterchangeProjectUsage::Resource {
                 resource: Iri::parse("urn:kpar:widget").unwrap().into(),
-                version_constraint: Some(semver::VersionReq::parse("=2.0.0").unwrap()),
+                version_constraint: Some(VersionReq::parse("=2.0.0").unwrap()),
             },
         ],
         None,
@@ -607,11 +607,11 @@ fn usages_multiple_versions_of_same_project() {
         vec![
             InterchangeProjectUsage::Resource {
                 resource: Iri::parse("urn:kpar:widget").unwrap().into(),
-                version_constraint: Some(semver::VersionReq::parse("=1.0.0").unwrap()),
+                version_constraint: Some(VersionReq::parse("=1.0.0").unwrap()),
             },
             InterchangeProjectUsage::Resource {
                 resource: Iri::parse("urn:kpar:widget").unwrap().into(),
-                version_constraint: Some(semver::VersionReq::parse("=2.0.0").unwrap()),
+                version_constraint: Some(VersionReq::parse("=2.0.0").unwrap()),
             },
         ],
         None,
@@ -1057,7 +1057,7 @@ use super::SolveConflict;
 fn root_usage(iri: &str, constraint: Option<&str>) -> InterchangeProjectUsage {
     InterchangeProjectUsage::Resource {
         resource: Iri::parse(iri).unwrap().into(),
-        version_constraint: constraint.map(|c| semver::VersionReq::parse(c).unwrap()),
+        version_constraint: constraint.map(|c| VersionReq::parse(c).unwrap()),
     }
 }
 
@@ -1827,7 +1827,7 @@ fn solve_backtracks_past_a_default_constraint_that_selects_nothing()
 
 mod index_usages {
     use super::*;
-    use crate::solve::pubgrub::{CandidateError, InternalSolverError, SolveConflict, SolverError};
+    use crate::solve::pubgrub::{CandidateError, InternalSolverError, SolverError};
 
     const LIB: &str = "pkg:sysand/acme/lib";
 

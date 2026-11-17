@@ -78,7 +78,7 @@ impl InMemoryProject {
             info: None,
             meta: None,
             model_toml: None,
-            files: std::collections::HashMap::new(),
+            files: HashMap::new(),
             nominal_sources: vec![],
             source_may_offer_multiple_versions: false,
         };

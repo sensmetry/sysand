@@ -557,7 +557,7 @@ impl<Iri, VersionReq, Path, Publisher, Name, IdxPublisher, IdxName>
 pub type InterchangeProjectUsageRaw =
     InterchangeProjectUsageG<String, String, String, String, String, String, String>;
 pub type InterchangeProjectUsage = InterchangeProjectUsageG<
-    fluent_uri::Iri<String>,
+    Iri<String>,
     semver::VersionReq,
     Utf8UnixPathBuf,
     ProjectPublisher,
@@ -580,7 +580,7 @@ impl InterchangeProjectUsageRaw {
                 // `pkg:sysand` IRIs at validation time so users get an actionable
                 // error (with a suggested normalized form) instead of a downstream
                 // "not found" — see `crate::purl::parse_sysand_purl`.
-                crate::purl::parse_sysand_purl(resource).map_err(|e| {
+                parse_sysand_purl(resource).map_err(|e| {
                     InterchangeProjectValidationError::MalformedUsageSysandPurl {
                         iri: resource.clone(),
                         source: e,
@@ -595,7 +595,7 @@ impl InterchangeProjectUsageRaw {
                 }
 
                 Ok(InterchangeProjectUsage::Resource {
-                    resource: fluent_uri::Iri::parse(resource.clone()).map_err(|(e, val)| {
+                    resource: Iri::parse(resource.clone()).map_err(|(e, val)| {
                         InterchangeProjectValidationError::InvalidUsageResource(val, e)
                     })?,
 
@@ -1008,7 +1008,7 @@ impl InterchangeProjectInfoPartial {
 pub type InterchangeProjectInfoRaw =
     InterchangeProjectInfoG<String, String, String, String, String, String, String, String, String>;
 pub type InterchangeProjectInfo = InterchangeProjectInfoG<
-    fluent_uri::Iri<String>,
+    Iri<String>,
     semver::Version,
     spdx::Expression,
     semver::VersionReq,
@@ -1215,7 +1215,7 @@ impl InterchangeProjectInfoRaw {
             website: self
                 .website
                 .clone()
-                .map(fluent_uri::Iri::parse)
+                .map(Iri::parse)
                 .transpose()
                 .map_err(|(e, val)| InterchangeProjectValidationError::InvalidWebsite(val, e))?,
 
@@ -1264,7 +1264,7 @@ pub enum KerMlChecksumAlg {
     Adler32,
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Clone, Copy)]
 #[error("failed to parse checksum algorithm")]
 pub struct AlgParseError;
 

@@ -82,12 +82,8 @@ fn installed_projects_are_found() {
     );
 
     assert_eq!(
-        env.has_version_verified(
-            uri,
-            version,
-            &crate::project::ProjectChecksum::Project(String::from("00"))
-        )
-        .unwrap(),
+        env.has_version_verified(uri, version, &ProjectChecksum::Project(String::from("00")))
+            .unwrap(),
         ProjectChecksumResult::Mismatch
     );
 
@@ -308,7 +304,7 @@ fn sync_outcome_reports_pruned_unless_no_prune() {
 
     let (result, outcome) = run_sync(&lock, &mut env, true);
     result.unwrap();
-    assert_eq!(outcome.pruned, [] as [SyncedProject; 0]);
+    assert_eq!(outcome.pruned, Vec::new());
     assert_eq!(env_uris(&env), vec!["urn:kpar:extra", URI]);
 
     let (result, outcome) = run_sync(&lock, &mut env, false);

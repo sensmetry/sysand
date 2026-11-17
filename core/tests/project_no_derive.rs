@@ -11,6 +11,7 @@ use sysand_core::{
     project::{ProjectChecksum, ProjectMut, ProjectRead, memory::InMemoryProject},
 };
 
+#[derive(Debug)]
 pub enum GenericProject<A, B>
 where
     A: ProjectRead,
@@ -43,6 +44,7 @@ pub enum GenericProjectError<Variant1, Variant2, Variant3> {
     Variant3(Variant3),
 }
 
+#[derive(Debug)]
 pub enum GenericProjectSourceReader<Variant1, Variant2, Variant3> {
     Variant1(Variant1),
     Variant2(Variant2),

@@ -54,6 +54,44 @@ typed-path = { version = "0.13.0", default-features = false }
 url = { version = "2.5.8", default-features = false }
 zip = { version = "9.0.5", default-features = false, features = ["deflate"] }
 
+[workspace.lints.rust]
+# rustc lints that are allow-by-default, enabled individually.
+# Edition migration lints are omitted: the workspace is on edition 2024.
+ambiguous_negative_literals = "warn"
+closure_returning_async_block = "warn"
+deprecated_in_future = "warn"
+deref_into_dyn_supertrait = "warn"
+# noisy: needs `<'_>` on most JNI, PyO3 and ICU types
+# elided_lifetimes_in_paths = "warn"
+explicit_outlives_requirements = "warn"
+ffi_unwind_calls = "warn"
+impl_trait_redundant_captures = "warn"
+let_underscore_drop = "warn"
+macro_use_extern_crate = "warn"
+meta_variable_misuse = "warn"
+missing_copy_implementations = "warn"
+missing_debug_implementations = "warn"
+non_ascii_idents = "warn"
+raw_borrows_via_references = "warn"
+redundant_imports = "warn"
+redundant_lifetimes = "warn"
+single_use_lifetimes = "warn"
+trivial_casts = "warn"
+trivial_numeric_casts = "warn"
+unit_bindings = "warn"
+unnameable_types = "warn"
+# noisy; flags items that are `pub` for readability in private modules
+# unreachable_pub = "warn"
+unused_crate_dependencies = "warn"
+unused_extern_crates = "warn"
+unused_import_braces = "warn"
+unused_lifetimes = "warn"
+unused_macro_rules = "warn"
+unused_qualifications = "warn"
+variant_size_differences = "warn"
+# only the JNI entry point needs `unsafe`, with a scoped `#[expect]`
+unsafe_code = "warn"
+
 [workspace.lints.clippy]
 # Enable all lints by default, and disable individually.
 # This also conveniently enables any new lints that get introduced.

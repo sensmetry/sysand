@@ -182,7 +182,7 @@ mod select_bearer {
 #[test]
 fn publish_bearer_auth_map_keeps_bearer_drops_basic_and_carries_labels()
 -> Result<(), Box<dyn std::error::Error>> {
-    let mut builder = crate::auth::StandardHTTPAuthenticationBuilder::new();
+    let mut builder = StandardHTTPAuthenticationBuilder::new();
     builder.add_basic_auth("https://basic.example.com/*", "user", "password");
     builder.add_bearer_auth("https://bearer.example.com/*", "tok", "MYIDX");
     builder.add_bearer_auth("https://labeled.example.com/*", "tok2", "TEAMIDX");
@@ -674,7 +674,7 @@ fn direct_stored_bearer_read_degrades_store_errors_to_an_empty_map() {
 
 #[test]
 fn debug_never_renders_secrets() {
-    let bearer = crate::auth::ForceBearerAuth::new("bearer-secret");
+    let bearer = ForceBearerAuth::new("bearer-secret");
     let rendered = format!("{bearer:?}");
     assert!(rendered.contains("<redacted>"), "rendered: {rendered}");
     assert!(!rendered.contains("bearer-secret"), "rendered: {rendered}");
@@ -688,15 +688,15 @@ fn debug_never_renders_secrets() {
     assert!(rendered.contains("<redacted>"), "rendered: {rendered}");
     assert!(!rendered.contains("basic-secret"), "rendered: {rendered}");
     let env = crate::auth::EnvBearerAuth {
-        auth: crate::auth::ForceBearerAuth::new("env-secret"),
+        auth: ForceBearerAuth::new("env-secret"),
         label: "TEAMIDX".to_owned(),
     };
     let rendered = format!("{env:?}");
     assert!(rendered.contains("TEAMIDX"), "rendered: {rendered}");
     assert!(!rendered.contains("env-secret"), "rendered: {rendered}");
 
-    let stored = crate::auth::StoredBearerAuth::new(
-        crate::auth::ForceBearerAuth::new("stored-secret"),
+    let stored = StoredBearerAuth::new(
+        ForceBearerAuth::new("stored-secret"),
         "https://example.com/".to_owned(),
         None,
     );

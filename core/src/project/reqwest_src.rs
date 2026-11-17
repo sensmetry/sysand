@@ -3,7 +3,7 @@
 
 //! This module implements accessing interchanged projects stored remotely over HTTP.
 
-use std::{io, marker::Send, pin::Pin, sync::Arc};
+use std::{io, pin::Pin, sync::Arc};
 
 use fluent_uri::Iri;
 use futures::{TryStreamExt as _, join};

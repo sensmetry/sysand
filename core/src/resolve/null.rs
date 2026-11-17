@@ -6,7 +6,7 @@ use crate::{
     resolve::{ResolutionInfo, ResolveRead},
 };
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct NullResolver;
 
 impl ResolveRead for NullResolver {

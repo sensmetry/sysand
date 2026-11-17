@@ -34,6 +34,7 @@ use crate::{
 /// Intended to be used with temporary files that are automatically
 /// deleted; in this case, the lifetime `'a` is the lifetime of the
 /// temporary file.
+#[derive(Debug)]
 pub struct FileWithLifetime<'a> {
     internal: std::fs::File,
     phantom: std::marker::PhantomData<&'a ()>,
@@ -268,7 +269,7 @@ pub mod wrapfs {
         let path = dunce::canonicalize(path.as_ref())?;
         Utf8PathBuf::from_path_buf(path)
             // error is just original `path`
-            .map_err(|_path| io::Error::from(io::ErrorKind::InvalidData))
+            .map_err(|_path| io::Error::from(ErrorKind::InvalidData))
     }
 
     /// see `std::path::absolute()`
@@ -284,7 +285,7 @@ pub mod wrapfs {
             .and_then(|d| {
                 Utf8PathBuf::from_path_buf(d)
                     // error is just original `path`
-                    .map_err(|_path| io::Error::from(io::ErrorKind::InvalidData))
+                    .map_err(|_path| io::Error::from(ErrorKind::InvalidData))
             })
             .map_err(|e| Box::new(FsIoError::CurrentDir(e)))
     }

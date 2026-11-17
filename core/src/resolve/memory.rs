@@ -48,7 +48,7 @@ pub trait IRIPredicate {
     fn accept(&self, usage: &ResolutionInfo) -> bool;
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct AcceptAll;
 
 impl IRIPredicate for AcceptAll {
@@ -60,7 +60,7 @@ impl IRIPredicate for AcceptAll {
 /// Accepts only `Resource` usages. Source overrides are keyed by the IRIs
 /// of resource usages, so they must not resolve typed usages that happen to
 /// share an [`Identifier`]
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct AcceptResource;
 
 impl IRIPredicate for AcceptResource {

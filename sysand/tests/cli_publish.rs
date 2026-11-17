@@ -34,7 +34,7 @@ fn run_sysand_ok(cwd: &Utf8Path, args: &[&str], cfg: Option<&str>) -> TestResult
 }
 
 fn include_basic_model(cwd: &Utf8Path) -> TestResult {
-    std::fs::write(cwd.join("test.sysml"), "package P;\n")?;
+    fs::write(cwd.join("test.sysml"), "package P;\n")?;
     run_sysand_ok(cwd, &["include", "--no-index-symbols", "test.sysml"], None)?;
     run_sysand_ok(cwd, &["edit", "--metamodel", "sysml"], None)
 }
@@ -129,11 +129,11 @@ fn mock_publish_with_bearer(server: &mut Server, token: &str) -> mockito::Mock {
 #[test]
 fn publish_without_path_from_workspace_root_reports_explicit_error() -> TestResult {
     let (_temp_dir, cwd) = new_temp_cwd()?;
-    std::fs::write(
+    fs::write(
         cwd.join(".workspace.json"),
         br#"{"projects": [{"path": "project1", "iris": ["urn:kpar:project1"]}]}"#,
     )?;
-    std::fs::create_dir(cwd.join("project1"))?;
+    fs::create_dir(cwd.join("project1"))?;
 
     let out = run_sysand_in(&cwd, ["publish", "--index", "http://localhost:1"], None)?;
     out.assert()
@@ -231,7 +231,7 @@ fn publish_requires_index_even_with_config_default() -> TestResult {
     let (_temp_dir, cwd) = setup_built_project("test-publish")?;
 
     let config_path = cwd.join("publish-test.toml");
-    std::fs::write(
+    fs::write(
         &config_path,
         "[[index]]\nurl = \"https://config-default.example.com\"\ndefault = true\n",
     )?;
@@ -569,7 +569,7 @@ fn publish_rejects_invalid_semver_version() -> TestResult {
 
     let (kpar_bytes, _info, _meta) =
         build_index_kpar_bytes("acme", "invalid-version", "not-semver");
-    std::fs::write(cwd.join("artifact.kpar"), kpar_bytes)?;
+    fs::write(cwd.join("artifact.kpar"), kpar_bytes)?;
 
     let env = bearer_env_for_url("http://localhost:1");
     let out = run_sysand_in_with(
@@ -593,10 +593,10 @@ fn publish_rejects_version_build_metadata() -> TestResult {
 
     // Manually set the field, since set_project_field runs the CLI
     let project_file = cwd.join(".project.json");
-    let project_json = std::fs::read_to_string(&project_file)?;
+    let project_json = fs::read_to_string(&project_file)?;
     let project_json =
         project_json.replace("\"version\": \"1.0.0\"", "\"version\": \"1.2.3+build\"");
-    std::fs::write(project_file, project_json)?;
+    fs::write(project_file, project_json)?;
 
     include_basic_model(&cwd)?;
     build_kpar_at(&cwd, "artifact.kpar")?;
@@ -770,7 +770,7 @@ fn publish_uses_stored_credential_when_no_env_bearer_matches() -> TestResult {
     let config_mock = mock_index_config_api_at_api(&mut server);
     let publish_mock = mock_publish_with_bearer(&mut server, "stored-tok");
 
-    let store_dir = camino_tempfile::Utf8TempDir::with_prefix("sysand_cred_seam_")?;
+    let store_dir = Utf8TempDir::with_prefix("sysand_cred_seam_")?;
     let store_path = store_dir.path().join("creds.json");
     // The blob as `sysand auth login` persists it, covering the whole
     // index host, so the derived glob matches the upload URL.

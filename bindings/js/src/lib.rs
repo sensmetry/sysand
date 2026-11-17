@@ -11,7 +11,7 @@ pub mod io;
 mod panic_hook;
 
 #[cfg(feature = "browser")]
-mod local_storage_utils;
+pub mod local_storage_utils;
 
 #[wasm_bindgen(js_name = init_logger)]
 pub fn init_logger() {

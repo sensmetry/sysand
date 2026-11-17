@@ -234,10 +234,7 @@ pub fn command_auth_login(
             let claim = if validated.is_empty() {
                 "stored, not validated".to_owned()
             } else {
-                let surfaces: Vec<String> = validated
-                    .iter()
-                    .map(std::string::ToString::to_string)
-                    .collect();
+                let surfaces: Vec<String> = validated.iter().map(ToString::to_string).collect();
                 format!("validated ({})", surfaces.join(", "))
             };
             // Both lines are the login result: one channel (the log), so

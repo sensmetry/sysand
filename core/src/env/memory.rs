@@ -257,7 +257,7 @@ impl<Project: ProjectMut + Clone + Default> WriteEnvironment for MemoryStorageEn
         // TODO: change env structure to store this somewhere
         _checksum: Option<ProjectChecksum>,
         write_project: F,
-    ) -> Result<Self::InterchangeProjectMut, super::PutProjectError<Self::WriteError, E>>
+    ) -> Result<Self::InterchangeProjectMut, PutProjectError<Self::WriteError, E>>
     where
         F: FnOnce(&mut Self::InterchangeProjectMut) -> Result<(), E>,
     {

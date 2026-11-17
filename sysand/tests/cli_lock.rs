@@ -270,13 +270,13 @@ fn lock_std_lib() -> Result<(), Box<dyn std::error::Error>> {
         None,
     )?;
 
-    out.assert().success().stderr(predicate::str::contains(
+    out.assert().success().stderr(contains(
         "Adding usage: IRI `https://www.omg.org/spec/KerML/20250201/Function-Library.kpar`",
     ));
 
     let cfg = toml::to_string(&config::Config {
         indexes: vec![],
-        projects: vec![sysand_core::config::ConfigProject {
+        projects: vec![ConfigProject {
             identifiers: vec![fluent_uri::Iri::parse("urn:kpar:local_dep".to_owned()).unwrap()],
             sources: vec![OverrideSource::LocalSrc {
                 src_path: cwd.join("local_dep").as_str().into(),
@@ -741,8 +741,8 @@ fn sync_hard_fails_on_kpar_digest_drift_from_lockfile() -> Result<(), Box<dyn st
     let out = run_sysand_in(&cwd, ["sync", "--default-index", &server_url], None)?;
     out.assert()
         .failure()
-        .stderr(predicate::str::contains("sha256"))
-        .stderr(predicate::str::contains("expected digest"));
+        .stderr(contains("sha256"))
+        .stderr(contains("expected digest"));
 
     drifted_kpar_mock.assert();
 
@@ -1275,7 +1275,7 @@ fn lock_reports_why_a_dir_usage_failed() -> Result<(), Box<dyn std::error::Error
     run_sysand_in(&cwd, ["lock", "--no-index"], None)?
         .assert()
         .failure()
-        .stderr(predicate::str::contains("someone-else"));
+        .stderr(contains("someone-else"));
 
     Ok(())
 }

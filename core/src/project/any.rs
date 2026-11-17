@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-use std::{result::Result, sync::Arc};
+use std::sync::Arc;
 
 use camino::Utf8Path;
 use reqwest_middleware::ClientWithMiddleware;

@@ -45,6 +45,7 @@ pub enum IndexRemoveError {
     VersionNotFound { iri: Box<str>, version: Box<str> },
 }
 
+#[derive(Debug)]
 pub enum RemoveTarget {
     // It's String and not semver::Version because it's good to allow removing a non-semantic
     // version

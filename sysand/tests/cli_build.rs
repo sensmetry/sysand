@@ -71,7 +71,7 @@ fn build_warns_about_an_unknown_key() -> Result<(), Box<dyn std::error::Error>> 
 fn project_build() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = cli_init_project_basic("a", "test_build", "1.2.3")?;
 
-    std::fs::write(cwd.join("test.sysml"), b"package P;\n")?;
+    fs::write(cwd.join("test.sysml"), b"package P;\n")?;
 
     out.assert().success();
 
@@ -150,7 +150,7 @@ fn project_build() -> Result<(), Box<dyn std::error::Error>> {
 fn project_build_pretty_prints_project_and_meta_json() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = cli_init_project_basic("a", "test_pretty", "1.2.3")?;
 
-    std::fs::write(cwd.join("test.sysml"), b"package P;\n")?;
+    fs::write(cwd.join("test.sysml"), b"package P;\n")?;
 
     out.assert().success();
 
@@ -186,7 +186,7 @@ fn build_errors_when_index_symbol_is_missing_from_file() -> Result<(), Box<dyn s
         cli_init_project_basic("a", "test_build_missing_index_symbol", "1.2.3")?;
     out.assert().success();
 
-    std::fs::write(cwd.join("test.sysml"), b"package Present;\n")?;
+    fs::write(cwd.join("test.sysml"), b"package Present;\n")?;
     let out = run_sysand_in(
         &cwd,
         [
@@ -204,7 +204,7 @@ fn build_errors_when_index_symbol_is_missing_from_file() -> Result<(), Box<dyn s
     meta["index"] = json!({
         "Missing": "test.sysml"
     });
-    std::fs::write(&meta_path, serde_json::to_string_pretty(&meta)?)?;
+    fs::write(&meta_path, serde_json::to_string_pretty(&meta)?)?;
 
     let out = run_sysand_in(&cwd, ["build", "./test_build_good.kpar"], None)?;
     out.assert().success();
@@ -229,7 +229,7 @@ fn project_build_warns_when_file_symbol_is_missing_from_index()
         cli_init_project_basic("a", "test_build_missing_index_entry", "1.2.3")?;
     out.assert().success();
 
-    std::fs::write(cwd.join("test.sysml"), b"package Present;\n")?;
+    fs::write(cwd.join("test.sysml"), b"package Present;\n")?;
     let out = run_sysand_in(
         &cwd,
         [
@@ -371,14 +371,14 @@ impl WProject {
 fn workspace_build() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
     let project_group_cwd = cwd.join("subgroup");
-    std::fs::create_dir(&project_group_cwd)?;
+    fs::create_dir(&project_group_cwd)?;
 
     let project1_cwd = project_group_cwd.join("project1");
     let project2_cwd = project_group_cwd.join("project2");
     let project3_cwd = cwd.join("project3");
 
     // Create .workspace.json file
-    std::fs::write(
+    fs::write(
         cwd.join(".workspace.json"),
         json!({"projects": [
         {"path": "subgroup/project1", "iris": ["urn:kpar:project1"]},
@@ -389,7 +389,7 @@ fn workspace_build() -> Result<(), Box<dyn std::error::Error>> {
     )?;
 
     for project_cwd in [&project1_cwd, &project2_cwd, &project3_cwd] {
-        std::fs::create_dir(project_cwd)?;
+        fs::create_dir(project_cwd)?;
         let out = cli_init_project_in(
             project_cwd,
             None,
@@ -400,7 +400,7 @@ fn workspace_build() -> Result<(), Box<dyn std::error::Error>> {
         )?;
         out.assert().success();
 
-        std::fs::write(project_cwd.join("test.sysml"), b"package P;\n")?;
+        fs::write(project_cwd.join("test.sysml"), b"package P;\n")?;
         let out = run_sysand_in(
             project_cwd,
             ["include", "--no-index-symbols", "test.sysml"],
@@ -502,7 +502,7 @@ fn workspace_build_with_metamodel() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
     let project1_cwd = cwd.join("project1");
 
-    std::fs::write(
+    fs::write(
         cwd.join(".workspace.json"),
         br#"{
             "projects": [
@@ -514,7 +514,7 @@ fn workspace_build_with_metamodel() -> Result<(), Box<dyn std::error::Error>> {
         }"#,
     )?;
 
-    std::fs::create_dir(&project1_cwd)?;
+    fs::create_dir(&project1_cwd)?;
     let out = cli_init_project_in(
         &project1_cwd,
         None,
@@ -525,7 +525,7 @@ fn workspace_build_with_metamodel() -> Result<(), Box<dyn std::error::Error>> {
     )?;
     out.assert().success();
 
-    std::fs::write(project1_cwd.join("test.sysml"), b"package P;\n")?;
+    fs::write(project1_cwd.join("test.sysml"), b"package P;\n")?;
     let out = run_sysand_in(
         &project1_cwd,
         ["include", "--no-index-symbols", "test.sysml"],
@@ -559,7 +559,7 @@ fn workspace_build_with_unknown_metamodel() -> Result<(), Box<dyn std::error::Er
     let (_temp_dir, cwd) = new_temp_cwd()?;
     let project1_cwd = cwd.join("project1");
 
-    std::fs::write(
+    fs::write(
         cwd.join(".workspace.json"),
         br#"{
             "projects": [
@@ -571,7 +571,7 @@ fn workspace_build_with_unknown_metamodel() -> Result<(), Box<dyn std::error::Er
         }"#,
     )?;
 
-    std::fs::create_dir(&project1_cwd)?;
+    fs::create_dir(&project1_cwd)?;
     let out = cli_init_project_in(
         &project1_cwd,
         None,
@@ -582,7 +582,7 @@ fn workspace_build_with_unknown_metamodel() -> Result<(), Box<dyn std::error::Er
     )?;
     out.assert().success();
 
-    std::fs::write(project1_cwd.join("test.sysml"), b"package P;\n")?;
+    fs::write(project1_cwd.join("test.sysml"), b"package P;\n")?;
     let out = run_sysand_in(
         &project1_cwd,
         ["include", "--no-index-symbols", "test.sysml"],
@@ -617,7 +617,7 @@ fn workspace_build_metamodel_conflict() -> Result<(), Box<dyn std::error::Error>
     let (_temp_dir, cwd) = new_temp_cwd()?;
     let project1_cwd = cwd.join("project1");
 
-    std::fs::write(
+    fs::write(
         cwd.join(".workspace.json"),
         br#"{
             "projects": [
@@ -629,7 +629,7 @@ fn workspace_build_metamodel_conflict() -> Result<(), Box<dyn std::error::Error>
         }"#,
     )?;
 
-    std::fs::create_dir(&project1_cwd)?;
+    fs::create_dir(&project1_cwd)?;
     let out = cli_init_project_in(
         &project1_cwd,
         None,
@@ -640,7 +640,7 @@ fn workspace_build_metamodel_conflict() -> Result<(), Box<dyn std::error::Error>
     )?;
     out.assert().success();
 
-    std::fs::write(project1_cwd.join("test.sysml"), b"package P;\n")?;
+    fs::write(project1_cwd.join("test.sysml"), b"package P;\n")?;
     let out = run_sysand_in(
         &project1_cwd,
         ["include", "--no-index-symbols", "test.sysml"],
@@ -650,11 +650,11 @@ fn workspace_build_metamodel_conflict() -> Result<(), Box<dyn std::error::Error>
 
     // Set metamodel in the project's .meta.json to create a conflict
     let meta_path = project1_cwd.join(".meta.json");
-    let meta_content = std::fs::read_to_string(&meta_path)?;
+    let meta_content = fs::read_to_string(&meta_path)?;
     let mut meta: serde_json::Value = serde_json::from_str(&meta_content)?;
     meta["metamodel"] =
         serde_json::Value::String("https://www.omg.org/spec/KerML/20250201".to_owned());
-    std::fs::write(&meta_path, serde_json::to_string_pretty(&meta)?)?;
+    fs::write(&meta_path, serde_json::to_string_pretty(&meta)?)?;
 
     let out = run_sysand_in(&cwd, ["build"], None)?;
     out.assert()
@@ -670,7 +670,7 @@ fn workspace_build_metamodel_same_no_conflict() -> Result<(), Box<dyn std::error
     let (_temp_dir, cwd) = new_temp_cwd()?;
     let project1_cwd = cwd.join("project1");
 
-    std::fs::write(
+    fs::write(
         cwd.join(".workspace.json"),
         br#"{
             "projects": [
@@ -682,7 +682,7 @@ fn workspace_build_metamodel_same_no_conflict() -> Result<(), Box<dyn std::error
         }"#,
     )?;
 
-    std::fs::create_dir(&project1_cwd)?;
+    fs::create_dir(&project1_cwd)?;
     let out = cli_init_project_in(
         &project1_cwd,
         None,
@@ -693,7 +693,7 @@ fn workspace_build_metamodel_same_no_conflict() -> Result<(), Box<dyn std::error
     )?;
     out.assert().success();
 
-    std::fs::write(project1_cwd.join("test.sysml"), b"package P;\n")?;
+    fs::write(project1_cwd.join("test.sysml"), b"package P;\n")?;
     let out = run_sysand_in(
         &project1_cwd,
         ["include", "--no-index-symbols", "test.sysml"],
@@ -703,11 +703,11 @@ fn workspace_build_metamodel_same_no_conflict() -> Result<(), Box<dyn std::error
 
     // Set the same metamodel in the project's .meta.json — should NOT conflict
     let meta_path = project1_cwd.join(".meta.json");
-    let meta_content = std::fs::read_to_string(&meta_path)?;
+    let meta_content = fs::read_to_string(&meta_path)?;
     let mut meta: serde_json::Value = serde_json::from_str(&meta_content)?;
     meta["metamodel"] =
         serde_json::Value::String("https://www.omg.org/spec/SysML/20250201".to_owned());
-    std::fs::write(&meta_path, serde_json::to_string_pretty(&meta)?)?;
+    fs::write(&meta_path, serde_json::to_string_pretty(&meta)?)?;
 
     let out = run_sysand_in(&cwd, ["build"], None)?;
     out.assert().success();
@@ -724,7 +724,7 @@ fn workspace_build_metamodel_idempotent() -> Result<(), Box<dyn std::error::Erro
     let (_temp_dir, cwd) = new_temp_cwd()?;
     let project1_cwd = cwd.join("project1");
 
-    std::fs::write(
+    fs::write(
         cwd.join(".workspace.json"),
         br#"{
             "projects": [
@@ -736,7 +736,7 @@ fn workspace_build_metamodel_idempotent() -> Result<(), Box<dyn std::error::Erro
         }"#,
     )?;
 
-    std::fs::create_dir(&project1_cwd)?;
+    fs::create_dir(&project1_cwd)?;
     let out = cli_init_project_in(
         &project1_cwd,
         None,
@@ -747,7 +747,7 @@ fn workspace_build_metamodel_idempotent() -> Result<(), Box<dyn std::error::Erro
     )?;
     out.assert().success();
 
-    std::fs::write(project1_cwd.join("test.sysml"), b"package P;\n")?;
+    fs::write(project1_cwd.join("test.sysml"), b"package P;\n")?;
     let out = run_sysand_in(
         &project1_cwd,
         ["include", "--no-index-symbols", "test.sysml"],
@@ -785,7 +785,7 @@ fn workspace_build_metamodel_idempotent() -> Result<(), Box<dyn std::error::Erro
     );
 
     // Verify original project .meta.json was NOT modified
-    let original_meta_content = std::fs::read_to_string(project1_cwd.join(".meta.json"))?;
+    let original_meta_content = fs::read_to_string(project1_cwd.join(".meta.json"))?;
     let original_meta: serde_json::Value = serde_json::from_str(&original_meta_content)?;
     assert!(
         original_meta.get("metamodel").is_none(),
@@ -810,8 +810,8 @@ fn compression_methods() -> Result<(), Box<dyn std::error::Error>> {
 fn project_build_with_readme() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = cli_init_project_basic("a", "test_readme", "1.2.3")?;
 
-    std::fs::write(cwd.join("test.sysml"), b"package P;\n")?;
-    std::fs::write(cwd.join("README.md"), b"# My Project\nHello world\n")?;
+    fs::write(cwd.join("test.sysml"), b"package P;\n")?;
+    fs::write(cwd.join("README.md"), b"# My Project\nHello world\n")?;
 
     out.assert().success();
 
@@ -837,7 +837,7 @@ fn project_build_with_readme() -> Result<(), Box<dyn std::error::Error>> {
 fn project_build_without_readme() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = cli_init_project_basic("a", "test_no_readme", "1.2.3")?;
 
-    std::fs::write(cwd.join("test.sysml"), b"package P;\n")?;
+    fs::write(cwd.join("test.sysml"), b"package P;\n")?;
 
     out.assert().success();
 
@@ -859,7 +859,7 @@ fn workspace_build_with_readme() -> Result<(), Box<dyn std::error::Error>> {
     let project1_cwd = cwd.join("project1");
     let project2_cwd = cwd.join("project2");
 
-    std::fs::write(
+    fs::write(
         cwd.join(".workspace.json"),
         br#"{"projects": [
             {"path": "project1", "iris": ["urn:kpar:project1"]},
@@ -871,7 +871,7 @@ fn workspace_build_with_readme() -> Result<(), Box<dyn std::error::Error>> {
         (&project1_cwd, "# Project 1\n"),
         (&project2_cwd, "# Project 2\n"),
     ] {
-        std::fs::create_dir(project_cwd)?;
+        fs::create_dir(project_cwd)?;
         let project_name = project_cwd.file_name().unwrap();
         let out = cli_init_project_in(
             project_cwd,
@@ -883,7 +883,7 @@ fn workspace_build_with_readme() -> Result<(), Box<dyn std::error::Error>> {
         )?;
         out.assert().success();
 
-        std::fs::write(project_cwd.join("test.sysml"), b"package P;\n")?;
+        fs::write(project_cwd.join("test.sysml"), b"package P;\n")?;
         let out = run_sysand_in(
             project_cwd,
             ["include", "--no-index-symbols", "test.sysml"],
@@ -891,7 +891,7 @@ fn workspace_build_with_readme() -> Result<(), Box<dyn std::error::Error>> {
         )?;
         out.assert().success();
 
-        std::fs::write(project_cwd.join("README.md"), readme_content.as_bytes())?;
+        fs::write(project_cwd.join("README.md"), readme_content.as_bytes())?;
     }
 
     let out = run_sysand_in(&cwd, ["build"], None)?;
@@ -916,8 +916,8 @@ fn workspace_build_with_readme() -> Result<(), Box<dyn std::error::Error>> {
 fn project_build_with_changelog() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = cli_init_project_basic("a", "test_changelog", "1.2.3")?;
 
-    std::fs::write(cwd.join("test.sysml"), b"package P;\n")?;
-    std::fs::write(
+    fs::write(cwd.join("test.sysml"), b"package P;\n")?;
+    fs::write(
         cwd.join("CHANGELOG.md"),
         b"# Changelog\n\n## 1.2.3\n- Initial release\n",
     )?;
@@ -946,7 +946,7 @@ fn project_build_with_changelog() -> Result<(), Box<dyn std::error::Error>> {
 fn project_build_without_changelog() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = cli_init_project_basic("a", "test_no_changelog", "1.2.3")?;
 
-    std::fs::write(cwd.join("test.sysml"), b"package P;\n")?;
+    fs::write(cwd.join("test.sysml"), b"package P;\n")?;
 
     out.assert().success();
 
@@ -968,7 +968,7 @@ fn workspace_build_with_changelog() -> Result<(), Box<dyn std::error::Error>> {
     let project1_cwd = cwd.join("project1");
     let project2_cwd = cwd.join("project2");
 
-    std::fs::write(
+    fs::write(
         cwd.join(".workspace.json"),
         br#"{"projects": [
             {"path": "project1", "iris": ["urn:kpar:project1"]},
@@ -980,7 +980,7 @@ fn workspace_build_with_changelog() -> Result<(), Box<dyn std::error::Error>> {
         (&project1_cwd, "# Project 1 Changelog\n"),
         (&project2_cwd, "# Project 2 Changelog\n"),
     ] {
-        std::fs::create_dir(project_cwd)?;
+        fs::create_dir(project_cwd)?;
         let project_name = project_cwd.file_name().unwrap();
         let out = cli_init_project_in(
             project_cwd,
@@ -992,7 +992,7 @@ fn workspace_build_with_changelog() -> Result<(), Box<dyn std::error::Error>> {
         )?;
         out.assert().success();
 
-        std::fs::write(project_cwd.join("test.sysml"), b"package P;\n")?;
+        fs::write(project_cwd.join("test.sysml"), b"package P;\n")?;
         let out = run_sysand_in(
             project_cwd,
             ["include", "--no-index-symbols", "test.sysml"],
@@ -1000,7 +1000,7 @@ fn workspace_build_with_changelog() -> Result<(), Box<dyn std::error::Error>> {
         )?;
         out.assert().success();
 
-        std::fs::write(
+        fs::write(
             project_cwd.join("CHANGELOG.md"),
             changelog_content.as_bytes(),
         )?;
@@ -1031,9 +1031,9 @@ fn project_build_with_single_license() -> Result<(), Box<dyn std::error::Error>>
     let (_temp_dir, cwd, out) =
         cli_init_project(None, "a", Some("test_license"), Some("1.2.3"), Some("MIT"))?;
 
-    std::fs::write(cwd.join("test.sysml"), b"package P;\n")?;
-    std::fs::create_dir(cwd.join("LICENSES"))?;
-    std::fs::write(cwd.join("LICENSES").join("MIT.txt"), b"MIT license text\n")?;
+    fs::write(cwd.join("test.sysml"), b"package P;\n")?;
+    fs::create_dir(cwd.join("LICENSES"))?;
+    fs::write(cwd.join("LICENSES").join("MIT.txt"), b"MIT license text\n")?;
 
     out.assert().success();
 
@@ -1066,10 +1066,10 @@ fn project_build_with_compound_license() -> Result<(), Box<dyn std::error::Error
         Some("MIT OR Apache-2.0"),
     )?;
 
-    std::fs::write(cwd.join("test.sysml"), b"package P;\n")?;
-    std::fs::create_dir(cwd.join("LICENSES"))?;
-    std::fs::write(cwd.join("LICENSES").join("MIT.txt"), b"MIT body\n")?;
-    std::fs::write(
+    fs::write(cwd.join("test.sysml"), b"package P;\n")?;
+    fs::create_dir(cwd.join("LICENSES"))?;
+    fs::write(cwd.join("LICENSES").join("MIT.txt"), b"MIT body\n")?;
+    fs::write(
         cwd.join("LICENSES").join("Apache-2.0.txt"),
         b"Apache body\n",
     )?;
@@ -1108,10 +1108,10 @@ fn project_build_with_license_exception() -> Result<(), Box<dyn std::error::Erro
         Some("GPL-2.0-only WITH Classpath-exception-2.0"),
     )?;
 
-    std::fs::write(cwd.join("test.sysml"), b"package P;\n")?;
-    std::fs::create_dir(cwd.join("LICENSES"))?;
-    std::fs::write(cwd.join("LICENSES").join("GPL-2.0-only.txt"), b"GPL body\n")?;
-    std::fs::write(
+    fs::write(cwd.join("test.sysml"), b"package P;\n")?;
+    fs::create_dir(cwd.join("LICENSES"))?;
+    fs::write(cwd.join("LICENSES").join("GPL-2.0-only.txt"), b"GPL body\n")?;
+    fs::write(
         cwd.join("LICENSES").join("Classpath-exception-2.0.txt"),
         b"Classpath exception body\n",
     )?;
@@ -1150,9 +1150,9 @@ fn project_build_with_license_ref() -> Result<(), Box<dyn std::error::Error>> {
         Some("LicenseRef-MyCustom"),
     )?;
 
-    std::fs::write(cwd.join("test.sysml"), b"package P;\n")?;
-    std::fs::create_dir(cwd.join("LICENSES"))?;
-    std::fs::write(
+    fs::write(cwd.join("test.sysml"), b"package P;\n")?;
+    fs::create_dir(cwd.join("LICENSES"))?;
+    fs::write(
         cwd.join("LICENSES").join("LicenseRef-MyCustom.txt"),
         b"Custom license body\n",
     )?;
@@ -1186,7 +1186,7 @@ fn project_build_with_license_file_missing() -> Result<(), Box<dyn std::error::E
         Some("MIT"),
     )?;
 
-    std::fs::write(cwd.join("test.sysml"), b"package P;\n")?;
+    fs::write(cwd.join("test.sysml"), b"package P;\n")?;
 
     out.assert().success();
 
@@ -1208,7 +1208,7 @@ fn project_build_with_license_file_missing() -> Result<(), Box<dyn std::error::E
 fn project_build_without_license() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = cli_init_project_basic("a", "test_no_license", "1.2.3")?;
 
-    std::fs::write(cwd.join("test.sysml"), b"package P;\n")?;
+    fs::write(cwd.join("test.sysml"), b"package P;\n")?;
 
     out.assert().success();
 
@@ -1224,7 +1224,7 @@ fn project_build_without_license() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn read_kpar_file(kpar_path: &camino::Utf8Path, archive_path: &str) -> String {
-    let file = std::fs::File::open(kpar_path).unwrap();
+    let file = fs::File::open(kpar_path).unwrap();
     let mut archive = zip::ZipArchive::new(file).unwrap();
     let mut entry = archive
         .by_name(archive_path)
@@ -1240,7 +1240,7 @@ fn assert_kpar_file(kpar_path: &camino::Utf8Path, archive_path: &str, expected: 
 }
 
 fn assert_kpar_missing(kpar_path: &camino::Utf8Path, archive_path: &str) {
-    let file = std::fs::File::open(kpar_path).unwrap();
+    let file = fs::File::open(kpar_path).unwrap();
     let mut archive = zip::ZipArchive::new(file).unwrap();
     assert!(
         archive.by_name(archive_path).is_err(),
@@ -1249,7 +1249,7 @@ fn assert_kpar_missing(kpar_path: &camino::Utf8Path, archive_path: &str) {
 }
 
 fn assert_kpar_no_licenses_dir(kpar_path: &camino::Utf8Path) {
-    let file = std::fs::File::open(kpar_path).unwrap();
+    let file = fs::File::open(kpar_path).unwrap();
     let archive = zip::ZipArchive::new(file).unwrap();
     for name in archive.file_names() {
         let name = name.unwrap();
@@ -1264,7 +1264,7 @@ fn compression_method(compression: Option<&str>) -> Result<(), Box<dyn std::erro
     let (_temp_dir, cwd, out) = cli_init_project_basic("a", "test_build", "1.2.3")?;
 
     {
-        let mut sysml_file = std::fs::File::create(cwd.join("test.sysml"))?;
+        let mut sysml_file = fs::File::create(cwd.join("test.sysml"))?;
         sysml_file.write_all(b"package P;\n")?;
     }
 

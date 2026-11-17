@@ -4,7 +4,7 @@
 use logos::{Lexer, Logos};
 use thiserror::Error;
 
-#[derive(Default, Debug, Clone, PartialEq, Eq, Error)]
+#[derive(Default, Debug, Clone, PartialEq, Eq, Error, Copy)]
 pub enum LexingError {
     #[error("unterminated `{0}`")]
     Unterminated(&'static str),
@@ -125,7 +125,7 @@ fn lex_symbol(lex: &mut Lexer<'_, Token>) -> Result<Token, LexingError> {
     // Ok(lex.slice())
 }
 
-#[derive(Logos, Debug, PartialEq, Eq)]
+#[derive(Logos, Debug, Clone, Copy, PartialEq, Eq)]
 #[logos(error = LexingError)]
 pub enum Token {
     #[regex(r"\s+")]

@@ -220,7 +220,7 @@ pub fn resolve_dependencies<Env: ReadEnvironment + Debug + 'static>(
     dependencies: Dependencies,
 ) -> Result<
     Vec<<Env as ReadEnvironment>::InterchangeProjectRead>,
-    SolverError<impl ResolveRead + Debug + use<Env>>,
+    SolverError<impl ResolveRead + Debug>,
 > {
     // No need to resolve dependencies if they are not gonna be used
     if dependencies == Dependencies::None {

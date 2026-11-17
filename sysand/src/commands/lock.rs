@@ -148,12 +148,7 @@ pub fn create_resolver<R: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
 ) -> Result<
     PriorityResolver<
         PriorityResolver<
-            MemoryResolver<
-                AcceptResource,
-                sysand_core::project::reference::ProjectReference<
-                    sysand_core::project::any::AnyProject<Policy>,
-                >,
-            >,
+            MemoryResolver<AcceptResource, ProjectReference<AnyProject<Policy>>>,
             MemoryResolver<AcceptAll, InMemoryProject>,
         >,
         StandardResolver<Policy>,

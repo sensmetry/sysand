@@ -118,7 +118,7 @@ impl ExceptionKind {
     }
 }
 
-impl fmt::Display for ExceptionKind {
+impl Display for ExceptionKind {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         // derive(Debug) prints enum variant name, which is exactly what we need
         fmt::Debug::fmt(self, f)
@@ -144,7 +144,7 @@ impl StdlibExceptionKind {
     }
 }
 
-impl fmt::Display for StdlibExceptionKind {
+impl Display for StdlibExceptionKind {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         // derive(Debug) prints enum variant name, which is exactly what we need
         fmt::Debug::fmt(self, f)

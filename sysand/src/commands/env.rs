@@ -150,7 +150,7 @@ pub fn command_env_install<Policy: HTTPAuthentication>(
         // from a manifest, so it takes the json origin.
         let usages = [(
             InterchangeProjectUsage::Resource {
-                resource: fluent_uri::Iri::from_str(iri.as_ref())?,
+                resource: Iri::from_str(iri.as_ref())?,
                 version_constraint,
             },
             DeclaredBy::Input("the command line".to_owned()),

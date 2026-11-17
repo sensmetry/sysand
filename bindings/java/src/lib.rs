@@ -459,7 +459,7 @@ fn build_project<'local>(
     let Some(compression) = compression_from_java_string(env, compression) else {
         ret!()
     };
-    let command_result = sysand_core::commands::build::do_build_kpar(
+    let command_result = commands::build::do_build_kpar(
         &project,
         &output_path,
         compression,
@@ -510,7 +510,7 @@ fn build_workspace<'local>(
         ret!()
     }
 
-    let command_result = sysand_core::commands::build::do_build_workspace_kpars(
+    let command_result = commands::build::do_build_workspace_kpars(
         &workspace,
         &output_path,
         compression,
@@ -557,6 +557,7 @@ fn model_roundtrip<'local>(
 /// # Safety
 ///
 /// `vm_ptr` must be a pointer to a valid initialized JVM
+#[expect(unsafe_code, reason = "the JVM calls `JNI_OnLoad` with a raw pointer")]
 #[unsafe(no_mangle)]
 pub unsafe extern "system" fn JNI_OnLoad(
     vm_ptr: *mut jni::sys::JavaVM,

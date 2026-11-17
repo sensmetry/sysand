@@ -204,7 +204,7 @@ where
     let header = crate::style::get_style_config().header;
     log::info!("{header}{syncing:>12}{header:#} env");
 
-    let synced = |project: &crate::lock::Project| {
+    let synced = |project: &Project| {
         project.identifiers.first().map(|iri| SyncedProject {
             iri: iri.clone(),
             version: project.version.clone(),
