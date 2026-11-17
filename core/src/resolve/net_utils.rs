@@ -309,7 +309,7 @@ pub fn install_default_crypto_provider() {
     // `--all-features` enables both; aws-lc-rs wins as the shipped default.
     #[cfg(all(feature = "tls-ring", not(feature = "tls-aws-lc-rs")))]
     {
-        _ = rustls::crypto::ring::default_provider().install_default();
+        drop(rustls::crypto::ring::default_provider().install_default());
     }
     #[cfg(not(any(feature = "tls-aws-lc-rs", feature = "tls-ring")))]
     {
