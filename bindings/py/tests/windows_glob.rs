@@ -47,7 +47,7 @@ fn run_cli_expands_glob_pattern() -> Result<(), Box<dyn std::error::Error>> {
             .extract()
     })?;
 
-    let meta = std::fs::read_to_string(proj_dir_path.join(".meta.json"))?;
+    let meta = fs::read_to_string(proj_dir_path.join(".meta.json"))?;
 
     if cfg!(target_os = "windows") {
         assert_eq!(exit_code, 0);

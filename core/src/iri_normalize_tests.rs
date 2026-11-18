@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
 use super::*;
-use fluent_uri::Iri;
 
 fn normalize(iri: &str) -> String {
     let parsed = Iri::parse(iri).expect("fixture IRI must parse cleanly");

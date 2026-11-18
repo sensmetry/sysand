@@ -24,8 +24,10 @@ networking = [
   "dep:gix",
   "dep:rustls",
   "dep:async-trait",
-  "dep:http"
-]  # "dep:reqwest-middleware", "dep:partialzip"
+  "dep:http",
+  "dep:globset",
+  "dep:reqwest-middleware",
+]  # "dep:partialzip"
 # TLS providers. Enabling both is not an error: `--all-features` does it, and
 # `tls-aws-lc-rs` wins, because that is what Sysand ships. With neither, a
 # consumer that enables `networking` must install a provider itself before the
@@ -59,7 +61,7 @@ log = { workspace = true, features = ["std"] }
 pubgrub = { version = "0.4.0", default-features = false }
 # partialzip = { version = "5.0.0", default-features = false, optional = true }
 pyo3 = { workspace = true, optional = true, features = ["jiff-02", "indexmap"] }
-reqwest-middleware = { workspace = true, features = ["multipart"] }
+reqwest-middleware = { workspace = true, optional = true, features = ["multipart"] }
 semver = { workspace = true, features = ["std"] }
 serde = { workspace = true, features = ["std", "derive"] }
 serde_json = { workspace = true, features = ["std", "preserve_order"] }
@@ -84,7 +86,7 @@ futures = { version = "0.3.32", default-features = false, features = ["std", "as
 tokio = { workspace = true, features = ["rt", "io-util", "sync", "time"] }
 bytes = { version = "1.11.1", default-features = false, features = ["std"] }
 toml_edit = { version = "0.25.4", default-features = false, features = ["parse", "display", "serde"] }
-globset = { version = "0.4.18", default-features = false }
+globset = { version = "0.4.18", default-features = false, optional = true }
 # It would be preferable to enable aws-lc-rs/ring on here directly, but no
 # feature for `ring` is provided, so we choose `rustls-no-provider` and
 # install the chosen provider at runtime ourselves

@@ -109,8 +109,7 @@ impl Default for HttpOptions {
 
 /// Create a reqwest client with the default [`HttpOptions`].
 /// See [`create_reqwest_client_with`].
-pub fn create_reqwest_client()
--> Result<reqwest_middleware::ClientWithMiddleware, ReqwestClientBuildError> {
+pub fn create_reqwest_client() -> Result<ClientWithMiddleware, ReqwestClientBuildError> {
     create_reqwest_client_with(HttpOptions::default())
 }
 
@@ -123,7 +122,7 @@ pub fn create_reqwest_client()
 /// on the index URL discovery fetch and on every index resource.
 pub fn create_reqwest_client_with(
     options: HttpOptions,
-) -> Result<reqwest_middleware::ClientWithMiddleware, ReqwestClientBuildError> {
+) -> Result<ClientWithMiddleware, ReqwestClientBuildError> {
     install_default_crypto_provider();
 
     let client = options.apply_timeouts(client_builder()).build()?;
@@ -216,12 +215,12 @@ fn retry_reason(result: &reqwest_middleware::Result<reqwest::Response>) -> Optio
         Err(reqwest_middleware::Error::Reqwest(err)) => {
             // `io::Error::source()` skips the error an `io::Error` wraps, so
             // that is stepped into by hand
-            let chain = std::iter::successors(Some(err as &dyn Error), |&e| {
-                match e.downcast_ref::<std::io::Error>() {
-                    Some(io) => io.get_ref().map(|inner| inner as &dyn Error),
+            let first: &dyn Error = err;
+            let chain =
+                std::iter::successors(Some(first), |&e| match e.downcast_ref::<std::io::Error>() {
+                    Some(io) => io.get_ref().map(|inner| -> &dyn Error { inner }),
                     None => e.source(),
-                }
-            });
+                });
             // A TLS failure, such as an untrusted certificate, is reported as
             // a connection error but fails the same way every time.
             if chain.clone().any(<dyn Error>::is::<rustls::Error>) {
@@ -304,13 +303,13 @@ pub(crate) fn client_builder() -> reqwest::ClientBuilder {
 pub fn install_default_crypto_provider() {
     #[cfg(feature = "tls-aws-lc-rs")]
     {
-        _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+        drop(rustls::crypto::aws_lc_rs::default_provider().install_default());
     }
     // `not(tls-aws-lc-rs)` because the two features are additive and
     // `--all-features` enables both; aws-lc-rs wins as the shipped default.
     #[cfg(all(feature = "tls-ring", not(feature = "tls-aws-lc-rs")))]
     {
-        _ = rustls::crypto::ring::default_provider().install_default();
+        drop(rustls::crypto::ring::default_provider().install_default());
     }
     #[cfg(not(any(feature = "tls-aws-lc-rs", feature = "tls-ring")))]
     {

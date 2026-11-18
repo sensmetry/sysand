@@ -220,7 +220,7 @@ impl ProjectRead for ProjectLocalBrowserStorage {
                 })?
                 .ok_or(Error::MissingInfoMeta)?,
         };
-        Ok(vec![sysand_core::lock::Source::LocalSrc {
+        Ok(vec![Source::LocalSrc {
             src_path: self.root_path.as_str().into(),
             checksum,
         }])

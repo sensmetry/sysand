@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
-use std::{char::REPLACEMENT_CHARACTER, fmt::Write as _};
+use std::fmt::Write as _;
 
 #[cfg(feature = "filesystem")]
 use crate::utils::scheme::{SCHEME_HTTP, SCHEME_HTTPS};
@@ -280,7 +280,7 @@ fn iri_to_filename_part(iri: Iri<&str>) -> String {
             }
         // Windows does not work well with U+FFFD (replacement character) in file name.
         // IRIs can't contain U+FFFD literally, but it can be present if percent-encoded
-        } else if !BIDI_CONTROL.contains(c) && c != REPLACEMENT_CHARACTER {
+        } else if !BIDI_CONTROL.contains(c) && c != char::REPLACEMENT_CHARACTER {
             sanitized.push(c);
         } else if !sanitized.ends_with('.') && !sanitized.ends_with('-') {
             sanitized.push('-');
@@ -405,7 +405,7 @@ pub fn normalize_version<V: AsRef<str>>(version: V) -> String {
                 }
             }
         // Windows does not work well with U+FFFD (replacement character) in file name
-        } else if !BIDI_CONTROL.contains(c) && c != REPLACEMENT_CHARACTER {
+        } else if !BIDI_CONTROL.contains(c) && c != char::REPLACEMENT_CHARACTER {
             sanitized.push(c);
         } else if !sanitized.ends_with('.') && !sanitized.ends_with('-') {
             sanitized.push('-');

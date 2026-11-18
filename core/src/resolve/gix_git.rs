@@ -13,7 +13,7 @@ use crate::{
     },
 };
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct GitResolver;
 
 #[derive(Error, Debug)]
@@ -32,7 +32,7 @@ impl ResolveRead for GitResolver {
     fn resolve_read(
         &self,
         resolve: &ResolutionInfo,
-    ) -> Result<super::ResolutionOutcome<Self::ResolvedStorages>, Self::Error> {
+    ) -> Result<ResolutionOutcome<Self::ResolvedStorages>, Self::Error> {
         match resolve.usage() {
             InterchangeProjectUsage::Resource {
                 resource,
@@ -67,7 +67,7 @@ impl ResolveRead for GitResolver {
                             .strip_prefix("git+")
                             .unwrap_or(resource.as_str()),
                     )
-                    .map_err(std::convert::Into::into),
+                    .map_err(Into::into),
                 )))
             }
             InterchangeProjectUsage::Directory {

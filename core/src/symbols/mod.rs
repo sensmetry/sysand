@@ -7,7 +7,7 @@
 //! given file. We need to know the top level symbols to correctly populate
 //! field `index` of `.meta.json` files.
 
-mod lex;
+pub mod lex;
 
 use std::{collections::HashMap, iter::Peekable};
 
@@ -137,7 +137,7 @@ fn skip_list_of_refs<'a, I: Iterator<Item = &'a (Token, Box<str>, logos::Span)>>
     token_iter: &mut Peekable<I>,
 ) -> Result<(), ParseError> {
     loop {
-        let _ = parse_reference_or_chain(token_iter)?;
+        drop(parse_reference_or_chain(token_iter)?);
 
         skip_whitespace(token_iter);
 

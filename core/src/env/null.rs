@@ -15,7 +15,7 @@ use super::ProjectChecksumResult;
 
 #[derive(Debug)]
 pub struct NullEnvironment<Pr> {
-    phantom: std::marker::PhantomData<Pr>,
+    phantom: PhantomData<Pr>,
 }
 
 impl<Pr> Default for NullEnvironment<Pr> {
@@ -26,7 +26,7 @@ impl<Pr> Default for NullEnvironment<Pr> {
     }
 }
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, Clone, Copy)]
 pub enum EmptyEnvironmentError {
     #[error("null environment contains no packages")]
     NullEnvironmentIsEmpty,

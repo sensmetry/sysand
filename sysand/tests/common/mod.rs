@@ -289,7 +289,7 @@ pub fn install_in_env_with_usage(
 /// the expected files and CLI typically prints the canonicalised version of the
 /// path.
 pub fn new_temp_cwd() -> Result<(Utf8TempDir, Utf8PathBuf), Box<dyn Error>> {
-    let temp_dir = camino_tempfile::Utf8TempDir::with_prefix("sysand_test_")?;
+    let temp_dir = Utf8TempDir::with_prefix("sysand_test_")?;
     let temp_dir_path = wrapfs::canonicalize(temp_dir.path())?;
 
     Ok((temp_dir, temp_dir_path))
@@ -433,11 +433,7 @@ pub fn build_index_kpar_bytes(
 }
 
 /// Rename the project in `dir` from `from` to `to`, by editing its `.project.json`
-pub fn rename_project(
-    dir: &camino::Utf8Path,
-    from: &str,
-    to: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
+pub fn rename_project(dir: &Utf8Path, from: &str, to: &str) -> Result<(), Box<dyn Error>> {
     let path = dir.join(".project.json");
     let info = std::fs::read_to_string(&path)?;
     let renamed = info.replacen(

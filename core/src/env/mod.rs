@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-use std::{fmt::Debug, marker::Unpin, sync::Arc};
+use std::{fmt::Debug, sync::Arc};
 
 use futures::{Stream, StreamExt as _, TryStreamExt as _};
 use thiserror::Error;
@@ -128,12 +128,12 @@ pub trait ReadEnvironment {
 pub trait ReadEnvironmentAsync {
     type ReadError: ErrorBound;
 
-    type UriStream: futures::Stream<Item = Result<String, Self::ReadError>>;
+    type UriStream: Stream<Item = Result<String, Self::ReadError>>;
     /// Get URIs of all projects stored in the environment. If a project
     /// has multiple URIs, only the first one is returned
     fn uris_async(&self) -> impl Future<Output = Result<Self::UriStream, Self::ReadError>>;
 
-    type VersionStream: futures::Stream<Item = Result<String, Self::ReadError>>;
+    type VersionStream: Stream<Item = Result<String, Self::ReadError>>;
     fn versions_async<S: AsRef<str>>(
         &self,
         uri: S,
@@ -148,6 +148,10 @@ pub trait ReadEnvironmentAsync {
 
     // Utilities
 
+    #[expect(
+        closure_returning_async_block,
+        reason = "`try_any` needs an `FnMut`, which an async closure capturing `needle` is not"
+    )]
     fn has_async<S: AsRef<str>>(
         &self,
         uri: S,
@@ -159,6 +163,10 @@ pub trait ReadEnvironmentAsync {
         }
     }
 
+    #[expect(
+        closure_returning_async_block,
+        reason = "`try_any` needs an `FnMut`, which an async closure capturing `needle` is not"
+    )]
     fn has_version_async<S: AsRef<str>, V: AsRef<str>>(
         &self,
         uri: S,

@@ -325,21 +325,14 @@ impl UsageSite<'_> {
     }
 
     /// Where the entry as a whole is: its `[[...]]` header.
-    fn position(
-        &self,
-        positions: &Positions<'_>,
-    ) -> Option<crate::manifest::diagnostics::Position> {
+    fn position(&self, positions: &Positions<'_>) -> Option<Position> {
         let segments = self.segments();
         positions.near(&borrowed(&segments))
     }
 
     /// Where one of the entry's keys is, or the entry itself when the key
     /// is not there.
-    fn key(
-        &self,
-        key: &str,
-        positions: &Positions<'_>,
-    ) -> Option<crate::manifest::diagnostics::Position> {
+    fn key(&self, key: &str, positions: &Positions<'_>) -> Option<Position> {
         let mut segments = self.segments();
         segments.push(key.to_owned());
         positions.near(&borrowed(&segments))

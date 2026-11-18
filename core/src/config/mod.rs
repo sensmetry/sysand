@@ -200,7 +200,7 @@ impl Index {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Copy)]
 pub enum AuthSource {
     EnvVar,
     Keyring,

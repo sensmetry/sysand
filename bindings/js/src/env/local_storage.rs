@@ -16,6 +16,7 @@ use crate::{
     local_storage_utils::{self, LocalStorageVFS},
 };
 
+#[derive(Debug)]
 pub struct LocalBrowserStorageEnvironment {
     pub root_path: Utf8UnixPathBuf,
     pub vfs: LocalStorageVFS,
@@ -129,7 +130,7 @@ impl ReadEnvironment for LocalBrowserStorageEnvironment {
         &self,
         _uri: S,
         _version: V,
-        _checksum: &sysand_core::project::ProjectChecksum,
+        _checksum: &ProjectChecksum,
     ) -> Result<ProjectChecksumResult, Self::ReadError> {
         Ok(ProjectChecksumResult::ChecksumNotPresent)
     }
@@ -138,7 +139,7 @@ impl ReadEnvironment for LocalBrowserStorageEnvironment {
 impl WriteEnvironment for LocalBrowserStorageEnvironment {
     type WriteError = Error;
 
-    type InterchangeProjectMut = crate::io::local_storage::ProjectLocalBrowserStorage;
+    type InterchangeProjectMut = ProjectLocalBrowserStorage;
 
     fn put_project<S: AsRef<str>, T: AsRef<str>, F, E>(
         &mut self,
@@ -146,7 +147,7 @@ impl WriteEnvironment for LocalBrowserStorageEnvironment {
         version: T,
         _checksum: Option<ProjectChecksum>,
         write_project: F,
-    ) -> Result<Self::InterchangeProjectMut, sysand_core::env::PutProjectError<Self::WriteError, E>>
+    ) -> Result<Self::InterchangeProjectMut, PutProjectError<Self::WriteError, E>>
     where
         F: FnOnce(&mut Self::InterchangeProjectMut) -> Result<(), E>,
     {
@@ -157,7 +158,7 @@ impl WriteEnvironment for LocalBrowserStorageEnvironment {
         };
 
         // TODO: For production JS-version this should be made more robust
-        write_project(&mut project).map_err(sysand_core::env::PutProjectError::Callback)?;
+        write_project(&mut project).map_err(PutProjectError::Callback)?;
 
         let mut current_versions = self
             .vfs

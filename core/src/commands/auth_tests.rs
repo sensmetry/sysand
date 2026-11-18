@@ -191,7 +191,7 @@ fn status_reports_env_entries_shadowing_a_stored_key() {
         panic!("expected stored credentials");
     };
     assert_eq!(stored[0].shadowed_by, vec!["SYSAND_CRED_TEAM".to_owned()]);
-    assert_eq!(stored[1].shadowed_by, [] as [String; 0]);
+    assert_eq!(stored[1].shadowed_by, Vec::<String>::new());
 }
 
 #[test]
@@ -389,7 +389,7 @@ mod login {
 
     fn stored_validated(
         outcome: Result<AuthLoginOutcome, AuthCommandError>,
-    ) -> (String, Vec<String>, Vec<super::super::ProbeSurface>) {
+    ) -> (String, Vec<String>, Vec<ProbeSurface>) {
         match outcome.unwrap() {
             AuthLoginOutcome::Stored {
                 key,

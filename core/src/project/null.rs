@@ -18,17 +18,18 @@ use crate::{
 
 use super::ProjectChecksum;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct NullProject {
     nothing: !,
 }
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, Clone, Copy)]
 pub enum NotARealProjectError {
     #[error("null project error")]
     NotARealProject,
 }
 
+#[derive(Debug, Clone, Copy)]
 pub struct ImpossibleReader {
     nothing: !,
 }

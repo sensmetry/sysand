@@ -1025,10 +1025,7 @@ fn partial_info_validates_into_raw() {
         .expect("a complete document validates");
 
     assert_eq!(validated.value, direct);
-    assert_eq!(
-        validated.warnings,
-        [] as [crate::manifest::diagnostics::Diagnostic; 0]
-    );
+    assert_eq!(validated.warnings, Vec::new());
 }
 
 #[test]
@@ -1132,5 +1129,5 @@ fn a_null_list_is_an_empty_list() {
         .expect("a null list is a list of nothing");
 
     assert_eq!(validated.value.usage, []);
-    assert_eq!(validated.value.maintainer, [] as [String; 0]);
+    assert_eq!(validated.value.maintainer, Vec::<String>::new());
 }

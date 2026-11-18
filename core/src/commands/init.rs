@@ -4,7 +4,6 @@
 #[cfg(feature = "filesystem")]
 use camino::Utf8PathBuf;
 use semver::Version;
-use spdx;
 
 use crate::{
     env::utils::ErrorBound,

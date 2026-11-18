@@ -169,8 +169,8 @@ impl Lock {
                     .into_iter()
                     .flat_map(|sources| sources.iter())
                     .map(|source| source.as_inline_table())
-                    .flat_map(std::iter::IntoIterator::into_iter)
-                    .flat_map(std::iter::IntoIterator::into_iter)
+                    .flat_map(IntoIterator::into_iter)
+                    .flat_map(IntoIterator::into_iter)
                 {
                     if !SOURCE_ENTRIES.contains(&field) {
                         log::warn!(

@@ -5,7 +5,7 @@ use std::sync::OnceLock;
 
 use anstyle::Style;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct Config {
     pub header: Style,
     pub usage: Style,

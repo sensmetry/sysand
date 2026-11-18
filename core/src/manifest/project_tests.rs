@@ -144,10 +144,7 @@ fn default<T>(property: &MetaProperty<T>) -> bool {
 #[test]
 fn every_documented_key_is_read() {
     let validated = read(FULL).expect("the manifest validates");
-    assert_eq!(
-        validated.warnings,
-        [] as [crate::manifest::diagnostics::Diagnostic; 0]
-    );
+    assert_eq!(validated.warnings, Vec::new());
     let read = validated.into_parts().0;
     let project = &read.project;
 
@@ -458,10 +455,7 @@ fn root_does_not_warn_when_the_project_declares_syside() {
         "{REQUIRED}sources = []\n\
          metamodel = \"https://www.sysand.com/spec/SysML/20250201\"\nroot = \"main.sysml\"\n"
     ));
-    assert_eq!(
-        validated.warnings,
-        [] as [crate::manifest::diagnostics::Diagnostic; 0]
-    );
+    assert_eq!(validated.warnings, Vec::new());
 }
 
 /// `root` is not inheritable, so a marker on it is refused -- and does
@@ -898,7 +892,7 @@ fn a_marker_on_a_key_the_group_does_not_give_is_an_error() {
     .expect("an empty list is a value")
     .into_parts()
     .0;
-    assert_eq!(project.topics, [] as [std::string::String; 0]);
+    assert_eq!(project.topics, Vec::<String>::new());
 }
 
 /// Resolution accumulates, as every other validation here does.
@@ -1246,14 +1240,8 @@ fn a_built_manifest_resolves_like_one_that_was_read() {
         &[typed_path::Utf8UnixPathBuf::from("Widgets.sysml")]
     );
     assert!(resolved.metamodel.is_none());
-    assert_eq!(
-        resolved.usages,
-        [] as [crate::manifest::usage::LocatedUsage; 0]
-    );
-    assert_eq!(
-        warnings,
-        [] as [crate::manifest::diagnostics::Diagnostic; 0]
-    );
+    assert_eq!(resolved.usages, Vec::new());
+    assert_eq!(warnings, Vec::new());
 }
 
 #[test]

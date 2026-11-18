@@ -288,6 +288,10 @@ struct CandidateSummary {
     source_may_offer_multiple_versions: bool,
 }
 
+#[expect(
+    missing_debug_implementations,
+    reason = "fields include trait objects and associated iterator types without `Debug`"
+)]
 pub struct ProjectSolver<R: ResolveRead> {
     // Internal RefCell, used in order to lazily populate the cache during resolution
     resolved_candidates: RefCell<CandidateMap<R>>,

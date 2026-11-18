@@ -38,6 +38,7 @@ use crate::{
     style::{GOOD, USAGE},
 };
 
+#[derive(Debug)]
 pub enum ProjectLocator {
     Iri(Iri<String>),
     /// An index usage, resolved with its version constraint

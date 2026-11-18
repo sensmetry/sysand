@@ -171,7 +171,7 @@ fn a_group_key_that_is_absent_is_none() {
     assert!(root.metamodel.is_none());
     assert!(root.maintainers.is_none());
     assert!(root.urls.is_none());
-    assert_eq!(root.inline_usages, [] as [crate::manifest::usage::Usage; 0]);
+    assert_eq!(root.inline_usages, Vec::new());
 }
 
 #[test]
@@ -640,14 +640,8 @@ fn a_group_that_is_not_a_table_is_one_diagnostic() {
 #[test]
 fn a_workspace_with_no_members_is_legal() {
     let table = table("publisher = \"acme\"\n");
-    assert_eq!(
-        table.members,
-        [] as [crate::manifest::workspace_table::MemberPath; 0]
-    );
-    assert_eq!(
-        table.exclude,
-        [] as [crate::manifest::workspace_table::MemberPath; 0]
-    );
+    assert_eq!(table.members, Vec::new());
+    assert_eq!(table.exclude, Vec::new());
 }
 
 // ----------------------------------------------------------------------

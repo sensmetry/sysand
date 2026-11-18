@@ -50,7 +50,7 @@ fn basic_download_request() -> Result<(), Box<dyn std::error::Error>> {
     let mut server = mockito::Server::new();
 
     //let host = server.host_with_port();
-    let url = reqwest::Url::parse(&server.url()).unwrap();
+    let url = Url::parse(&server.url()).unwrap();
 
     let get_kpar = server
         .mock("GET", "/basic_download_request.kpar")
@@ -125,7 +125,7 @@ fn concurrent_downloads_fan_in_to_single_fetch() -> Result<(), Box<dyn std::erro
     let expected_digest = sha256_lowercase_hex(&kpar_bytes);
 
     let mut server = mockito::Server::new();
-    let url = reqwest::Url::parse(&server.url())?;
+    let url = Url::parse(&server.url())?;
 
     // `expect(1)` pins the invariant: exactly one request reaches the
     // server, even under racing callers.
@@ -195,7 +195,7 @@ fn expected_size_mismatch_rejects_download() -> Result<(), Box<dyn std::error::E
     let wrong_size = NonZeroU64::new(kpar_bytes.len() as u64 - 1).unwrap();
 
     let mut server = mockito::Server::new();
-    let url = reqwest::Url::parse(&server.url())?;
+    let url = Url::parse(&server.url())?;
 
     let get_kpar = server
         .mock("GET", "/size-mismatch.kpar")

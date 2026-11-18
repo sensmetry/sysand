@@ -191,6 +191,10 @@ impl<HTTPProject: ProjectRead, GitProject: ProjectRead> ProjectRead
     }
 }
 
+#[expect(
+    missing_debug_implementations,
+    reason = "fields include trait objects and associated iterator types without `Debug`"
+)]
 pub struct ResolvedRemote<HTTPResolver: ResolveRead, GitResolver: ResolveRead> {
     pub resolved_http: Option<<HTTPResolver::ResolvedStorages as IntoIterator>::IntoIter>,
     pub resolved_git: Option<<GitResolver::ResolvedStorages as IntoIterator>::IntoIter>,
@@ -325,12 +329,10 @@ impl<HTTPResolver: ResolveRead, GitResolver: ResolveRead> ResolveRead
             None
         };
 
-        Ok(crate::resolve::ResolutionOutcome::Resolved(
-            ResolvedRemote {
-                resolved_http,
-                resolved_git,
-                priority: self.priority,
-            },
-        ))
+        Ok(ResolutionOutcome::Resolved(ResolvedRemote {
+            resolved_http,
+            resolved_git,
+            priority: self.priority,
+        }))
     }
 }

@@ -738,7 +738,7 @@ fn distinct_identities_are_not_duplicates() {
             "name = \"other\"\n",
             "dir = \"../other\"\n",
         )),
-        [] as [crate::manifest::diagnostics::Diagnostic; 0]
+        Vec::new()
     );
     // Every colliding pair is reported, so one edit round fixes the file.
     assert_eq!(

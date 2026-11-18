@@ -87,7 +87,7 @@ sources = [{{ registry = "https://example.org" }}]
     let Err(err) = Lock::parse(&lockfile) else {
         panic!()
     };
-    let crate::lock::ParseError::Version(VersionError::Unsupported(s)) = &err else {
+    let ParseError::Version(VersionError::Unsupported(s)) = &err else {
         panic!("expected unsupported version error, got {err:?}")
     };
     assert_eq!(s, "0.3");
@@ -112,7 +112,7 @@ sources = [{{ index_kpar = "https://example.org/project.kpar", kpar_size = 0, kp
     let Err(err) = Lock::parse(&lockfile) else {
         panic!()
     };
-    let crate::lock::ParseError::Toml(_) = err else {
+    let ParseError::Toml(_) = err else {
         panic!("expected TOML parse error for zero index kpar size, got {err:?}")
     };
 }
@@ -811,7 +811,7 @@ fn validate_kpar_digest_rejects_uppercase() {
             usages: vec![],
             sources: vec![Source::IndexKpar {
                 index_kpar: iri("https://example.com/indexed.kpar"),
-                kpar_size: std::num::NonZeroU64::new(123).unwrap(),
+                kpar_size: NonZeroU64::new(123).unwrap(),
                 kpar_digest: invalid_digest.to_owned(),
             }],
         }],
@@ -1271,7 +1271,7 @@ version = "1.0.0"
     let Err(err) = Lock::parse(&lockfile) else {
         panic!()
     };
-    let crate::lock::ParseError::Version(VersionError::Unsupported(s)) = &err else {
+    let ParseError::Version(VersionError::Unsupported(s)) = &err else {
         panic!("expected unsupported version error, got {err:?}")
     };
     assert_eq!(s, "0.4");

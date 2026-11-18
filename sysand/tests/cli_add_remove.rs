@@ -27,7 +27,7 @@ fn add_and_remove_without_lock() -> Result<(), Box<dyn std::error::Error>> {
         .success()
         .stderr(contains("Adding usage: IRI `urn:kpar:test`"));
 
-    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+    let info_json = fs::read_to_string(cwd.join(".project.json"))?;
 
     assert_eq!(
         info_json,
@@ -51,7 +51,7 @@ fn add_and_remove_without_lock() -> Result<(), Box<dyn std::error::Error>> {
      Removed `urn:kpar:test`",
     ));
 
-    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+    let info_json = fs::read_to_string(cwd.join(".project.json"))?;
 
     assert_eq!(
         info_json,
@@ -84,7 +84,7 @@ fn add_rejects_sysand_shorthand() -> Result<(), Box<dyn std::error::Error>> {
             .stderr(contains("pass it without `--iri`"));
     }
 
-    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+    let info_json = fs::read_to_string(cwd.join(".project.json"))?;
 
     assert_eq!(
         info_json,
@@ -139,7 +139,7 @@ fn remove_rejects_sysand_shorthand() -> Result<(), Box<dyn std::error::Error>> {
             .stderr(contains("pass it without `--iri`"));
     }
 
-    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+    let info_json = fs::read_to_string(cwd.join(".project.json"))?;
 
     assert_eq!(
         info_json,
@@ -190,7 +190,7 @@ fn add_and_remove_path() -> Result<(), Box<dyn std::error::Error>> {
         .success()
         .stderr(contains(format!("Adding usage: IRI `{file_url}`")));
 
-    let info_json = std::fs::read_to_string(cwd1.join(".project.json"))?;
+    let info_json = fs::read_to_string(cwd1.join(".project.json"))?;
 
     assert_eq!(
         info_json,
@@ -216,7 +216,7 @@ fn add_and_remove_path() -> Result<(), Box<dyn std::error::Error>> {
      Removed `{file_url}`"
     )));
 
-    let info_json = std::fs::read_to_string(cwd1.join(".project.json"))?;
+    let info_json = fs::read_to_string(cwd1.join(".project.json"))?;
 
     assert_eq!(
         info_json,
@@ -283,7 +283,7 @@ fn add_and_remove_as_editable() -> Result<(), Box<dyn std::error::Error>> {
       Adding usage: IRI `urn:kpar:test`"
     )));
 
-    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+    let info_json = fs::read_to_string(cwd.join(".project.json"))?;
 
     assert_eq!(
         info_json,
@@ -300,7 +300,7 @@ fn add_and_remove_as_editable() -> Result<(), Box<dyn std::error::Error>> {
 "#
     );
 
-    let config = std::fs::read_to_string(&config_path)?;
+    let config = fs::read_to_string(&config_path)?;
 
     assert_eq!(
         config,
@@ -330,7 +330,7 @@ sources = [
     Removing empty configuration file at `{config_path}`"
     )));
 
-    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+    let info_json = fs::read_to_string(cwd.join(".project.json"))?;
 
     assert_eq!(
         info_json,
@@ -374,7 +374,7 @@ fn add_and_remove_as_local_src() -> Result<(), Box<dyn std::error::Error>> {
       Adding usage: IRI `urn:kpar:test`"
     )));
 
-    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+    let info_json = fs::read_to_string(cwd.join(".project.json"))?;
 
     assert_eq!(
         info_json,
@@ -391,7 +391,7 @@ fn add_and_remove_as_local_src() -> Result<(), Box<dyn std::error::Error>> {
 "#
     );
 
-    let config = std::fs::read_to_string(&config_path)?;
+    let config = fs::read_to_string(&config_path)?;
 
     assert_eq!(
         config,
@@ -421,7 +421,7 @@ sources = [
     Removing empty configuration file at `{config_path}`"
     )));
 
-    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+    let info_json = fs::read_to_string(cwd.join(".project.json"))?;
 
     assert_eq!(
         info_json,
@@ -465,7 +465,7 @@ fn add_and_remove_as_local_kpar() -> Result<(), Box<dyn std::error::Error>> {
       Adding usage: IRI `urn:kpar:test`"
     )));
 
-    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+    let info_json = fs::read_to_string(cwd.join(".project.json"))?;
 
     assert_eq!(
         info_json,
@@ -482,7 +482,7 @@ fn add_and_remove_as_local_kpar() -> Result<(), Box<dyn std::error::Error>> {
 "#
     );
 
-    let config = std::fs::read_to_string(&config_path)?;
+    let config = fs::read_to_string(&config_path)?;
 
     assert_eq!(
         config,
@@ -512,7 +512,7 @@ sources = [
     Removing empty configuration file at `{config_path}`"
     )));
 
-    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+    let info_json = fs::read_to_string(cwd.join(".project.json"))?;
 
     assert_eq!(
         info_json,
@@ -556,7 +556,7 @@ fn add_and_remove_as_remote_src() -> Result<(), Box<dyn std::error::Error>> {
       Adding usage: IRI `urn:kpar:test`"
     )));
 
-    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+    let info_json = fs::read_to_string(cwd.join(".project.json"))?;
 
     assert_eq!(
         info_json,
@@ -573,7 +573,7 @@ fn add_and_remove_as_remote_src() -> Result<(), Box<dyn std::error::Error>> {
 "#
     );
 
-    let config = std::fs::read_to_string(&config_path)?;
+    let config = fs::read_to_string(&config_path)?;
 
     assert_eq!(
         config,
@@ -603,7 +603,7 @@ sources = [
     Removing empty configuration file at `{config_path}`"
     )));
 
-    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+    let info_json = fs::read_to_string(cwd.join(".project.json"))?;
 
     assert_eq!(
         info_json,
@@ -647,7 +647,7 @@ fn add_and_remove_as_remote_kpar() -> Result<(), Box<dyn std::error::Error>> {
       Adding usage: IRI `urn:kpar:test`"
     )));
 
-    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+    let info_json = fs::read_to_string(cwd.join(".project.json"))?;
 
     assert_eq!(
         info_json,
@@ -664,7 +664,7 @@ fn add_and_remove_as_remote_kpar() -> Result<(), Box<dyn std::error::Error>> {
 "#
     );
 
-    let config = std::fs::read_to_string(&config_path)?;
+    let config = fs::read_to_string(&config_path)?;
 
     assert_eq!(
         config,
@@ -694,7 +694,7 @@ sources = [
     Removing empty configuration file at `{config_path}`"
     )));
 
-    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+    let info_json = fs::read_to_string(cwd.join(".project.json"))?;
 
     assert_eq!(
         info_json,
@@ -738,7 +738,7 @@ fn add_and_remove_as_remote_git() -> Result<(), Box<dyn std::error::Error>> {
       Adding usage: IRI `urn:kpar:test`"
     )));
 
-    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+    let info_json = fs::read_to_string(cwd.join(".project.json"))?;
 
     assert_eq!(
         info_json,
@@ -755,7 +755,7 @@ fn add_and_remove_as_remote_git() -> Result<(), Box<dyn std::error::Error>> {
 "#
     );
 
-    let config = std::fs::read_to_string(&config_path)?;
+    let config = fs::read_to_string(&config_path)?;
 
     assert_eq!(
         config,
@@ -785,7 +785,7 @@ sources = [
     Removing empty configuration file at `{config_path}`"
     )));
 
-    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+    let info_json = fs::read_to_string(cwd.join(".project.json"))?;
 
     assert_eq!(
         info_json,
@@ -810,7 +810,7 @@ fn add_and_remove_from_path() -> Result<(), Box<dyn std::error::Error>> {
 
     let config_path = cwd.join("sysand.toml");
 
-    std::fs::create_dir_all(cwd.join("local/test"))?;
+    fs::create_dir_all(cwd.join("local/test"))?;
 
     let out = run_sysand_in(
         &cwd,
@@ -831,7 +831,7 @@ fn add_and_remove_from_path() -> Result<(), Box<dyn std::error::Error>> {
       Adding usage: IRI `urn:kpar:test-src`"
     )));
 
-    std::fs::File::create_new(cwd.join("local/test.kpar"))?;
+    fs::File::create_new(cwd.join("local/test.kpar"))?;
 
     let out = run_sysand_in(
         &cwd,
@@ -851,7 +851,7 @@ fn add_and_remove_from_path() -> Result<(), Box<dyn std::error::Error>> {
       Adding usage: IRI `urn:kpar:test-kpar`"
     )));
 
-    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+    let info_json = fs::read_to_string(cwd.join(".project.json"))?;
 
     assert_eq!(
         info_json,
@@ -871,7 +871,7 @@ fn add_and_remove_from_path() -> Result<(), Box<dyn std::error::Error>> {
 "#
     );
 
-    let config = std::fs::read_to_string(&config_path)?;
+    let config = fs::read_to_string(&config_path)?;
 
     assert_eq!(
         config,
@@ -918,7 +918,7 @@ sources = [
     Removing empty configuration file at `{config_path}`"
     )));
 
-    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+    let info_json = fs::read_to_string(cwd.join(".project.json"))?;
 
     assert_eq!(
         info_json,
@@ -969,7 +969,7 @@ fn add_and_remove_from_url() -> Result<(), Box<dyn std::error::Error>> {
       Adding usage: IRI `urn:kpar:add-from-url-dep`"
     )));
 
-    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+    let info_json = fs::read_to_string(cwd.join(".project.json"))?;
     assert_eq!(
         info_json,
         r#"{
@@ -985,7 +985,7 @@ fn add_and_remove_from_url() -> Result<(), Box<dyn std::error::Error>> {
 "#
     );
 
-    let config = std::fs::read_to_string(&config_path)?;
+    let config = fs::read_to_string(&config_path)?;
     assert!(
         config.contains("src_path"),
         "config should record a src_path source resolved from the file:// URL"
@@ -1008,7 +1008,7 @@ fn add_and_remove_from_url() -> Result<(), Box<dyn std::error::Error>> {
     Removing empty configuration file at `{config_path}`"
     )));
 
-    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+    let info_json = fs::read_to_string(cwd.join(".project.json"))?;
     assert_eq!(
         info_json,
         r#"{
@@ -1117,7 +1117,7 @@ fn add_and_remove_full_purl_sysand_without_lock() -> Result<(), Box<dyn std::err
         "Adding usage: IRI `pkg:sysand/acme-labs/my.project`",
     ));
 
-    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+    let info_json = fs::read_to_string(cwd.join(".project.json"))?;
 
     assert_eq!(
         info_json,
@@ -1145,7 +1145,7 @@ fn add_and_remove_full_purl_sysand_without_lock() -> Result<(), Box<dyn std::err
      Removed `pkg:sysand/acme-labs/my.project`",
     ));
 
-    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+    let info_json = fs::read_to_string(cwd.join(".project.json"))?;
 
     assert_eq!(
         info_json,
@@ -1178,7 +1178,7 @@ fn add_and_remove_urn_with_slash() -> Result<(), Box<dyn std::error::Error>> {
         "Adding usage: IRI `urn:kpar:acme-labs/my.project`",
     ));
 
-    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+    let info_json = fs::read_to_string(cwd.join(".project.json"))?;
 
     assert_eq!(
         info_json,
@@ -1206,7 +1206,7 @@ fn add_and_remove_urn_with_slash() -> Result<(), Box<dyn std::error::Error>> {
      Removed `urn:kpar:acme-labs/my.project`",
     ));
 
-    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+    let info_json = fs::read_to_string(cwd.join(".project.json"))?;
 
     assert_eq!(
         info_json,
@@ -1394,8 +1394,8 @@ fn add_no_sync_skips_env_sync() -> Result<(), Box<dyn std::error::Error>> {
     out.assert()
         .success()
         .stderr(contains("Adding usage: IRI `urn:kpar:add-no-sync-dep`"))
-        .stderr(predicate::str::contains("Syncing").not())
-        .stderr(predicate::str::contains("Creating env").not());
+        .stderr(contains("Syncing").not())
+        .stderr(contains("Creating env").not());
 
     let lockfile =
         fs::read_to_string(cwd.join(sysand_core::commands::lock::DEFAULT_LOCKFILE_NAME))?;
@@ -1885,7 +1885,7 @@ fn write_dep_kpar(
     name: &str,
     version: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let file = std::fs::File::create(kpar_path)?;
+    let file = fs::File::create(kpar_path)?;
     let mut zip = zip::ZipWriter::new(file);
 
     let options = zip::write::SimpleFileOptions::default()
@@ -1910,7 +1910,7 @@ fn add_dir_and_remove_identifier_without_lock() -> Result<(), Box<dyn std::error
     out.assert().success();
 
     let dep_dir = cwd.join("dep");
-    std::fs::create_dir_all(&dep_dir)?;
+    fs::create_dir_all(&dep_dir)?;
     cli_init_project_in(
         &dep_dir,
         None,
@@ -1924,11 +1924,11 @@ fn add_dir_and_remove_identifier_without_lock() -> Result<(), Box<dyn std::error
 
     let out = run_sysand_in(&cwd, ["add", "--no-lock", "--dir", "dep"], None)?;
 
-    out.assert().success().stderr(predicate::str::contains(
-        "Adding usage: `Acme Labs/My Dep` from `dep`",
-    ));
+    out.assert()
+        .success()
+        .stderr(contains("Adding usage: `Acme Labs/My Dep` from `dep`"));
 
-    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+    let info_json = fs::read_to_string(cwd.join(".project.json"))?;
     assert_eq!(
         info_json,
         r#"{
@@ -1950,14 +1950,10 @@ fn add_dir_and_remove_identifier_without_lock() -> Result<(), Box<dyn std::error
 
     out.assert()
         .success()
-        .stderr(predicate::str::contains(
-            "Removing `Acme Labs/My Dep` from usages",
-        ))
-        .stderr(predicate::str::contains(
-            "Removed `Acme Labs/My Dep` (path `dep`)",
-        ));
+        .stderr(contains("Removing `Acme Labs/My Dep` from usages"))
+        .stderr(contains("Removed `Acme Labs/My Dep` (path `dep`)"));
 
-    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+    let info_json = fs::read_to_string(cwd.join(".project.json"))?;
     assert_eq!(
         info_json,
         r#"{
@@ -1977,8 +1973,8 @@ fn add_dir_missing_publisher_fails() -> Result<(), Box<dyn std::error::Error>> {
     out.assert().success();
 
     let dep_dir = cwd.join("dep");
-    std::fs::create_dir_all(&dep_dir)?;
-    std::fs::write(
+    fs::create_dir_all(&dep_dir)?;
+    fs::write(
         dep_dir.join(".project.json"),
         r#"{
   "name": "no-publisher-dep",
@@ -1991,9 +1987,9 @@ fn add_dir_missing_publisher_fails() -> Result<(), Box<dyn std::error::Error>> {
 
     out.assert()
         .failure()
-        .stderr(predicate::str::contains("does not have a publisher"));
+        .stderr(contains("does not have a publisher"));
 
-    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+    let info_json = fs::read_to_string(cwd.join(".project.json"))?;
     assert_eq!(
         info_json,
         r#"{
@@ -2013,14 +2009,14 @@ fn add_dir_nonexistent_project_fails() -> Result<(), Box<dyn std::error::Error>>
     out.assert().success();
 
     let dep_dir = cwd.join("dep");
-    std::fs::create_dir_all(&dep_dir)?;
+    fs::create_dir_all(&dep_dir)?;
     // dep exists as a directory but has no .project.json
 
     let out = run_sysand_in(&cwd, ["add", "--no-lock", "--dir", "dep"], None)?;
 
-    out.assert().failure().stderr(predicate::str::contains(
-        "unable to find interchange project",
-    ));
+    out.assert()
+        .failure()
+        .stderr(contains("unable to find interchange project"));
 
     Ok(())
 }
@@ -2031,7 +2027,7 @@ fn add_dir_already_present_is_ignored() -> Result<(), Box<dyn std::error::Error>
     out.assert().success();
 
     let dep_dir = cwd.join("dep");
-    std::fs::create_dir_all(&dep_dir)?;
+    fs::create_dir_all(&dep_dir)?;
     cli_init_project_in(
         &dep_dir,
         None,
@@ -2051,9 +2047,9 @@ fn add_dir_already_present_is_ignored() -> Result<(), Box<dyn std::error::Error>
 
     out.assert()
         .success()
-        .stderr(predicate::str::contains("is already present"));
+        .stderr(contains("is already present"));
 
-    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+    let info_json = fs::read_to_string(cwd.join(".project.json"))?;
     assert_eq!(
         info_json,
         r#"{
@@ -2080,7 +2076,7 @@ fn remove_identifier() -> Result<(), Box<dyn std::error::Error>> {
     out.assert().success();
 
     let dep_dir = cwd.join("dep");
-    std::fs::create_dir_all(&dep_dir)?;
+    fs::create_dir_all(&dep_dir)?;
     cli_init_project_in(
         &dep_dir,
         None,
@@ -2100,14 +2096,10 @@ fn remove_identifier() -> Result<(), Box<dyn std::error::Error>> {
 
     out.assert()
         .success()
-        .stderr(predicate::str::contains(
-            "Removing `Acme Labs/my-dep` from usages",
-        ))
-        .stderr(predicate::str::contains(
-            "Removed `Acme Labs/My Dep` (path `dep`)",
-        ));
+        .stderr(contains("Removing `Acme Labs/my-dep` from usages"))
+        .stderr(contains("Removed `Acme Labs/My Dep` (path `dep`)"));
 
-    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+    let info_json = fs::read_to_string(cwd.join(".project.json"))?;
     assert_eq!(
         info_json,
         r#"{
@@ -2128,9 +2120,9 @@ fn remove_identifier_nonexistent() -> Result<(), Box<dyn std::error::Error>> {
 
     let out = run_sysand_in(&cwd, ["remove", "Acme Labs/Nonexistent"], None)?;
 
-    out.assert().failure().stderr(predicate::str::contains(
-        "could not find usage for `Acme Labs/Nonexistent`",
-    ));
+    out.assert()
+        .failure()
+        .stderr(contains("could not find usage for `Acme Labs/Nonexistent`"));
 
     Ok(())
 }
@@ -2146,11 +2138,11 @@ fn add_kpar_path_and_remove_identifier_without_lock() -> Result<(), Box<dyn std:
 
     let out = run_sysand_in(&cwd, ["add", "--no-lock", "--kpar-path", "dep.kpar"], None)?;
 
-    out.assert().success().stderr(predicate::str::contains(
-        "Adding usage: `Acme Labs/My Dep` in `dep.kpar`",
-    ));
+    out.assert()
+        .success()
+        .stderr(contains("Adding usage: `Acme Labs/My Dep` in `dep.kpar`"));
 
-    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+    let info_json = fs::read_to_string(cwd.join(".project.json"))?;
     assert_eq!(
         info_json,
         r#"{
@@ -2172,14 +2164,10 @@ fn add_kpar_path_and_remove_identifier_without_lock() -> Result<(), Box<dyn std:
 
     out.assert()
         .success()
-        .stderr(predicate::str::contains(
-            "Removing `Acme Labs/My Dep` from usages",
-        ))
-        .stderr(predicate::str::contains(
-            "Removed `Acme Labs/My Dep` (path `dep.kpar`)",
-        ));
+        .stderr(contains("Removing `Acme Labs/My Dep` from usages"))
+        .stderr(contains("Removed `Acme Labs/My Dep` (path `dep.kpar`)"));
 
-    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+    let info_json = fs::read_to_string(cwd.join(".project.json"))?;
     assert_eq!(
         info_json,
         r#"{
@@ -2201,7 +2189,7 @@ fn add_kpar_path_missing_publisher_fails() -> Result<(), Box<dyn std::error::Err
 
     let dep_kpar = cwd.join("dep.kpar");
     {
-        let file = std::fs::File::create(&dep_kpar)?;
+        let file = fs::File::create(&dep_kpar)?;
         let mut zip = zip::ZipWriter::new(file);
         let options = zip::write::SimpleFileOptions::default()
             .compression_method(zip::CompressionMethod::Stored)
@@ -2215,9 +2203,9 @@ fn add_kpar_path_missing_publisher_fails() -> Result<(), Box<dyn std::error::Err
 
     out.assert()
         .failure()
-        .stderr(predicate::str::contains("does not have a publisher"));
+        .stderr(contains("does not have a publisher"));
 
-    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+    let info_json = fs::read_to_string(cwd.join(".project.json"))?;
     assert_eq!(
         info_json,
         r#"{
@@ -2240,15 +2228,15 @@ fn add_kpar_path_nonexistent_project_fails() -> Result<(), Box<dyn std::error::E
     let dep_kpar = cwd.join("dep.kpar");
     // dep.kpar exists as a valid, but empty, archive: no `.project.json`
     {
-        let file = std::fs::File::create(&dep_kpar)?;
+        let file = fs::File::create(&dep_kpar)?;
         zip::ZipWriter::new(file).finish()?;
     }
 
     let out = run_sysand_in(&cwd, ["add", "--no-lock", "--kpar-path", "dep.kpar"], None)?;
 
-    out.assert().failure().stderr(predicate::str::contains(
-        "unable to find interchange project",
-    ));
+    out.assert()
+        .failure()
+        .stderr(contains("unable to find interchange project"));
 
     Ok(())
 }
@@ -2270,9 +2258,9 @@ fn add_kpar_path_already_present_is_ignored() -> Result<(), Box<dyn std::error::
 
     out.assert()
         .success()
-        .stderr(predicate::str::contains("is already present"));
+        .stderr(contains("is already present"));
 
-    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+    let info_json = fs::read_to_string(cwd.join(".project.json"))?;
     assert_eq!(
         info_json,
         r#"{
@@ -2309,14 +2297,10 @@ fn remove_identifier_kpar_path() -> Result<(), Box<dyn std::error::Error>> {
 
     out.assert()
         .success()
-        .stderr(predicate::str::contains(
-            "Removing `acme-labs/my-dep` from usages",
-        ))
-        .stderr(predicate::str::contains(
-            "Removed `Acme Labs/My Dep` (path `dep.kpar`)",
-        ));
+        .stderr(contains("Removing `acme-labs/my-dep` from usages"))
+        .stderr(contains("Removed `Acme Labs/My Dep` (path `dep.kpar`)"));
 
-    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+    let info_json = fs::read_to_string(cwd.join(".project.json"))?;
     assert_eq!(
         info_json,
         r#"{
@@ -2405,7 +2389,7 @@ fn remove_identifier_removes_the_sysand_purl_resource() -> Result<(), Box<dyn st
         .stderr(contains("Removing `acme-labs/my.project` from usages"))
         .stderr(contains("Removed `pkg:sysand/acme-labs/my.project`"));
 
-    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+    let info_json = fs::read_to_string(cwd.join(".project.json"))?;
     assert_eq!(
         info_json,
         r#"{
@@ -2427,7 +2411,7 @@ fn remove_identifier_matches_a_typed_usage_by_the_normalized_form()
     out.assert().success();
 
     let dep_dir = cwd.join("dep");
-    std::fs::create_dir_all(&dep_dir)?;
+    fs::create_dir_all(&dep_dir)?;
     cli_init_project_in(
         &dep_dir,
         None,
@@ -2449,7 +2433,7 @@ fn remove_identifier_matches_a_typed_usage_by_the_normalized_form()
         .success()
         .stderr(contains("Removed `Acme Labs/My Dep` (path `dep`)"));
 
-    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+    let info_json = fs::read_to_string(cwd.join(".project.json"))?;
     assert_eq!(
         info_json,
         r#"{
@@ -2469,7 +2453,7 @@ fn remove_iri_of_a_typed_usage_suggests_identifier() -> Result<(), Box<dyn std::
     out.assert().success();
 
     let dep_dir = cwd.join("dep");
-    std::fs::create_dir_all(&dep_dir)?;
+    fs::create_dir_all(&dep_dir)?;
     // A valid `pkg:sysand` publisher, so the typed usage has a PURL identifier
     cli_init_project_in(
         &dep_dir,
@@ -2511,7 +2495,7 @@ fn remove_typed_by_normalized_spelling_updates_lockfile() -> Result<(), Box<dyn 
     out.assert().success();
 
     let dep_dir = cwd.join("dep");
-    std::fs::create_dir_all(&dep_dir)?;
+    fs::create_dir_all(&dep_dir)?;
     cli_init_project_in(
         &dep_dir,
         None,
@@ -2682,7 +2666,7 @@ fn remove_still_needed_dependency_updates_root_usages_in_lockfile()
 
     for name in ["dep-a", "dep-b"] {
         let dir = cwd.join(name);
-        std::fs::create_dir_all(&dir)?;
+        fs::create_dir_all(&dir)?;
         cli_init_project_in(&dir, None, "acme", Some(name), Some("1.0.0"), None)?
             .assert()
             .success();
@@ -2765,7 +2749,7 @@ fn add_publisher_name_writes_an_index_usage() -> Result<(), Box<dyn std::error::
     .assert()
     .success();
 
-    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+    let info_json = fs::read_to_string(cwd.join(".project.json"))?;
     assert_eq!(
         info_json,
         r#"{
@@ -2801,10 +2785,7 @@ fn add_publisher_name_writes_an_index_usage() -> Result<(), Box<dyn std::error::
         "`Acme labs/My Lib` is already declared as an index usage `Acme Labs/My Lib`;\n\
          a typed usage must spell the publisher and name exactly as the project does",
     ));
-    assert_eq!(
-        std::fs::read_to_string(cwd.join(".project.json"))?,
-        info_json
-    );
+    assert_eq!(fs::read_to_string(cwd.join(".project.json"))?, info_json);
 
     Ok(())
 }
@@ -2931,7 +2912,7 @@ fn remove_index_usage_by_exact_spelling() -> Result<(), Box<dyn std::error::Erro
             "Removed `Acme Labs/My Lib` with version constraints `^1`",
         ));
 
-    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+    let info_json = fs::read_to_string(cwd.join(".project.json"))?;
     assert_eq!(
         info_json,
         r#"{
@@ -3011,7 +2992,7 @@ fn add_index_usage_constrains_to_the_locked_version() -> Result<(), Box<dyn std:
     .success()
     .stderr(contains("Settled usage: `Acme Labs/My Lib` (^1.2.0)"));
 
-    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+    let info_json = fs::read_to_string(cwd.join(".project.json"))?;
     assert!(
         info_json.contains(
             r#"{
@@ -3022,7 +3003,7 @@ fn add_index_usage_constrains_to_the_locked_version() -> Result<(), Box<dyn std:
         ),
         "{info_json}"
     );
-    let lock = std::fs::read_to_string(cwd.join("sysand-lock.toml"))?;
+    let lock = fs::read_to_string(cwd.join("sysand-lock.toml"))?;
     assert!(lock.contains(r#"version = "1.2.0""#), "{lock}");
 
     Ok(())
@@ -3070,7 +3051,7 @@ fn add_index_usage_constrains_to_a_version_the_graph_allows()
     .success()
     .stderr(contains("Settled usage: `Acme Labs/My Lib` (^1.4.0)"));
 
-    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+    let info_json = fs::read_to_string(cwd.join(".project.json"))?;
     assert!(
         info_json.contains(
             r#"{
@@ -3092,7 +3073,7 @@ fn add_index_usage_spelled_unlike_the_project_fails() -> Result<(), Box<dyn std:
     let (_temp_dir, cwd, out) = cli_init_project_basic("main", "add_index_misspelled", "1.2.3")?;
     out.assert().success();
     install_in_env(&cwd, "Acme Labs", "My Lib", "1.0.0")?;
-    let before = std::fs::read_to_string(cwd.join(".project.json"))?;
+    let before = fs::read_to_string(cwd.join(".project.json"))?;
 
     for args in [
         &["add", "--no-sync", "--no-index", "Acme labs/My Lib"][..],
@@ -3113,7 +3094,7 @@ fn add_index_usage_spelled_unlike_the_project_fails() -> Result<(), Box<dyn std:
                  version 1.0.0 of `Acme Labs/My Lib`, but is rejected because its spelling does \
                  not match the project's;\nspell the usage exactly as `Acme Labs/My Lib`",
             ));
-        assert_eq!(std::fs::read_to_string(cwd.join(".project.json"))?, before);
+        assert_eq!(fs::read_to_string(cwd.join(".project.json"))?, before);
     }
 
     Ok(())
@@ -3141,7 +3122,7 @@ fn add_normalized_index_usage_takes_the_resolved_spelling() -> Result<(), Box<dy
                 "Settled usage: `Acme Labs/My Lib` ({written})"
             )));
 
-        let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+        let info_json = fs::read_to_string(cwd.join(".project.json"))?;
         assert!(
             info_json.contains(&format!(
                 r#"{{
@@ -3194,7 +3175,7 @@ fn source_override_does_not_apply_to_an_index_usage() -> Result<(), Box<dyn std:
     .assert()
     .success();
     let config_path = cwd.join("sysand.toml");
-    std::fs::write(
+    fs::write(
         &config_path,
         r#"[[project]]
 identifiers = ["pkg:sysand/acme-labs/my-lib"]
@@ -3211,7 +3192,7 @@ sources = [{ src_path = "dep" }]
     .success()
     .stderr(contains("Settled usage: `Acme Labs/My Lib` (^1.0.0)"));
 
-    let lock = std::fs::read_to_string(cwd.join("sysand-lock.toml"))?;
+    let lock = fs::read_to_string(cwd.join("sysand-lock.toml"))?;
     assert!(lock.contains(r#"version = "1.0.0""#), "{lock}");
     assert!(!lock.contains(r#"version = "9.0.0""#), "{lock}");
 
@@ -3252,7 +3233,7 @@ fn source_override_reaches_an_index_usage_of_the_same_project_through_coalescing
     .success();
     let mid = cwd.join("mid");
     // `^9` is satisfied only by the override
-    let mid_info = std::fs::read_to_string(mid.join(".project.json"))?;
+    let mid_info = fs::read_to_string(mid.join(".project.json"))?;
     let mid_info = mid_info.replacen(
         r#""version": "1.0.0""#,
         r#""version": "1.0.0",
@@ -3265,7 +3246,7 @@ fn source_override_reaches_an_index_usage_of_the_same_project_through_coalescing
   ]"#,
         1,
     );
-    std::fs::write(mid.join(".project.json"), mid_info)?;
+    fs::write(mid.join(".project.json"), mid_info)?;
 
     let config_path = cwd.join("sysand.toml");
     run_sysand_in(
@@ -3291,7 +3272,7 @@ fn source_override_reaches_an_index_usage_of_the_same_project_through_coalescing
     .success();
 
     // `mid`'s index usage `^9` is satisfied only by the override's 9.0.0
-    let lock = std::fs::read_to_string(cwd.join("sysand-lock.toml"))?;
+    let lock = fs::read_to_string(cwd.join("sysand-lock.toml"))?;
     assert!(lock.contains(r#"version = "9.0.0""#), "{lock}");
 
     Ok(())
@@ -3321,7 +3302,7 @@ fn add_normalized_index_usage_without_lock_takes_the_installed_spelling()
     .success()
     .stderr(contains("Adding usage: `Acme Labs/My Lib` (^1)"));
 
-    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+    let info_json = fs::read_to_string(cwd.join(".project.json"))?;
     assert!(
         info_json.contains(
             r#"{
@@ -3347,10 +3328,7 @@ fn add_normalized_index_usage_without_lock_takes_the_installed_spelling()
     )?
     .assert()
     .success();
-    assert_eq!(
-        std::fs::read_to_string(cwd.join(".project.json"))?,
-        info_json
-    );
+    assert_eq!(fs::read_to_string(cwd.join(".project.json"))?, info_json);
 
     Ok(())
 }
@@ -3361,7 +3339,7 @@ fn add_normalized_index_usage_without_lock_takes_the_installed_spelling()
 fn add_index_usage_without_lock_needs_it_installed() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = cli_init_project_basic("f", "add_index_not_installed", "1.2.3")?;
     out.assert().success();
-    let before = std::fs::read_to_string(cwd.join(".project.json"))?;
+    let before = fs::read_to_string(cwd.join(".project.json"))?;
 
     for (spelling, message) in [
         (
@@ -3385,7 +3363,7 @@ fn add_index_usage_without_lock_needs_it_installed() -> Result<(), Box<dyn std::
         )))
         .stderr(contains("leave out `--no-lock`"));
     }
-    assert_eq!(std::fs::read_to_string(cwd.join(".project.json"))?, before);
+    assert_eq!(fs::read_to_string(cwd.join(".project.json"))?, before);
 
     // Any installed version gives the spelling, whatever the constraint
     install_in_env(&cwd, "Acme Labs", "My Lib", "2.0.0")?;
@@ -3484,7 +3462,7 @@ fn add_already_present_usage_still_syncs() -> Result<(), Box<dyn std::error::Err
     .success();
     let env = cwd.join(DEFAULT_ENV_NAME);
     assert!(env.is_dir());
-    std::fs::remove_dir_all(&env)?;
+    fs::remove_dir_all(&env)?;
 
     run_sysand_in(
         &cwd,
@@ -3514,9 +3492,9 @@ fn add_already_present_index_usage_still_locks() -> Result<(), Box<dyn std::erro
     )?
     .assert()
     .success();
-    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+    let info_json = fs::read_to_string(cwd.join(".project.json"))?;
     let lock_path = cwd.join("sysand-lock.toml");
-    std::fs::remove_file(&lock_path)?;
+    fs::remove_file(&lock_path)?;
 
     run_sysand_in(
         &cwd,
@@ -3527,10 +3505,7 @@ fn add_already_present_index_usage_still_locks() -> Result<(), Box<dyn std::erro
     .success()
     .stderr(contains("since it is already present"));
 
-    assert_eq!(
-        std::fs::read_to_string(cwd.join(".project.json"))?,
-        info_json
-    );
+    assert_eq!(fs::read_to_string(cwd.join(".project.json"))?, info_json);
     assert!(lock_path.is_file(), "the lockfile must be written again");
 
     Ok(())
@@ -3557,7 +3532,7 @@ fn add_without_lock_of_a_declared_index_usage_needs_nothing_installed()
     )?
     .assert()
     .success();
-    std::fs::remove_dir_all(cwd.join(DEFAULT_ENV_NAME))?;
+    fs::remove_dir_all(cwd.join(DEFAULT_ENV_NAME))?;
 
     run_sysand_in(
         &cwd,
@@ -3572,7 +3547,7 @@ fn add_without_lock_of_a_declared_index_usage_needs_nothing_installed()
     )?
     .assert()
     .success();
-    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+    let info_json = fs::read_to_string(cwd.join(".project.json"))?;
     assert!(
         info_json.contains(
             r#"{
@@ -3589,10 +3564,7 @@ fn add_without_lock_of_a_declared_index_usage_needs_nothing_installed()
         .assert()
         .success()
         .stderr(contains("since it is already present"));
-    assert_eq!(
-        std::fs::read_to_string(cwd.join(".project.json"))?,
-        info_json
-    );
+    assert_eq!(fs::read_to_string(cwd.join(".project.json"))?, info_json);
 
     Ok(())
 }

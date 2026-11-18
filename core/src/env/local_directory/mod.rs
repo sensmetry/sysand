@@ -134,7 +134,7 @@ impl LocalDirectoryEnvironment {
                     identifiers: project
                         .identifiers
                         .iter()
-                        .map(std::string::ToString::to_string)
+                        .map(ToString::to_string)
                         .collect(),
                     usages,
                     editable: true,

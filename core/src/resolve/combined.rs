@@ -93,6 +93,10 @@ pub enum CombinedProjectStorage<
     DanglingLocalProject(LocalProjectStorage),
 }
 
+#[expect(
+    missing_debug_implementations,
+    reason = "fields include trait objects and associated iterator types without `Debug`"
+)]
 pub enum CombinedIteratorState<
     FileResolver: ResolveRead,
     RemoteResolver: ResolveRead,
@@ -110,6 +114,10 @@ pub enum CombinedIteratorState<
     Done,
 }
 
+#[expect(
+    missing_debug_implementations,
+    reason = "fields include trait objects and associated iterator types without `Debug`"
+)]
 pub struct CombinedIterator<
     FileResolver: ResolveRead,
     LocalResolver: ResolveRead,

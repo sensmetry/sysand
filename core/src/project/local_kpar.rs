@@ -3,7 +3,7 @@
 
 use std::{
     cell::OnceCell,
-    fs::{self, File},
+    fs::File,
     io::{Read as _, Seek as _},
     num::NonZeroU64,
 };
@@ -25,7 +25,7 @@ use crate::{
         PROJECT_JSON_FILE, PartialManifest,
     },
     project::{
-        self, KparMeta, ProjectChecksum, ProjectRead, hash_reader,
+        KparMeta, ProjectChecksum, ProjectRead, hash_reader,
         utils::{RelativizePathError, ZipArchiveError, relativize_path},
     },
     utils::{lowercase_hex, sha256_lowercase_hex},
@@ -96,7 +96,7 @@ pub struct LocalKParProjectRaw {
 #[derive(Error, Debug)]
 pub enum LocalKParError {
     #[error(transparent)]
-    Zip(#[from] project::utils::ZipArchiveError),
+    Zip(#[from] ZipArchiveError),
     #[error("path `{0}` not found")]
     NotFound(Box<Utf8Path>),
     /// model-toml.md "Mixed manifests": "if toml config present in a
@@ -356,7 +356,7 @@ impl LocalKParProjectRaw {
                 archive
                     .rewind()
                     .map_err(|e| FsIoError::Seek(path.to_owned(), 0, e))?;
-                let mut zip = zip::ZipArchive::new(archive)
+                let mut zip = ZipArchive::new(archive)
                     .map_err(|e| ZipArchiveError::ReadArchive(path.into(), e))?;
                 Some(guess_root(&mut zip, path)?)
             }
@@ -382,8 +382,8 @@ impl LocalKParProjectRaw {
         let path = path.as_ref();
         let archive = wrapfs::File::open(path)?;
 
-        let mut zip = zip::ZipArchive::new(archive)
-            .map_err(|e| ZipArchiveError::ReadArchive(path.into(), e))?;
+        let mut zip =
+            ZipArchive::new(archive).map_err(|e| ZipArchiveError::ReadArchive(path.into(), e))?;
         let root = Some(guess_root(&mut zip, path)?);
 
         Ok(Self {
@@ -414,7 +414,7 @@ impl LocalKParProjectRaw {
             KparInnerPath::Guess => {
                 let archive = wrapfs::File::open(path)?;
 
-                let mut zip = zip::ZipArchive::new(archive)
+                let mut zip = ZipArchive::new(archive)
                     .map_err(|e| ZipArchiveError::ReadArchive(path.into(), e))?;
                 Some(guess_root(&mut zip, path)?)
             }
@@ -460,12 +460,12 @@ impl LocalKParProjectRaw {
         Ok(lowercase_hex(hasher.finalize()))
     }
 
-    fn open_archive_file(&self) -> Result<fs::File, LocalKParError> {
+    fn open_archive_file(&self) -> Result<File, LocalKParError> {
         Ok(wrapfs::File::open(&self.archive_path)?)
     }
 
-    pub(crate) fn open_archive(&self) -> Result<ZipArchive<fs::File>, LocalKParError> {
-        Ok(zip::ZipArchive::new(self.open_archive_file()?)
+    pub(crate) fn open_archive(&self) -> Result<ZipArchive<File>, LocalKParError> {
+        Ok(ZipArchive::new(self.open_archive_file()?)
             .map_err(|e| ZipArchiveError::ReadArchive(self.archive_path.as_path().into(), e))?)
     }
 
@@ -654,7 +654,7 @@ impl ProjectRead for LocalKParProjectRaw {
 /// toml manifest would be "`.project.json` not found", which says
 /// nothing about what is wrong.
 fn guess_root(
-    archive: &mut ZipArchive<fs::File>,
+    archive: &mut ZipArchive<File>,
     path: &Utf8Path,
 ) -> Result<Utf8UnixPathBuf, LocalKParError> {
     let mut maybe_root = None;

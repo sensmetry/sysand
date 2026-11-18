@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
 use fluent_uri::Iri;
-use typed_path::{Utf8UnixPath, Utf8UnixPathBuf};
+use typed_path::Utf8UnixPathBuf;
 
 use super::*;
 
@@ -174,7 +174,6 @@ fn a_usage_path_the_manifest_accepts_may_still_not_validate() {
 
 use std::collections::{BTreeMap, HashSet};
 
-use crate::manifest::project::ProjectManifest;
 use crate::manifest::spans::Source;
 use crate::model::{IndexName, IndexPublisher};
 
@@ -257,18 +256,7 @@ fn the_project_table_maps_onto_project_json() {
     assert_eq!(info.maintainer, ["Fine Person <fine@example.com>"]);
     assert_eq!(info.website.as_deref(), Some("https://example.com/"));
     assert_eq!(info.topic, ["systems", "demo"]);
-    assert_eq!(
-        info.usage,
-        [] as [crate::model::InterchangeProjectUsageG<
-            std::string::String,
-            std::string::String,
-            std::string::String,
-            std::string::String,
-            std::string::String,
-            std::string::String,
-            std::string::String,
-        >; 0]
-    );
+    assert_eq!(info.usage, Vec::new());
 }
 
 #[test]
@@ -278,20 +266,9 @@ fn a_minimal_project_writes_only_what_it_has() {
     assert_eq!(info.description, None);
     assert_eq!(info.license, None);
     assert_eq!(info.website, None);
-    assert_eq!(info.maintainer, [] as [std::string::String; 0]);
-    assert_eq!(info.topic, [] as [std::string::String; 0]);
-    assert_eq!(
-        info.usage,
-        [] as [crate::model::InterchangeProjectUsageG<
-            std::string::String,
-            std::string::String,
-            std::string::String,
-            std::string::String,
-            std::string::String,
-            std::string::String,
-            std::string::String,
-        >; 0]
-    );
+    assert_eq!(info.maintainer, Vec::<String>::new());
+    assert_eq!(info.topic, Vec::<String>::new());
+    assert_eq!(info.usage, Vec::new());
 }
 
 /// model-toml.md "Standard library" omits `publisher` from the
@@ -407,7 +384,7 @@ fn created_is_formatted_as_the_metadata_helper_formats_it() {
     let instant: jiff::Timestamp = "2026-09-14T12:34:56Z".parse().expect("an instant");
     let project = resolved(REQUIRED);
     let meta = meta(&project, &instant, SymbolIndex::new(), ChecksumMap::new());
-    assert_eq!(meta.created, crate::model::format_created(&instant));
+    assert_eq!(meta.created, format_created(&instant));
 }
 
 #[test]
@@ -449,10 +426,7 @@ fn a_checksum_is_the_sha256_of_the_contents() {
         &[("a.sysml", "part def A;")],
     );
     let entry = &checksum["a.sysml"];
-    assert_eq!(
-        entry.value,
-        crate::utils::sha256_lowercase_hex("part def A;")
-    );
+    assert_eq!(entry.value, sha256_lowercase_hex("part def A;"));
     assert_eq!(entry.algorithm, "SHA256");
 }
 
@@ -635,6 +609,6 @@ fn a_manifest_that_does_not_parse_is_reported_as_a_deserialization_error() {
 #[test]
 fn the_view_of_a_text_records_the_fixed_created() {
     let (_, meta) = of_text("model.toml", MANIFEST, nothing_to_read).expect("no sources to read");
-    assert_eq!(meta.created, crate::model::format_created(&VIEW_CREATED));
+    assert_eq!(meta.created, format_created(&VIEW_CREATED));
     assert_eq!(meta.created, "1970-01-01T00:00:00Z");
 }

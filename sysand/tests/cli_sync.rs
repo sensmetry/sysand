@@ -623,11 +623,11 @@ fn sync_kpar_path_usage_transitive() -> Result<(), Box<dyn std::error::Error>> {
     out.assert().success().stdout(predicate::str::is_empty());
 
     let deps_dir = cwd.join("deps");
-    std::fs::create_dir_all(&deps_dir)?;
+    fs::create_dir_all(&deps_dir)?;
 
     // `gadget`: a leaf KPAR, built elsewhere and placed at `deps/gadget.kpar`.
     let gadget_src = cwd.join("gadget_src");
-    std::fs::create_dir_all(&gadget_src)?;
+    fs::create_dir_all(&gadget_src)?;
     cli_init_project_in(&gadget_src, None, "c", Some("gadget"), Some("2.0.0"), None)?
         .assert()
         .success();
@@ -638,7 +638,7 @@ fn sync_kpar_path_usage_transitive() -> Result<(), Box<dyn std::error::Error>> {
     // `widget`: a source directory declaring `../gadget.kpar`, resolved (and
     // stored) relative to `widget`'s own directory.
     let widget_dir = deps_dir.join("widget");
-    std::fs::create_dir_all(&widget_dir)?;
+    fs::create_dir_all(&widget_dir)?;
     cli_init_project_in(&widget_dir, None, "b", Some("widget"), Some("1.0.0"), None)?
         .assert()
         .success();

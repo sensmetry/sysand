@@ -74,7 +74,7 @@ fn make_fixture_with_kpar_url(kpar_url: reqwest::Url) -> IndexEntryProject<Unaut
     .expect("IndexEntryProject::new has no fallible steps given a temp dir")
 }
 
-fn block_on<F: std::future::Future>(f: F) -> F::Output {
+fn block_on<F: Future>(f: F) -> F::Output {
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()

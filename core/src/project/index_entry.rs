@@ -148,7 +148,7 @@ impl<Policy: HTTPAuthentication> IndexEntryProject<Policy> {
     ) -> Result<&(InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw), IndexEntryProjectError>
     {
         self.fetched_info_meta
-            .get_or_try_init(|| async {
+            .get_or_try_init(async || {
                 let (info, meta): (
                     InterchangeProjectInfoPartial,
                     InterchangeProjectMetadataPartial,

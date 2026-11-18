@@ -190,7 +190,7 @@ where
 /// users type something else wants [`run_parsed_as`].
 pub fn run_parsed(
     global_opts: cli::GlobalOptions,
-    command: cli::Command,
+    command: Command,
     ownership: ProcessOwnership,
 ) -> u8 {
     run_parsed_as("sysand", global_opts, command, ownership)
@@ -205,7 +205,7 @@ pub fn run_parsed(
 pub fn run_parsed_as(
     program: &str,
     global_opts: cli::GlobalOptions,
-    command: cli::Command,
+    command: Command,
     ownership: ProcessOwnership,
 ) -> u8 {
     let Err(err) = run_cli_with(global_opts, command, ownership) else {
@@ -432,10 +432,10 @@ fn http_options_from(lookup: impl Fn(&str) -> Option<OsString>) -> Result<HttpOp
 
 fn run_cli_with(
     global_opts: cli::GlobalOptions,
-    command: cli::Command,
+    command: Command,
     ownership: ProcessOwnership,
 ) -> Result<()> {
-    sysand_core::style::set_style_config(crate::style::CONFIG);
+    sysand_core::style::set_style_config(style::CONFIG);
 
     let cwd = wrapfs::current_dir()?;
     let log_level = get_log_level(global_opts.verbose, global_opts.quiet);
@@ -835,7 +835,7 @@ fn run_cli_with(
                         ),
                     }
                 }
-                (Location::Resolve(resolve), None) => crate::commands::info::command_info_resolve(
+                (Location::Resolve(resolve), None) => commands::info::command_info_resolve(
                     resolve,
                     true, // !no_normalise,
                     client,
@@ -847,7 +847,7 @@ fn run_cli_with(
                     ctx,
                 ),
                 (Location::Resolve(resolve), Some(field)) => {
-                    crate::commands::info::command_info_field_resolve(
+                    commands::info::command_info_field_resolve(
                         resolve,
                         field,
                         client,

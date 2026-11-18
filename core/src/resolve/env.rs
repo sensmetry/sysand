@@ -111,7 +111,7 @@ impl<Env: ReadEnvironmentAsync> ResolveReadAsync for EnvResolver<Env> {
         let projects = futures::future::join_all(
             versions
                 .into_iter()
-                .map(|version| async { self.env.get_project_async(&id, version?).await }),
+                .map(async |version| self.env.get_project_async(&id, version?).await),
         )
         .await;
 

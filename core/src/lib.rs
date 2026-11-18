@@ -19,7 +19,7 @@ pub mod graph;
 #[cfg(feature = "filesystem")]
 pub mod index;
 pub mod index_location;
-mod iri_normalize;
+pub mod iri_normalize;
 pub mod lock;
 pub mod manifest;
 mod migrate;

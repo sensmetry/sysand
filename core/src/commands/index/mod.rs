@@ -8,7 +8,7 @@ use std::{
 
 use camino::Utf8Path;
 
-mod add;
+pub mod add;
 mod init;
 mod remove;
 mod yank;

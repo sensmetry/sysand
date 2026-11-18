@@ -9,7 +9,6 @@ use sha2::{Digest as _, Sha256};
 use std::{
     fmt::{Debug, Display},
     io::{self, BufRead as _, BufReader, Read},
-    marker::Unpin,
     num::NonZeroU64,
     sync::Arc,
 };
@@ -757,25 +756,26 @@ pub trait ProjectReadAsync {
             };
 
             if let Some(mut checksums) = meta.checksum {
-                let future_checksums = checksums.drain(..).map(|(path, mut checksum)| async move {
-                    let sha256: &str = KerMlChecksumAlg::Sha256.into();
-                    if checksum.algorithm == sha256 {
-                        checksum.value = checksum.value.to_lowercase();
-                    } else {
-                        checksum.algorithm = sha256.to_owned();
+                let future_checksums =
+                    checksums.drain(..).map(async move |(path, mut checksum)| {
+                        let sha256: &str = KerMlChecksumAlg::Sha256.into();
+                        if checksum.algorithm == sha256 {
+                            checksum.value = checksum.value.to_lowercase();
+                        } else {
+                            checksum.algorithm = sha256.to_owned();
 
-                        let mut src = self
-                            .read_source_async(&path)
-                            .await
-                            .map_err(CanonicalizationError::ProjectRead)?;
-                        checksum.value =
-                            lowercase_hex(hash_reader_async(&mut src).await.map_err(|e| {
-                                CanonicalizationError::FileRead(path.clone().into(), e)
-                            })?);
-                    }
+                            let mut src = self
+                                .read_source_async(&path)
+                                .await
+                                .map_err(CanonicalizationError::ProjectRead)?;
+                            checksum.value =
+                                lowercase_hex(hash_reader_async(&mut src).await.map_err(|e| {
+                                    CanonicalizationError::FileRead(path.clone().into(), e)
+                                })?);
+                        }
 
-                    Ok((path, checksum))
-                });
+                        Ok((path, checksum))
+                    });
 
                 let collected_checksums: Result<Vec<(String, InterchangeProjectChecksumRaw)>, _> =
                     futures::future::join_all(future_checksums)
@@ -783,7 +783,7 @@ pub trait ProjectReadAsync {
                         .into_iter()
                         .collect();
 
-                meta.checksum = Some(indexmap::IndexMap::from_iter(collected_checksums?));
+                meta.checksum = Some(IndexMap::from_iter(collected_checksums?));
             }
 
             Ok(Some(meta))

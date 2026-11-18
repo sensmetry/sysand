@@ -481,7 +481,7 @@ fn read_optional_project_file(
     let Some(file_path) = project_root.map(|p| p.join(file_name)) else {
         return Ok(None);
     };
-    match std::fs::read_to_string(&file_path) {
+    match fs::read_to_string(&file_path) {
         Ok(content) => {
             let header = crate::style::get_style_config().header;
             let including = "Including";
