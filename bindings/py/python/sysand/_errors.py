@@ -13,9 +13,8 @@ class SysandError(RuntimeError):
 
     Subclasses ``RuntimeError`` so callers catching that keep working.
 
-    Attributes:
-        wrote: whether the failed call modified anything on disk before it
-            failed. ``False`` means a clean refusal: nothing to roll back.
+    :ivar wrote: whether the failed call modified anything on disk before it
+        failed. ``False`` means a clean refusal: nothing to roll back.
     """
 
     wrote: bool
@@ -41,17 +40,16 @@ class NotFoundError(ResolutionError):
 class SolveError(SysandError):
     """Dependency resolution found no solution.
 
-    Attributes:
-        conflicts: machine-readable participants in the failure, one dict per
-            conflict with a ``"kind"`` key (``"Constraint"``, ``"NoVersions"``,
-            ``"NotFound"``) and the variant's fields. ``"NoVersions"`` carries
-            ``"defaulted"``: whether its ``"constraint"`` was defaulted rather
-            than written in the usage.
-        report: the human-readable report, identical to the CLI's output.
-        kind: ``"no_solution"`` (no set of versions satisfies the usages --
-            including a constraint no published version matches),
-            ``"retrieval"`` (a project could not be obtained at all) or
-            ``"choosing_version"``.
+    :ivar conflicts: machine-readable participants in the failure, one dict per
+        conflict with a ``"kind"`` key (``"Constraint"``, ``"NoVersions"``,
+        ``"NotFound"``) and the variant's fields. ``"NoVersions"`` carries
+        ``"defaulted"``: whether its ``"constraint"`` was defaulted rather
+        than written in the usage.
+    :ivar report: the human-readable report, identical to the CLI's output.
+    :ivar kind: ``"no_solution"`` (no set of versions satisfies the usages --
+        including a constraint no published version matches),
+        ``"retrieval"`` (a project could not be obtained at all) or
+        ``"choosing_version"``.
     """
 
     conflicts: list[dict[str, typing.Any]]
@@ -89,12 +87,11 @@ class IndexProtocolError(SysandError):
 class SyncError(SysandError):
     """``sync`` failed part-way.
 
-    Attributes:
-        partial: what was installed and pruned before the failure, shaped
-            like a :class:`SyncOutcome` dict (``installed`` and ``pruned``
-            are empty when nothing was; ``kept`` lists the entries checked
-            before it), except that its entries carry ``iri`` and
-            ``version`` only: install paths are known once a sync completes.
+    :ivar partial: what was installed and pruned before the failure, shaped
+        like a :class:`SyncOutcome` dict (``installed`` and ``pruned``
+        are empty when nothing was; ``kept`` lists the entries checked
+        before it), except that its entries carry ``iri`` and
+        ``version`` only: install paths are known once a sync completes.
     """
 
     partial: dict[str, typing.Any] | None
