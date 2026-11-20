@@ -3968,6 +3968,7 @@ dependencies = [
  "fluent-uri",
  "indexmap",
  "jni",
+ "sysand",
  "sysand-core",
  "tokio",
 ]
