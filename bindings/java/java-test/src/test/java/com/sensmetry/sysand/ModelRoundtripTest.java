@@ -13,6 +13,7 @@ import com.sensmetry.sysand.model.InterchangeProjectUsage;
 import com.sensmetry.sysand.model.InterchangeProjectUsageDirectory;
 import com.sensmetry.sysand.model.InterchangeProjectUsageIndex;
 import com.sensmetry.sysand.model.InterchangeProjectUsageKparPath;
+import com.sensmetry.sysand.model.InterchangeProjectUsageRemoteKpar;
 import com.sensmetry.sysand.model.InterchangeProjectUsageResource;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -37,6 +38,12 @@ public class ModelRoundtripTest {
                     new InterchangeProjectUsageDirectory("../local-lib", "local-pub", "local-lib"),
                     new InterchangeProjectUsageKparPath("deps/archive-lib.kpar", "archive-pub", "archive-lib"),
                     new InterchangeProjectUsageIndex("Acme Labs", "My Lib", "^1.2"),
+                    new InterchangeProjectUsageRemoteKpar(
+                            "https://example.com/remote-archive.kpar", "remote-pub", "remote-archive"),
+                    new InterchangeProjectUsageRemoteKpar(
+                            "https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar",
+                            null,
+                            "Kernel Semantic Library"),
                 });
 
         LinkedHashMap<String, String> index = new LinkedHashMap<>();
@@ -59,6 +66,48 @@ public class ModelRoundtripTest {
 
         assertInfoEquals(info, roundtripped.info);
         assertMetadataEquals(metadata, roundtripped.metadata);
+    }
+
+    /**
+     * The Syside shape of {@code .meta.json} ({@code root} and
+     * {@code exports} in place of {@code index}) round-trips through the
+     * native layer, with {@code index} null.
+     */
+    @Test
+    void sysideMetadataRoundTrips() {
+        InterchangeProjectInfo info = new InterchangeProjectInfo(
+                "widgets", "acme", null, "1.0.0", null,
+                new String[0], null, new String[0], new InterchangeProjectUsage[0]);
+
+        LinkedHashMap<String, InterchangeProjectChecksum> checksum = new LinkedHashMap<>();
+        checksum.put("main.sysml", new InterchangeProjectChecksum("0123456789abcdef", "SHA256"));
+
+        InterchangeProjectMetadata metadata = new InterchangeProjectMetadata(
+                null,
+                "2026-01-02T03:04:05Z",
+                "https://www.sysand.com/spec/SysML/20250201",
+                null,
+                null,
+                checksum,
+                "main.sysml",
+                new String[] {"Main", "Helper"});
+
+        InterchangeProject roundtripped = SysandTestHooks.modelRoundtrip(info, metadata);
+
+        assertNull(roundtripped.metadata.getIndex());
+        assertEquals("main.sysml", roundtripped.metadata.getRoot());
+        assertArrayEquals(new String[] {"Main", "Helper"}, roundtripped.metadata.getExports());
+        assertEquals(metadata.getCreated(), roundtripped.metadata.getCreated());
+        assertEquals(metadata.getMetamodel(), roundtripped.metadata.getMetamodel());
+    }
+
+    /** The six-argument constructor constructs an OMG-shaped document. */
+    @Test
+    void theShortConstructorBuildsTheOmgShape() {
+        InterchangeProjectMetadata metadata = new InterchangeProjectMetadata(
+                new LinkedHashMap<>(), "2026-01-02T03:04:05Z", null, null, null, null);
+        assertNull(metadata.getRoot());
+        assertNull(metadata.getExports());
     }
 
     private static void assertInfoEquals(InterchangeProjectInfo expected, InterchangeProjectInfo actual) {
@@ -101,6 +150,15 @@ public class ModelRoundtripTest {
         assertEquals(expectedIndex.getPublisher(), actualIndex.getPublisher());
         assertEquals(expectedIndex.getName(), actualIndex.getName());
         assertEquals(expectedIndex.getVersionConstraint(), actualIndex.getVersionConstraint());
+
+        for (int i = 4; i < 6; i++) {
+            InterchangeProjectUsageRemoteKpar expectedRemote = (InterchangeProjectUsageRemoteKpar) expectedUsage[i];
+            assertInstanceOf(InterchangeProjectUsageRemoteKpar.class, actualUsage[i]);
+            InterchangeProjectUsageRemoteKpar actualRemote = (InterchangeProjectUsageRemoteKpar) actualUsage[i];
+            assertEquals(expectedRemote.getKparUrl(), actualRemote.getKparUrl());
+            assertEquals(expectedRemote.getPublisher(), actualRemote.getPublisher());
+            assertEquals(expectedRemote.getName(), actualRemote.getName());
+        }
     }
 
     private static void assertMetadataEquals(

@@ -38,6 +38,7 @@ url.workspace = true
 tokio = { workspace = true, features = ["rt"] }
 
 [dev-dependencies]
+sysand-core = { workspace = true, features = ["test-utils"] }
 predicates.workspace = true
 camino-tempfile.workspace = true
 # silence output in tests

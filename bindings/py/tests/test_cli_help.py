@@ -11,7 +11,7 @@ def test_root_help() -> None:
 
     assert isinstance(help_text, str)
     assert "Usage: sysand" in help_text
-    # The long about, not the short one.
+    # The long about.
     assert "https://docs.sysand.com/client/" in help_text
 
 

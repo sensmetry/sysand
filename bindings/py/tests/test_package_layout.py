@@ -4,7 +4,7 @@
 """The shipped Python tree must not name its own top-level package.
 
 Consumers vendor `python/sysand/` under a parent package of their own, so an
-absolute `sysand.…` import in it either fails or — worse — silently binds a
+absolute `sysand.…` import in it either fails or, worse, silently binds a
 *different* installation of this package. Checked against the source tree rather
 than the installed copy, because the drop-in property is a property of what we
 ship.

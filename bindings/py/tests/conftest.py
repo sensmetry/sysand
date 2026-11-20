@@ -22,6 +22,30 @@ from pytest_httpserver import HTTPServer
 import sysand
 
 
+def write_json_meta(root: Path) -> None:
+    """Write the `.meta.json` half of a json project.
+
+    For a test that writes the `.project.json` half itself. The timestamp
+    is fixed: nothing here reads it, and a real clock would make the
+    fixture non-reproducible.
+    """
+    (root / ".meta.json").write_text(
+        '{\n  "index": {},\n  "created": "2026-01-01T00:00:00Z"\n}\n'
+    )
+
+
+def write_json_project(root: Path, publisher: str, name: str, version: str) -> None:
+    """A whole json project, for tests whose subject is the json form."""
+    sysand.init(
+        project_dir=root,
+        name=name,
+        publisher=publisher,
+        version=version,
+        metamodel="https://www.omg.org/spec/SysML/20250201",
+        kind=sysand.ProjectKind.PROJECT_JSON,
+    )
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _claim_logger(tmp_path_factory: pytest.TempPathFactory) -> None:
     # Whoever installs the global `log` logger first owns it for the process:
@@ -30,7 +54,7 @@ def _claim_logger(tmp_path_factory: pytest.TempPathFactory) -> None:
     # test so `_run_cli` can never steal the logger from the tests that
     # assert on log records; `run_cli` then keeps the level it was asked for
     # and continues, quietly, because `_run_cli` runs it as
-    # `ProcessOwnership::Embedded` (see `test_cli_logger.py`).
+    # `ProcessOwnership::Embedded`.
     sysand.env.env(path=tmp_path_factory.mktemp("logger") / sysand.env.DEFAULT_ENV_NAME)
 
 
@@ -115,8 +139,7 @@ class Baseline:
         }
 
     def cli(self, *args: str) -> bool:
-        # Whether the command succeeded, not its code: the callers of this
-        # helper only ever ask that, and two of them assert a failure.
+        # Whether the command succeeded.
         return (
             run_cli_in(
                 self.root, *args, "--no-config", "--default-index", self.index.url
@@ -136,8 +159,8 @@ def make_baseline(tmp_path: Path, mock_index: MockIndex) -> MakeBaseline:
     key, an unknown key inside the usage, and non-canonical key order (the
     input the manifest-fidelity scenario needs), which the typed `add` path
     would not preserve. The lockfile and environment are then produced by the
-    shipped CLI, in-process, so the 0.10.3 state is real rather than
-    hand-written and depends on none of the APIs the scenarios exercise.
+    shipped CLI, in-process, so the 0.10.3 state is real and
+    depends on none of the APIs the scenarios exercise.
     """
 
     def make(
@@ -152,9 +175,6 @@ def make_baseline(tmp_path: Path, mock_index: MockIndex) -> MakeBaseline:
 
         root = tmp_path / "migrating"
         root.mkdir()
-        sysand.init(
-            project_dir=root, name="migrating", publisher="acme", version="1.0.0"
-        )
 
         usages: list[dict] = []
         if include_library:
@@ -169,10 +189,16 @@ def make_baseline(tmp_path: Path, mock_index: MockIndex) -> MakeBaseline:
             "x-consumer-extension": {"migrated": False},
             "usage": usages,
         }
+        # A json project, written by hand rather than through
+        # `sysand.init`, which writes a `model.toml`. Initialising and then
+        # overwriting would leave the directory holding both manifests, which
+        # nothing can read.
+        #
         # sysand's own pretty format (2-space indent, trailing newline):
         # `set_usage_constraint` only guarantees a one-line diff for manifests
         # last written by sysand.
         (root / ".project.json").write_text(json.dumps(manifest, indent=2) + "\n")
+        write_json_meta(root)
 
         baseline = Baseline(root=root, index=mock_index)
         assert baseline.cli("lock"), "baseline `sysand lock` failed"

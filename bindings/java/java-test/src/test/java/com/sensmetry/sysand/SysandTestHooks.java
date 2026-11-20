@@ -14,7 +14,7 @@ final class SysandTestHooks {
 
     static {
         // Trigger Sysand's static initializer, which loads the native
-        // library, instead of extracting a second copy via NativeLoader.
+        // library once.
         try {
             Class.forName(Sysand.class.getName());
         } catch (ClassNotFoundException e) {

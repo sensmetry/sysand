@@ -17,7 +17,8 @@ def exclude(
     ``project_dir``.
 
     Args:
-        project_dir: The project directory, the one holding ``.meta.json``.
+        project_dir: The project directory, the one holding its manifest. A
+            directory inside a project is refused.
         src_path: The file to exclude, relative to ``project_dir``, with
             ``/`` as separator. It is not normalized.
     """

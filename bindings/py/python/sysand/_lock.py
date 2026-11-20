@@ -23,14 +23,17 @@ def lock(
     does, and return the resolved set.
 
     ``path`` is where discovery starts, like the CLI's working directory:
-    the enclosing project (``.project.json``) and workspace are found by
-    walking up, and the environment root is the workspace root, else the
-    project root. The lockfile belongs to the project root.
+    the enclosing project is found by walking up, and both the lockfile and
+    the environment root are the project root.
+
+    Inside a workspace this locks the *workspace*: the lockfile is written
+    at the workspace root and every member is a root of the solve, so a
+    member that nothing else depends on is still resolved.
 
     With ``write=True`` (the default, matching the CLI) ``sysand-lock.toml``
     is written at the project root; the returned ``text`` is exactly what
     was written. With ``write=False`` nothing is written and ``text`` is
-    what would have been — call it first, show the user the delta, then
+    what would have been, so call it first, show the user the delta, then
     lock again with ``write=True``.
 
     ``resolution`` defaults to :class:`Resolution` ``()`` (the CLI's
@@ -56,6 +59,8 @@ def lock(
             written after a successful solve.
         AuthError, IndexProtocolError, ResolutionError: an index could not be
             used.
+        LockHeldError: with ``write=True``, another process holds the
+            workspace's advisory lock; nothing was written.
     """
     if resolution is None:
         resolution = Resolution()

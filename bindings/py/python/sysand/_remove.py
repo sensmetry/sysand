@@ -41,25 +41,31 @@ def remove(
 
     When no usage matches, but the project is declared anyway (as a usage
     that ``iri`` does not name, or spelled differently), that raises
-    :class:`ProjectError` saying how it is declared, rather than reporting it
-    missing.
+    :class:`ProjectError` saying how it is declared.
 
     Args:
-        project_dir: The project directory, the one holding ``.project.json``.
+        project_dir: The project directory, the one holding its manifest
+            (``model.toml``, or ``.project.json`` and ``.meta.json``). A
+            directory inside a project is refused.
         iri: The dependency's IRI.
         publisher: The dependency's publisher, given together with ``name``.
         name: The dependency's name, given together with ``publisher``.
 
+    The project is read with its workspace, if it is in one, and the
+    workspace's advisory lock is held while the manifest is written. Nothing
+    is locked, synced or removed from the configuration.
+
     Returns:
-        The usages that were removed, in declaration order, in the shape
-        :func:`info_path` returns them. Normally one: sysand never adds the
-        same project twice, but it tolerates a manifest that declares it
-        more than once.
+        The usages that were removed, in declaration order. Normally one:
+        sysand never adds the same project twice, but it tolerates a
+        manifest that declares it more than once.
 
     Raises:
         TypeError: neither form was given, both were, or only one of
             ``publisher`` and ``name`` was.
-        ProjectError: the project is missing or malformed, ``iri`` is not an
+        LockHeldError: another process holds the workspace's lock.
+        ProjectError: ``project_dir`` is not the root of a project, the
+            project is missing or malformed, ``iri`` is not an
             IRI, ``publisher`` or ``name`` is not valid, no usage
             of the dependency is declared, or it is declared only otherwise.
     """
