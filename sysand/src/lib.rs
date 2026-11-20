@@ -65,7 +65,7 @@ use crate::{
         index::{command_index_add, command_index_init, command_index_remove, command_index_yank},
         info::command_info_path,
         init::{command_init, parse_metamodel},
-        lock::command_lock,
+        lock::{LockFailure, command_lock},
         print_root::command_print_root,
         publish::command_publish,
         remove::command_remove,
@@ -834,6 +834,7 @@ fn run_cli_with(
                 &required(ctx),
             )
             .map(drop)
+            .map_err(LockFailure::into_error)
         }
         Command::Sync {
             resolution_opts,
@@ -859,7 +860,7 @@ fn run_cli_with(
                     &ctx,
                 )
             }
-            .map_err(|failure| split_failure(failure, hint))?;
+            .map_err(|failure| split_failure(failure.into(), hint))?;
             if fresh {
                 lockfile.write()?;
             }
@@ -1061,7 +1062,8 @@ fn run_cli_with(
             runtime,
             auth_policy,
         )
-        .map(|_added| ()),
+        .map(|_added| ())
+        .map_err(LockFailure::into_error),
         Command::Remove {
             selector: _,
             locator,

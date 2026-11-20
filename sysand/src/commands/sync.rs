@@ -37,7 +37,11 @@ use sysand_core::{
     workspace::model_toml::Workspace,
 };
 
-use crate::{Failure, cli::ResolutionOptions, commands::lock::resolve_lock, get_or_create_env};
+use crate::{
+    cli::ResolutionOptions,
+    commands::lock::{LockFailure, resolve_lock},
+    get_or_create_env,
+};
 
 /// The `SyncError` instantiation `command_sync` fails with when the sync
 /// itself fails.
@@ -101,9 +105,9 @@ pub fn get_or_create_lockfile<Policy: HTTPAuthentication>(
     runtime: Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Policy>,
     ctx: &ProjectContext,
-) -> Result<(Lockfile, bool), Failure> {
+) -> Result<(Lockfile, bool), LockFailure<Policy>> {
     let root = ctx.state_root();
-    if let Some(lockfile) = Lockfile::try_read(&root).map_err(Failure::lockfile)? {
+    if let Some(lockfile) = Lockfile::try_read(&root).map_err(LockFailure::Lockfile)? {
         return Ok((lockfile, false));
     }
     let lock = resolve_lock(
@@ -119,8 +123,10 @@ pub fn get_or_create_lockfile<Policy: HTTPAuthentication>(
 }
 
 /// The lockfile at `ctx`'s state root; it is an error if there is none.
-pub fn existing_lockfile(ctx: &ProjectContext) -> Result<Lockfile, Failure> {
-    Lockfile::read(ctx.state_root()).map_err(Failure::lockfile)
+pub fn existing_lockfile<Policy: HTTPAuthentication>(
+    ctx: &ProjectContext,
+) -> Result<Lockfile, LockFailure<Policy>> {
+    Lockfile::read(ctx.state_root()).map_err(LockFailure::Lockfile)
 }
 
 /// Install `lock` into `ctx`'s environment, creating it when missing, or,

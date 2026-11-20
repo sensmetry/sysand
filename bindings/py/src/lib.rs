@@ -21,7 +21,7 @@ use sysand::{
         add::command_add,
         info::usage_resolver,
         init::{InitArgs, InitFailure, init_project},
-        lock::{CliLockError, resolve_lock},
+        lock::{LockFailure, resolve_lock},
         migrate::command_migrate,
         sync::{
             CliSyncError, CommandSyncError, SyncContextError, existing_lockfile,
@@ -956,27 +956,34 @@ impl Failure {
     }
 }
 
-/// Typed failure for `resolve_lock`'s `anyhow::Error`: solver failures
-/// become `SolveError` with their conflicts, unless the solver itself hit a
+/// Typed failure for a lock that failed: solver failures become
+/// `SolveError` with their conflicts, unless the solver itself hit a
 /// transport or authentication problem, which is classified like `info`'s.
-fn lock_error_to_failure(err: anyhow::Error, auth: &AuthSpec, policy: &CliAuthPolicy) -> Failure {
-    if let Some(err) = err.downcast_ref::<LockfileError>() {
-        return Failure::Py(lockfile_read_error(err));
-    }
-    let message = format_err(&*err);
-    match err.downcast_ref::<CliLockError<CliAuthPolicy>>() {
-        Some(LockProjectError::LockError(LockError::Solver(solver))) => {
-            if let Some(PriorityError::Lower(inner)) = solver.resolution_error() {
-                return Failure::Py(combined_error_to_pyerr(inner, message, auth, policy));
-            }
-            Failure::Solve {
-                message,
-                report: format_err(solver),
-                kind: solver.kind(),
-                conflicts: solver.conflicts(),
+fn lock_error_to_failure(
+    err: LockFailure<CliAuthPolicy>,
+    auth: &AuthSpec,
+    policy: &CliAuthPolicy,
+) -> Failure {
+    match err {
+        LockFailure::Lockfile(err) => Failure::Py(lockfile_read_error(&err)),
+        LockFailure::Lock(err) => {
+            let message = format_err(&*err);
+            match *err {
+                LockProjectError::LockError(LockError::Solver(solver)) => {
+                    if let Some(PriorityError::Lower(inner)) = solver.resolution_error() {
+                        return Failure::Py(combined_error_to_pyerr(inner, message, auth, policy));
+                    }
+                    Failure::Solve {
+                        message,
+                        report: format_err(&solver),
+                        kind: solver.kind(),
+                        conflicts: solver.conflicts(),
+                    }
+                }
+                _ => Failure::Py(ProjectError::new_err(message)),
             }
         }
-        Some(_) | None => Failure::Py(ProjectError::new_err(message)),
+        LockFailure::Other(err) => Failure::Py(ProjectError::new_err(format_err(&*err))),
     }
 }
 
@@ -1115,7 +1122,7 @@ fn do_sync_py(
                     &ctx,
                 )
             }
-            .map_err(|e| lock_error_to_failure(e.into_error(), &auth, &auth_policy))?;
+            .map_err(|e| lock_error_to_failure(e, &auth, &auth_policy))?;
             if fresh {
                 lockfile
                     .write()

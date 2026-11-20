@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use anyhow::{Result, bail};
+use anyhow::Result;
 
 use crate::{cli::ResolutionOptions, context::NotInProject, get_overrides};
 use sysand_core::{
@@ -14,7 +14,7 @@ use sysand_core::{
     config::Config,
     context::ProjectContext,
     env::local_directory::LocalDirectoryEnvironment,
-    lock::{Lock, Lockfile},
+    lock::{Lock, Lockfile, LockfileError},
     project::{
         any::AnyProject, memory::InMemoryProject, reference::ProjectReference, utils::Identifier,
     },
@@ -39,13 +39,43 @@ pub type CliResolver<Policy> = PriorityResolver<
 >;
 
 /// The error [`lock_scope`] and the functions built on it fail with when
-/// the lock itself fails (as opposed to configuration or context errors);
-/// reachable from the returned `anyhow::Error` through `downcast_ref`.
+/// the lock itself fails; carried by [`LockFailure::Lock`].
 pub type CliLockError<Policy> = LockProjectError<
     EditableLocalSrcProject,
     <CliResolver<Policy> as ResolveRead>::ProjectStorage,
     CliResolver<Policy>,
 >;
+
+/// Why locking failed, for a caller that tells the kinds apart.
+///
+/// Any other error converts into [`LockFailure::Other`]. Not convertible
+/// into [`anyhow::Error`] by `From`, so that the conversion from it can be
+/// that general: see [`LockFailure::into_error`].
+#[derive(Debug)]
+pub enum LockFailure<Policy: HTTPAuthentication> {
+    /// The existing lockfile could not be read.
+    Lockfile(LockfileError),
+    /// The lock itself failed.
+    Lock(Box<CliLockError<Policy>>),
+    Other(anyhow::Error),
+}
+
+impl<Policy: HTTPAuthentication> LockFailure<Policy> {
+    /// The error as a plain [`anyhow::Error`].
+    pub fn into_error(self) -> anyhow::Error {
+        match self {
+            Self::Lockfile(error) => error.into(),
+            Self::Lock(error) => error.into(),
+            Self::Other(error) => error,
+        }
+    }
+}
+
+impl<Policy: HTTPAuthentication, E: Into<anyhow::Error>> From<E> for LockFailure<Policy> {
+    fn from(error: E) -> Self {
+        Self::Other(error.into())
+    }
+}
 
 /// Solve for the lockfile of `ctx`'s scope with `resolver`, without
 /// writing it: the whole workspace in one solve when `ctx` is in one, and
@@ -60,21 +90,23 @@ pub fn lock_scope<Policy: HTTPAuthentication>(
     provided_iris: &ProvidedProjects,
     ctx: &ProjectContext,
     respelled: Option<&Identifier>,
-) -> Result<Lock> {
+) -> Result<Lock, LockFailure<Policy>> {
     // A single-member solve written over a workspace's shared lockfile
     // would drop every other member.
     if let Some(workspace) = ctx.workspace() {
-        let lock = do_lock_workspace(workspace, resolver, provided_iris, ctx, respelled)?;
+        let lock = do_lock_workspace(workspace, resolver, provided_iris, ctx, respelled)
+            .map_err(|error| LockFailure::Lock(Box::new(error)))?;
         return Ok(lock.canonicalize());
     }
     let Some(project_root) = ctx.project_root() else {
-        bail!(NotInProject {
-            dir: ctx.current_directory.clone()
-        });
+        return Err(NotInProject {
+            dir: ctx.current_directory.clone(),
+        }
+        .into());
     };
     // No alias IRIs: `model.toml` has no such key.
-    let lock =
-        do_lock_local_editable(&project_root, None, provided_iris, resolver, ctx, respelled)?;
+    let lock = do_lock_local_editable(&project_root, None, provided_iris, resolver, ctx, respelled)
+        .map_err(|error| LockFailure::Lock(Box::new(error)))?;
     Ok(lock.canonicalize())
 }
 
@@ -90,7 +122,7 @@ pub fn resolve_lock<Policy: HTTPAuthentication>(
     runtime: Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Policy>,
     ctx: &ProjectContext,
-) -> Result<Lock> {
+) -> Result<Lock, LockFailure<Policy>> {
     let provided_iris = resolution_opts.provided_iris(extra_provided);
     let resolver = create_resolver(
         resolution_opts,
@@ -113,7 +145,7 @@ pub fn command_lock<Policy: HTTPAuthentication>(
     runtime: Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Policy>,
     ctx: &ProjectContext,
-) -> Result<Lock> {
+) -> Result<Lock, LockFailure<Policy>> {
     let lock = resolve_lock(
         resolution_opts,
         config,

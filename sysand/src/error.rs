@@ -3,6 +3,7 @@
 
 use semver::VersionReq;
 use sysand_core::{
+    auth::HTTPAuthentication,
     env::local_directory::metadata::EnvMetadataError,
     info::InfoProjectError,
     lock::LockfileError,
@@ -11,7 +12,7 @@ use sysand_core::{
 };
 use thiserror::Error;
 
-use crate::hints::Hint;
+use crate::{commands::lock::LockFailure, hints::Hint};
 
 #[derive(Error, Debug)]
 pub enum CliError {
@@ -93,6 +94,16 @@ impl<E: Into<anyhow::Error>> From<E> for Failure {
         Self {
             error: error.into(),
             hint: None,
+        }
+    }
+}
+
+impl<Policy: HTTPAuthentication> From<LockFailure<Policy>> for Failure {
+    fn from(failure: LockFailure<Policy>) -> Self {
+        match failure {
+            LockFailure::Lockfile(error) => Self::lockfile(error),
+            LockFailure::Lock(error) => error.into(),
+            LockFailure::Other(error) => error.into(),
         }
     }
 }

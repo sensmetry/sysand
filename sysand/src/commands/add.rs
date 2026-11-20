@@ -40,7 +40,7 @@ use crate::{
     CliError,
     cli::{AddProjectLocatorArgs, ProjectSourceOptions, ResolutionOptions},
     commands::{
-        lock::{CliResolver, create_resolver, lock_scope},
+        lock::{CliResolver, LockFailure, create_resolver, lock_scope},
         sync::sync_context,
     },
     iri_or_path_to_iri,
@@ -70,7 +70,7 @@ pub fn command_add<Policy: HTTPAuthentication>(
     client: reqwest_middleware::ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Policy>,
-) -> Result<bool> {
+) -> Result<bool, LockFailure<Policy>> {
     let project_root = ctx
         .project_root()
         .ok_or(CliError::MissingProjectCurrentDir)?;
@@ -89,7 +89,7 @@ pub fn command_add<Policy: HTTPAuthentication>(
             // Source overrides are only for resource usages
             assert_no_overrides(&source_overrides);
             let Some(current) = ctx.current_definition() else {
-                bail!(CliError::MissingProjectCurrentDir);
+                return Err(anyhow!(CliError::MissingProjectCurrentDir).into());
             };
             let index_usage = |publisher, name, version_constraint: &VersionReq| {
                 InterchangeProjectUsageRaw::Index {
@@ -110,10 +110,11 @@ pub fn command_add<Policy: HTTPAuthentication>(
                     normalized,
                 } if no_lock => {
                     let Some(version_constraint) = version_constraint else {
-                        bail!(
+                        return Err(anyhow!(
                             "an index usage needs a version constraint: pass one, or leave out\n\
                              `--no-lock` to use the version that locking chooses"
-                        );
+                        )
+                        .into());
                     };
                     // Without locking, the spelling can only be checked against,
                     // or recovered from, what is installed
@@ -234,11 +235,12 @@ pub fn command_add<Policy: HTTPAuthentication>(
         } => {
             // A resource usage has no `model.toml` form
             if let Some(ProjectDefinition::Toml(_)) = ctx.current_definition() {
-                bail!(
+                return Err(anyhow!(
                     "`--iri` and `--iri-path` add a resource usage, which a `model.toml` project\n\
                      cannot declare: name the dependency as `<publisher>/<name>`, or use\n\
                      `--dir` or `--kpar-path`"
-                );
+                )
+                .into());
             }
             let iri = iri_or_path_to_iri(iri, iri_path)?;
             pending_override = Some((source_overrides, iri.clone()));
@@ -276,7 +278,7 @@ pub fn command_add<Policy: HTTPAuthentication>(
             &project_root,
         ) {
             ctx.restore_manifest(&backup)?;
-            return Err(error);
+            return Err(error.into());
         }
         return Ok(added);
     }
@@ -335,7 +337,8 @@ pub fn command_add<Policy: HTTPAuthentication>(
             runtime.clone(),
             auth_policy.clone(),
         )
-    });
+    })
+    .map_err(LockFailure::from);
 
     let locked = resolver.and_then(|resolver| {
         let respelled = pending
@@ -345,7 +348,7 @@ pub fn command_add<Policy: HTTPAuthentication>(
         if let Some((placeholder, pending)) = pending {
             settle_from_lock(&mut ctx, &lock, &placeholder, pending)?;
         }
-        Ok::<_, anyhow::Error>(lock)
+        Ok::<_, LockFailure<Policy>>(lock)
     });
     let result = locked.and_then(|lock| {
         write_lock_and_sync(
@@ -358,6 +361,7 @@ pub fn command_add<Policy: HTTPAuthentication>(
             &provided_iris,
             &mut ctx,
         )
+        .map_err(LockFailure::from)
     });
     match result {
         Ok(()) => Ok(added),
@@ -707,7 +711,7 @@ pub fn resolve_deps<Policy: HTTPAuthentication>(
     provided_iris: ProvidedProjects,
     mut ctx: ProjectContext,
 ) -> Result<(), anyhow::Error> {
-    let lock = lock_scope(resolver, &provided_iris, &ctx, None)?;
+    let lock = lock_scope(resolver, &provided_iris, &ctx, None).map_err(LockFailure::into_error)?;
     write_lock_and_sync(
         lock,
         no_sync,
