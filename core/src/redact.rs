@@ -212,6 +212,30 @@ impl std::error::Error for HttpError {
     }
 }
 
+/// An HTTP exchange that failed: the request, a non-success status, or
+/// reading the body.
+#[cfg(feature = "networking")]
+#[derive(thiserror::Error, Debug)]
+pub enum HttpFailure {
+    #[error("HTTP request to `{url}` failed")]
+    Request {
+        url: RedactedUrl,
+        #[source]
+        source: HttpError,
+    },
+    #[error("HTTP request to {url} returned status {status}")]
+    BadHttpStatus {
+        url: ResponseUrl,
+        status: reqwest::StatusCode,
+    },
+    #[error("failed to read HTTP response body from {url}")]
+    Body {
+        url: ResponseUrl,
+        #[source]
+        source: HttpError,
+    },
+}
+
 #[cfg(test)]
 #[path = "./redact_tests.rs"]
 mod tests;

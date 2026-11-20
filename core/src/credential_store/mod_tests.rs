@@ -172,7 +172,7 @@ fn unknown_subject_kind_and_surface_round_trip_unchanged() {
 
 #[test]
 fn parse_fails_closed_on_garbage() {
-    for garbage in ["", "not json", "{\"version\": \"one\"}", "[]", "{}"] {
+    for garbage in ["", "not json", r#"{"version": "one"}"#, "[]", "{}"] {
         let err = parse_blob(garbage).unwrap_err();
         assert_matches!(
             err,

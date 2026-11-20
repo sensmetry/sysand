@@ -23,17 +23,16 @@ use idna::punycode;
 // - use canonical versions in `sysand-lock.toml` and `env.toml` (for identifiers
 //   and usages)
 
-/// Canonicalize IRI. Currently only used for the `_iri/<hash>` bucket.
+/// Canonicalize IRI, for the `_iri/<hash>` bucket.
 ///
 /// Non-`pkg:sysand` IRIs are located under `_iri/<sha256_hex(normalized_iri)>`,
 /// so two clients pointing at the same project must produce byte-identical
-/// input to the hash. The canonicalization pipeline is intentionally thin glue
-/// over well-known libraries — all substantive work is delegated:
+/// input to the hash. The pipeline delegates to well-known libraries:
 ///
-/// 1. [`fluent_uri::Iri::normalize`] — RFC 3986 §6.2.2 + RFC 3987 §5.3.2
+/// 1. [`fluent_uri::Iri::normalize`]: RFC 3986 §6.2.2 + RFC 3987 §5.3.2
 ///    syntax-based normalization plus IPv6 canonicalization (RFC 5952) and
 ///    scheme-default port stripping.
-/// 2. [`idna::domain_to_ascii`] — WHATWG URL `domainToASCII` for any RegName
+/// 2. [`idna::domain_to_ascii`]: WHATWG URL `domainToASCII` for any RegName
 ///    host containing non-ASCII characters.
 /// 3. A one-line fixup that sets the path to `/` when the scheme is
 ///    `http`/`https` and the parsed path is empty, matching WHATWG URL
@@ -136,6 +135,7 @@ fn iri_to_filename_part(iri: Iri<&str>) -> String {
     let canonical = iri.normalize();
 
     // Special case PURL of the form: `pkg:sysand/<publisher>/<name>`
+    // ast-grep-ignore: if-let-ok
     if let Ok(Some((publisher, name))) = parse_sysand_purl(canonical.as_str()) {
         result.push_str(publisher);
         result.push('-');
@@ -445,7 +445,10 @@ impl IriVersionFilename {
         let normalized_version = normalize_version(version);
 
         normalized_iri.push('_');
-        #[expect(clippy::cast_possible_truncation)]
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "the normalized IRI length is far below `u32::MAX`"
+        )]
         let iri_end_idx = normalized_iri.len() as u32;
 
         Self {
