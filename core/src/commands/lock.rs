@@ -1,39 +1,41 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
+#[cfg(feature = "filesystem")]
+#[cfg(feature = "filesystem")]
+use camino::Utf8Path;
 use fluent_uri::Iri;
 use std::{
     collections::{HashMap, HashSet, hash_map::Entry},
     fmt::{self, Debug},
 };
-#[cfg(feature = "filesystem")]
-use typed_path::Utf8UnixPath;
-
-#[cfg(feature = "filesystem")]
-use camino::Utf8Path;
 use thiserror::Error;
 
 pub const DEFAULT_LOCKFILE_NAME: &str = "sysand-lock.toml";
 
-#[cfg(feature = "filesystem")]
-use crate::project::{editable::EditableProject, local_src::LocalSrcProject, utils::wrapfs};
 use crate::{
     context::ProjectContext,
+    graph::{MetamodelDirectionError, MetamodelReleaseMismatch, check_metamodel_pair},
     lock::{Lock, Project, Usage, hash_str},
-    model::{InterchangeProjectUsage, InterchangeProjectValidationError},
+    model::{InterchangeProjectUsage, InterchangeProjectValidationError, Metamodel},
     project::{
-        CanonicalizationError, ProjectRead,
+        ProjectDefinition, ProjectRead, SourceSymbolsError, SymbolIndexError,
+        ValidatedDependencies, exported_symbols,
         utils::{FsIoError, Identifier},
     },
-    resolve::{ResolveRead, UsageOrigin},
-    solve::pubgrub::{SolverError, solve},
+    resolve::ResolveRead,
+    solve::pubgrub::{SolverError, solve_with_bases_cancellable},
     utils::ProvidedProjects,
+};
+#[cfg(feature = "filesystem")]
+use crate::{
+    project::{editable::EditableProject, local_src::LocalSrcProject, utils::wrapfs},
+    workspace::model_toml::Workspace,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IncompleteField {
     Info,
-    Meta,
     CanonicalDigest,
 }
 
@@ -41,7 +43,6 @@ impl fmt::Display for IncompleteField {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Info => f.write_str("info"),
-            Self::Meta => f.write_str("meta"),
             Self::CanonicalDigest => f.write_str("canonical digest"),
         }
     }
@@ -51,8 +52,6 @@ impl fmt::Display for IncompleteField {
 pub enum LockProjectError<PI: ProjectRead, PD: ProjectRead, R: ResolveRead + Debug + 'static> {
     #[error(transparent)]
     InputProjectError(PI::Error),
-    #[error(transparent)]
-    InputProjectCanonicalizationError(CanonicalizationError<PI::Error>),
     #[error(transparent)]
     LockError(#[from] LockError<PD, R>),
 }
@@ -109,6 +108,9 @@ pub struct TypedUsageMismatchError {
     pub version: String,
     pub publisher: Option<String>,
     pub name: String,
+    /// The usage is an index usage, and the entry the index serves for it
+    /// declares a publisher and name that do not normalize to the usage's.
+    pub invalid_index_entry: bool,
 }
 
 impl fmt::Display for TypedUsageMismatchError {
@@ -121,8 +123,19 @@ impl fmt::Display for TypedUsageMismatchError {
             version,
             publisher,
             name,
+            invalid_index_entry,
         } = self;
         let usage = format!("{kind} usage `{usage_publisher}/{usage_name}` in {declared_by}");
+        if *invalid_index_entry {
+            let declared = publisher.as_deref().unwrap_or("<none>");
+            return write!(
+                f,
+                "{usage} resolved to version {version} of `{declared}/{name}`, which is not \
+                 the project the usage names;\n\
+                 the index entry for `{usage_publisher}/{usage_name}` is invalid and has to be \
+                 fixed by the index's maintainers"
+            );
+        }
         match publisher {
             Some(publisher) => writeln!(
                 f,
@@ -141,7 +154,7 @@ impl fmt::Display for TypedUsageMismatchError {
                 write!(f, "spell the usage exactly as `{publisher}/{name}`")
             }
             (DeclaredBy::Input(_), None) => {
-                f.write_str("use a resource usage of it instead (e.g. `sysand add --iri <IRI>`)")
+                f.write_str("use a resource usage of it, naming its IRI, instead")
             }
             (DeclaredBy::Dependency(_), _) => f.write_str(
                 "the usage is not yours to edit: it has to be fixed by that dependency's publisher",
@@ -154,22 +167,27 @@ impl fmt::Display for TypedUsageMismatchError {
 pub enum LockError<PD: ProjectRead, R: ResolveRead + Debug + 'static> {
     #[error(transparent)]
     DependencyProject(PD::Error),
-    #[error(transparent)]
-    DependencyProjectCanonicalization(CanonicalizationError<PD::Error>),
+    #[error("failed to read the symbols of project {project_label}")]
+    Symbols {
+        project_label: String,
+        #[source]
+        source: Box<SourceSymbolsError>,
+    },
     #[error(transparent)]
     Io(#[from] Box<FsIoError>),
     #[error("incomplete project {project_label}: missing {field}")]
     IncompleteProject {
         /// Human-readable label for the project (an IRI when the project
         /// was resolved for a usage, a name+version when available locally, or
-        /// `<unknown input project>` as a last resort). Deliberately avoids
-        /// dumping the whole `project` via `{:?}` — that output is large,
-        /// full of impl detail, and almost never actionable.
+        /// `<unknown input project>` as a last resort).
         project_label: String,
         /// Which required piece was missing: `info`, `meta`, or
         /// `canonical digest`.
         field: IncompleteField,
     },
+    /// The metamodel direction rule, over the graph the solve produced.
+    #[error(transparent)]
+    MetamodelDirection(Box<MetamodelDirectionError<String>>),
     #[error("project {identifier} has invalid metadata")]
     InvalidProject {
         /// Human-readable label for the project, already quoted
@@ -186,12 +204,6 @@ pub enum LockError<PD: ProjectRead, R: ResolveRead + Debug + 'static> {
     SelfNameCollision(Box<SelfNameCollisionError>),
 }
 
-#[derive(Debug)]
-pub struct LockOutcome<PD: Debug> {
-    pub lock: Lock,
-    pub dependencies: Vec<(Identifier, PD)>,
-}
-
 /// Generates a lockfile by solving for a (compatible) set of interchange projects
 /// to satisfy interchange project usages in `info`.
 ///
@@ -203,8 +215,6 @@ pub struct LockOutcome<PD: Debug> {
 ///
 /// `resolver` is used to interpret the usage IRIs.
 ///
-/// Returns a lockfile, as well as a list of dependency projects to install (in addition to)
-/// `projects`.
 pub fn do_lock_projects<
     'a,
     PI: ProjectRead + Debug + 'a,
@@ -217,17 +227,44 @@ pub fn do_lock_projects<
     resolver: R,
     provided_usages: &ProvidedProjects,
     ctx: &ProjectContext,
-) -> Result<LockOutcome<PD>, LockProjectError<PI, PD, R>> {
-    lock_projects(projects, resolver, provided_usages, ctx, None)
+) -> Result<Lock, LockProjectError<PI, PD, R>> {
+    #[cfg(feature = "filesystem")]
+    let base_path = ctx.project_root();
+    #[cfg(not(feature = "filesystem"))]
+    let base_path = None;
+    lock_projects(
+        projects
+            .into_iter()
+            .map(|(identifiers, project)| (identifiers, project, base_path.clone(), None)),
+        resolver,
+        provided_usages,
+        ctx,
+        None,
+    )
 }
 
-/// [`do_lock_projects`], with the spelling of the typed usage of `respelled`
-/// that the projects declare not checked (see [`check_typed_usages`])
+/// Lock the input projects, each with its own base path: a workspace's
+/// members are its input projects, and a member's `dir` usages are
+/// relative to that member.
+///
+/// `ctx` supplies the root a solved dependency's sources are relativized
+/// against. A `ctx` with neither a project nor a workspace panics.
+///
+/// The spelling of the typed usage of `respelled` that the projects
+/// declare is not checked (see [`check_typed_usages`]). A project given
+/// with its manifest already read is not read again.
 fn lock_projects<
     'a,
     PI: ProjectRead + Debug + 'a,
     PD: ProjectRead + Debug,
-    I: IntoIterator<Item = (Option<Vec<Iri<String>>>, &'a PI)>,
+    I: IntoIterator<
+        Item = (
+            Option<Vec<Iri<String>>>,
+            &'a PI,
+            Option<camino::Utf8PathBuf>,
+            Option<ProjectDefinition>,
+        ),
+    >,
     R: ResolveRead<ProjectStorage = PD> + Debug,
 >(
     projects: I,
@@ -235,80 +272,92 @@ fn lock_projects<
     provided_usages: &ProvidedProjects,
     ctx: &ProjectContext,
     respelled: Option<&Identifier>,
-) -> Result<LockOutcome<PD>, LockProjectError<PI, PD, R>> {
+) -> Result<Lock, LockProjectError<PI, PD, R>> {
     let mut lock = Lock::default();
+    let mut metamodels = HashMap::new();
 
     let mut all_deps = vec![];
 
-    for (identifiers, project) in projects {
+    for (identifiers, project, base_path, definition) in projects {
         let input_project_label = || match identifiers.as_ref().and_then(|ids| ids.first()) {
             Some(iri) => format!("`{iri}`"),
             None => "<unknown input project>".to_owned(),
         };
 
-        let origin = UsageOrigin::of_format(
-            project
-                .format()
-                .map_err(LockProjectError::InputProjectError)?,
-        );
+        // Which project declared the usages below, for the conflicts a
+        // failed solve reports. Anonymous when `identifiers` is `None`.
+        // Taken before `identifiers` is moved below.
+        let declarer = identifiers
+            .as_ref()
+            .and_then(|ids| ids.first())
+            .map(ToString::to_string);
 
-        let info = project
-            .get_info()
-            .map_err(LockProjectError::InputProjectError)?
-            .ok_or_else(|| {
-                LockProjectError::LockError(LockError::IncompleteProject {
-                    project_label: input_project_label(),
-                    field: IncompleteField::Info,
-                })
-            })?;
-        let named_project_label = format!("`{}` {}", info.name, info.version);
-        let validated_info = info.validate().map_err(|e| LockError::InvalidProject {
-            identifier: named_project_label.clone(),
-            source: e,
+        let definition = match definition {
+            Some(definition) => Some(definition),
+            None => project
+                .get_project()
+                .map_err(LockProjectError::InputProjectError)?,
+        }
+        .ok_or_else(|| {
+            LockProjectError::LockError(LockError::IncompleteProject {
+                project_label: input_project_label(),
+                field: IncompleteField::Info,
+            })
         })?;
-        let meta = project
-            .get_meta()
-            .map_err(LockProjectError::InputProjectError)?
-            .ok_or_else(|| {
-                LockProjectError::LockError(LockError::IncompleteProject {
-                    project_label: named_project_label.clone(),
-                    field: IncompleteField::Meta,
-                })
+        let named_project_label = format!("`{}` {}", definition.name(), definition.version());
+        let ValidatedDependencies { usages, metamodel } = definition
+            .validated_dependencies()
+            .map_err(|e| LockError::InvalidProject {
+                identifier: named_project_label.clone(),
+                source: e,
             })?;
+        let exports = exported_symbols(project, &definition).map_err(|e| match e {
+            SymbolIndexError::Project(e) => LockProjectError::InputProjectError(e),
+            SymbolIndexError::Source(source) => LockProjectError::LockError(LockError::Symbols {
+                project_label: named_project_label.clone(),
+                source: Box::new(source),
+            }),
+        })?;
         let sources = project
             .sources(ctx)
             .map_err(LockProjectError::InputProjectError)?;
         debug_assert_ne!(sources, []);
 
+        metamodels.insert(lock.projects.len(), metamodel);
         lock.projects.push(Project {
-            name: info.name,
-            publisher: info.publisher,
-            version: info.version,
-            exports: meta.index.into_keys().collect(),
+            name: definition.name().to_owned(),
+            publisher: definition.publisher().map(ToOwned::to_owned),
+            version: definition.version(),
+            exports,
             identifiers: identifiers
                 .map_or_default(|ids| ids.into_iter().map(Into::into).collect()),
             sources,
-            usages: validated_info.usage.iter().map(Usage::from).collect(),
+            usages: usages.iter().map(Usage::from).collect(),
         });
 
-        all_deps.extend(validated_info.usage.into_iter().map(|usage| {
+        all_deps.extend(usages.into_iter().map(|usage| {
             (
-                usage,
+                crate::resolve::ResolutionInfo::new(usage, base_path.clone())
+                    .declared_by(declarer.clone()),
                 DeclaredBy::Input(named_project_label.clone()),
-                origin,
             )
         }));
     }
 
-    let lock_outcome = lock_extend(lock, all_deps, resolver, provided_usages, ctx, respelled)?;
-
-    Ok(lock_outcome)
+    Ok(lock_extend(
+        lock,
+        metamodels,
+        all_deps,
+        resolver,
+        provided_usages,
+        ctx,
+        respelled,
+    )?)
 }
 
 /// Solves for compatible set of dependencies based on usages and adds the solution
 /// to existing lockfile. Each usage comes with the project that declares it,
-/// for error messages, and with the manifest it was declared in; a caller
-/// that did not read one passes [`UsageOrigin::Json`].
+/// for error messages.
 /// Note: The content of the lockfile is taken into account only to avoid
 ///       including duplicate projects (same project, same version) in lock.
 ///       This can cause incorrect version selection, as possible
@@ -319,7 +368,7 @@ fn lock_projects<
 //         already in lockfile
 pub fn do_lock_extend<
     PD: ProjectRead + Debug,
-    I: IntoIterator<Item = (InterchangeProjectUsage, DeclaredBy, UsageOrigin)>,
+    I: IntoIterator<Item = (InterchangeProjectUsage, DeclaredBy)>,
     R: ResolveRead<ProjectStorage = PD> + Debug,
 >(
     lock: Lock,
@@ -327,48 +376,73 @@ pub fn do_lock_extend<
     resolver: R,
     provided_usages: &ProvidedProjects,
     ctx: &ProjectContext,
-) -> Result<LockOutcome<PD>, LockError<PD, R>> {
-    lock_extend(lock, usages, resolver, provided_usages, ctx, None)
+) -> Result<Lock, LockError<PD, R>> {
+    #[cfg(feature = "filesystem")]
+    let base_path = ctx.project_root();
+    #[cfg(not(feature = "filesystem"))]
+    let base_path = None;
+    lock_extend(
+        lock,
+        HashMap::new(),
+        usages.into_iter().map(|(usage, declared_by)| {
+            (
+                crate::resolve::ResolutionInfo::new(usage, base_path.clone()),
+                declared_by,
+            )
+        }),
+        resolver,
+        provided_usages,
+        ctx,
+        None,
+    )
 }
 
-/// [`do_lock_extend`], with the spelling of the typed usage of `respelled`
-/// among the inputs not checked (see [`check_typed_usages`])
+/// [`do_lock_extend`], with each usage's own base path, and with the
+/// spelling of the typed usage of `respelled` among the inputs not checked
+/// (see [`check_typed_usages`]).
+///
+/// A workspace is solved as one unit and its members do not share a
+/// base: a usage's `dir` is relative to the member, a group entry's
+/// relative to the workspace root.
+///
+/// `ctx` still supplies the root a solved dependency's sources are
+/// relativized against, which is separate from the base its usages resolve
+/// against. A `ctx` with neither a project nor a workspace panics.
+///
+/// `metamodels` maps an index into `lock.projects` to the metamodel that
+/// project declares. The metamodel rules are checked over the edges whose
+/// ends both have an entry, so an edge from a project of `lock` that has
+/// none, and that the solve does not produce again, is not checked.
 fn lock_extend<
     PD: ProjectRead + Debug,
-    I: IntoIterator<Item = (InterchangeProjectUsage, DeclaredBy, UsageOrigin)>,
+    I: IntoIterator<Item = (crate::resolve::ResolutionInfo, DeclaredBy)>,
     R: ResolveRead<ProjectStorage = PD> + Debug,
 >(
     mut lock: Lock,
+    mut metamodels: HashMap<usize, Option<Metamodel>>,
     usages: I,
     resolver: R,
     provided_usages: &ProvidedProjects,
     ctx: &ProjectContext,
     respelled: Option<&Identifier>,
-) -> Result<LockOutcome<PD>, LockError<PD, R>> {
-    let (inputs, declared_by): (Vec<_>, Vec<_>) = usages
-        .into_iter()
-        .map(|(usage, declared_by, origin)| ((usage, origin), declared_by))
-        .unzip();
+) -> Result<Lock, LockError<PD, R>> {
+    let (inputs, declared_by): (Vec<_>, Vec<_>) = usages.into_iter().unzip();
     // Typed usages, to check against the projects they resolve to
     let mut typed_usages: Vec<(TypedSpelling, DeclaredBy)> = inputs
         .iter()
         .zip(declared_by)
-        .filter_map(|((usage, _), declared_by)| Some((TypedSpelling::of(usage)?, declared_by)))
+        .filter_map(|(info, declared_by)| Some((TypedSpelling::of(info.usage())?, declared_by)))
         .collect();
     // Publisher, name and version of each solved project
     let mut solved = HashMap::new();
-    let mut dependencies = vec![];
-    #[cfg(feature = "filesystem")]
-    let base_path = ctx.workspace_or_project_root();
-    #[cfg(not(feature = "filesystem"))]
-    let base_path = None;
-    let solution = solve(inputs, base_path, resolver).map_err(LockError::Solver)?;
+    let solution = solve_with_bases_cancellable(inputs, resolver, ctx.cancellation.clone())
+        .map_err(LockError::Solver)?;
     let mut lock_projects = HashSet::new();
     let mut lock_symbols = HashMap::new();
     for (i, p) in lock.projects.iter().enumerate() {
         if let Some(id) = p.identifiers.first() {
-            // FIXME: better deduplication. What to consider? Previously this was
-            // done based on canonical checksum, but such rigor is not necessary,
+            // FIXME: better deduplication. What to consider? Deduplicating by
+            // canonical checksum would be rigorous, but that is not necessary,
             // since if symbols of any two projects overlap the lock will fail anyway.
             // Current way may produce a lockfile that does not satisfy all version
             // constraints.
@@ -389,44 +463,41 @@ fn lock_extend<
     }
 
     for (identifier, project) in solution {
-        // TODO: use get_info, that can be more efficient
-        let info = project
-            .get_info()
+        let definition = project
+            .get_project()
             .map_err(LockError::DependencyProject)?
             .ok_or_else(|| LockError::IncompleteProject {
                 project_label: identifier.to_string(),
                 field: IncompleteField::Info,
             })?;
-        let validated_info = info.validate().map_err(|e| LockError::InvalidProject {
-            identifier: format!("`{identifier}` {}", info.version),
-            source: e,
-        })?;
-        let meta = project
-            .get_meta()
-            .map_err(LockError::DependencyProject)?
-            .ok_or_else(|| LockError::IncompleteProject {
-                project_label: identifier.to_string(),
-                field: IncompleteField::Meta,
+        let version = definition.version();
+        let ValidatedDependencies { usages, metamodel } = definition
+            .validated_dependencies()
+            .map_err(|e| LockError::InvalidProject {
+                identifier: format!("`{identifier}` {version}"),
+                source: e,
             })?;
+        let exports = exported_symbols(&project, &definition).map_err(|e| match e {
+            SymbolIndexError::Project(e) => LockError::DependencyProject(e),
+            SymbolIndexError::Source(source) => LockError::Symbols {
+                project_label: format!("`{identifier}` {version}"),
+                source: Box::new(source),
+            },
+        })?;
+        let name = definition.name().to_owned();
+        let publisher = definition.publisher().map(ToOwned::to_owned);
 
-        for usage in &validated_info.usage {
+        for usage in &usages {
             if let Some(spelling) = TypedSpelling::of(usage) {
                 typed_usages.push((
                     spelling,
-                    DeclaredBy::Dependency(format!(
-                        "`{}` {} (`{identifier}`)",
-                        info.name, info.version
-                    )),
+                    DeclaredBy::Dependency(format!("`{name}` {version} (`{identifier}`)")),
                 ));
             }
         }
         solved.insert(
             identifier.clone(),
-            (
-                info.publisher.clone(),
-                info.name.clone(),
-                info.version.clone(),
-            ),
+            (publisher.clone(), name.clone(), version.clone()),
         );
 
         let sources = if provided_usages.contains_key(&identifier) {
@@ -438,20 +509,27 @@ fn lock_extend<
         };
 
         let lock_project = Project {
-            name: info.name,
-            publisher: info.publisher,
-            version: info.version,
-            exports: meta.index.into_keys().collect(),
+            name,
+            publisher,
+            version,
+            exports,
             identifiers: vec![identifier.to_string()],
             sources,
             // TODO: into_iter
-            usages: validated_info.usage.iter().map(Usage::from).collect(),
+            usages: usages.iter().map(Usage::from).collect(),
         };
         if lock_projects.contains(identifier.as_str()) {
             log::debug!(
                 "not adding project `{identifier}` ({}) to lock, as lock already contains it",
                 lock_project.version
             );
+            if let Some(idx) = lock
+                .projects
+                .iter()
+                .position(|p| p.identifiers.first() == lock_project.identifiers.first())
+            {
+                metamodels.entry(idx).or_insert(metamodel);
+            }
         } else {
             let new_idx = lock.projects.len();
             for s in &lock_project.exports {
@@ -482,15 +560,61 @@ fn lock_extend<
                     }
                 }
             }
+            metamodels.insert(new_idx, metamodel);
             lock.projects.push(lock_project);
         }
-
-        dependencies.push((identifier, project));
     }
 
     check_typed_usages(typed_usages, &solved, respelled).map_err(LockError::TypedUsageMismatch)?;
 
-    Ok(LockOutcome { lock, dependencies })
+    for mismatch in
+        check_metamodel_edges(&lock, &metamodels).map_err(LockError::MetamodelDirection)?
+    {
+        log::warn!("{mismatch}");
+    }
+
+    Ok(lock)
+}
+
+/// The metamodel rules (direction and release) of every edge of `lock`
+/// whose ends both have an entry in `metamodels`, which maps an index into
+/// `lock.projects` to the metamodel that project declares. An edge is a
+/// usage naming the first identifier of the project satisfying it.
+///
+/// The release mismatches, which are warnings, are returned for the caller
+/// to report; the direction error is the error.
+fn check_metamodel_edges(
+    lock: &Lock,
+    metamodels: &HashMap<usize, Option<Metamodel>>,
+) -> Result<Vec<MetamodelReleaseMismatch<String>>, Box<MetamodelDirectionError<String>>> {
+    let by_first_identifier: HashMap<&str, usize> = lock
+        .projects
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, project)| Some((project.identifiers.first()?.as_str(), idx)))
+        .collect();
+
+    let mut mismatches = Vec::new();
+    for (idx, project) in lock.projects.iter().enumerate() {
+        let Some(metamodel) = metamodels.get(&idx) else {
+            continue;
+        };
+        for usage in &project.usages {
+            let Some(&dep_idx) = by_first_identifier.get(usage.inner()) else {
+                continue;
+            };
+            let Some(dep_metamodel) = metamodels.get(&dep_idx) else {
+                continue;
+            };
+            if let Some(mismatch) = check_metamodel_pair(
+                (&project.label(), metamodel.as_ref()),
+                (&lock.projects[dep_idx].label(), dep_metamodel.as_ref()),
+            )? {
+                mismatches.push(mismatch);
+            }
+        }
+    }
+    Ok(mismatches)
 }
 
 /// A typed usage's kind, publisher and name
@@ -500,16 +624,31 @@ struct TypedSpelling {
     kind: &'static str,
     publisher: String,
     name: String,
+    /// What the usage resolves under: the publisher and name for most typed
+    /// usages, the IRI for a remote KPAR usage
+    identifier: Identifier,
+    /// Whether the usage is an index usage
+    index: bool,
 }
 
 impl TypedSpelling {
-    /// `None` for a resource usage, which names no publisher or name
+    /// `None` for a resource usage and a standard-library remote KPAR usage,
+    /// which name no publisher
     fn of(usage: &InterchangeProjectUsage) -> Option<Self> {
         let (publisher, name) = usage.typed_publisher_name()?;
         Some(Self {
             kind: usage.kind_with_article(),
             publisher: publisher.to_owned(),
             name: name.to_owned(),
+            identifier: Identifier::from(usage),
+            index: matches!(
+                usage,
+                InterchangeProjectUsage::Index {
+                    publisher: _,
+                    name: _,
+                    version_constraint: _,
+                }
+            ),
         })
     }
 }
@@ -519,26 +658,38 @@ impl TypedSpelling {
 /// spells them. Normalization makes them resolve to the same project
 /// regardless, so this is the only place a misspelling is caught.
 ///
-/// The typed usage of `respelled` that the projects being locked declare is
-/// not checked: its caller takes the spelling from the project it resolved to
-/// (see `sysand add`). Dependencies' usages of it are checked as any other.
+/// The typed usage of `respelled` that the projects being locked declare
+/// takes its spelling from the project it resolved to, so only that
+/// project's identity is checked: it declares a publisher, and its
+/// publisher and name normalize to the usage's. Dependencies' usages of it
+/// are checked as any other.
 fn check_typed_usages(
     typed_usages: Vec<(TypedSpelling, DeclaredBy)>,
     solved: &HashMap<Identifier, (Option<String>, String, String)>,
     respelled: Option<&Identifier>,
 ) -> Result<(), Box<TypedUsageMismatchError>> {
     for (usage, declared_by) in typed_usages {
-        let identifier = Identifier::from_pub_name(&usage.publisher, &usage.name);
-        if matches!(declared_by, DeclaredBy::Input(_)) && respelled == Some(&identifier) {
-            continue;
-        }
         // Not being in the solution is not a mismatch: e.g. a project the
         // caller provides, or one already in the lock
-        let Some((publisher, name, version)) = solved.get(&identifier) else {
+        let Some((publisher, name, version)) = solved.get(&usage.identifier) else {
             continue;
         };
-        if publisher.as_deref() != Some(usage.publisher.as_str()) || *name != usage.name {
+        let same_identity = publisher
+            .as_deref()
+            .is_some_and(|p| Identifier::from_pub_name(p, name) == usage.identifier);
+        let respelling =
+            matches!(declared_by, DeclaredBy::Input(_)) && respelled == Some(&usage.identifier);
+        let accepted = if respelling {
+            same_identity
+        } else {
+            publisher.as_deref() == Some(usage.publisher.as_str()) && *name == usage.name
+        };
+        if !accepted {
+            // An index entry is found by the usage's identifier, so one that
+            // declares a different identity is the index's error.
+            let invalid_index_entry = usage.index && !same_identity;
             return Err(Box::new(TypedUsageMismatchError {
+                invalid_index_entry,
                 kind: usage.kind,
                 usage_publisher: usage.publisher,
                 usage_name: usage.name,
@@ -555,26 +706,92 @@ fn check_typed_usages(
 #[cfg(feature = "filesystem")]
 pub type EditableLocalSrcProject = EditableProject<LocalSrcProject>;
 
-/// [`do_lock_local_editable`], with the spelling of the project's typed usage
-/// of `respelled` not checked: the caller takes it from the project that the
-/// usage resolved to, as recorded in the lock (see `sysand add`)
+/// Lock a whole workspace: every member, in one solve, into one lockfile.
+///
+/// The lockfile is written in the workspace root. It records every project of
+/// the solved graph by the identifier `pkg:sysand/<publisher>/<name>`, members
+/// included.
+///
+/// **`ctx.sources_root()` must be the workspace root.** Every solved
+/// local dependency's `src_path` is relativized against it. Checked with
+/// a `debug_assert`.
+///
+/// The spelling of the typed usage of `respelled` that the members declare
+/// is not checked (see [`check_typed_usages`]).
 #[cfg(feature = "filesystem")]
-pub fn do_lock_local_editable_respelling<
-    P: AsRef<Utf8UnixPath>,
+pub fn do_lock_workspace<PD: ProjectRead + Debug, R: ResolveRead<ProjectStorage = PD> + Debug>(
+    workspace: &Workspace,
+    resolver: R,
+    provided_usages: &ProvidedProjects,
+    ctx: &ProjectContext,
+    respelled: Option<&Identifier>,
+) -> Result<Lock, LockProjectError<EditableLocalSrcProject, PD, R>> {
+    debug_assert_eq!(
+        ctx.sources_root().as_deref(),
+        Some(workspace.root()),
+        "a workspace lockfile's source paths are relative to its root"
+    );
+
+    // A member that inherits keys cannot be read without its workspace.
+    let resolver = resolver.within_workspace(std::sync::Arc::new(workspace.clone()));
+    let members: Vec<EditableLocalSrcProject> = workspace
+        .members()
+        .iter()
+        .map(|member| {
+            EditableProject::new(
+                member.path.path.clone(),
+                LocalSrcProject::new_member(member.dir.clone(), None, member.project.clone()),
+            )
+        })
+        .collect();
+
+    lock_projects(
+        members
+            .iter()
+            .zip(workspace.members())
+            .map(|(project, member)| {
+                let purl = member
+                    .project
+                    .identity()
+                    .lock_identifier()
+                    .parse()
+                    .expect("a validated publisher and name are a valid PURL");
+                let definition = ProjectDefinition::Toml(Box::new(member.project.clone()));
+                (
+                    Some(vec![purl]),
+                    project,
+                    Some(member.dir.clone()),
+                    Some(definition),
+                )
+            }),
+        resolver,
+        provided_usages,
+        ctx,
+        respelled,
+    )
+}
+
+/// Treats the project at `project_root` as an editable project, at `.`, and
+/// solves for its dependencies.
+///
+/// The spelling of the project's typed usage of `respelled` is not checked:
+/// it is taken from the project that the usage resolved to, as recorded in
+/// the lock.
+#[cfg(feature = "filesystem")]
+pub fn do_lock_local_editable<
     PR: AsRef<Utf8Path>,
     PD: ProjectRead + Debug,
     R: ResolveRead<ProjectStorage = PD> + Debug,
 >(
-    path: P,
     project_root: PR,
     identifiers: Option<Vec<Iri<String>>>,
     provided_usages: &ProvidedProjects,
     resolver: R,
     ctx: &ProjectContext,
-    respelled: &Identifier,
-) -> Result<LockOutcome<PD>, LockProjectError<EditableLocalSrcProject, PD, R>> {
+    respelled: Option<&Identifier>,
+) -> Result<Lock, LockProjectError<EditableLocalSrcProject, PD, R>> {
     let project = EditableProject::new(
-        path.as_ref().to_owned(),
+        ".".into(),
         LocalSrcProject::new_access(
             wrapfs::canonicalize(&project_root).map_err(LockError::Io)?,
             None,
@@ -582,39 +799,17 @@ pub fn do_lock_local_editable_respelling<
     );
 
     lock_projects(
-        [(identifiers, &project)],
+        [(
+            identifiers,
+            &project,
+            ctx.project_root(),
+            ctx.current_definition().cloned(),
+        )],
         resolver,
         provided_usages,
         ctx,
-        Some(respelled),
+        respelled,
     )
-}
-
-/// Treats a project at `path` as an editable project and solves for its dependencies.
-#[cfg(feature = "filesystem")]
-pub fn do_lock_local_editable<
-    P: AsRef<Utf8UnixPath>,
-    PR: AsRef<Utf8Path>,
-    PD: ProjectRead + Debug,
-    R: ResolveRead<ProjectStorage = PD> + Debug,
->(
-    path: P,
-    project_root: PR,
-    identifiers: Option<Vec<Iri<String>>>,
-    provided_usages: &ProvidedProjects,
-    resolver: R,
-    ctx: &ProjectContext,
-) -> Result<LockOutcome<PD>, LockProjectError<EditableLocalSrcProject, PD, R>> {
-    let path = path.as_ref();
-    let project = EditableProject::new(
-        path.to_owned(),
-        LocalSrcProject::new_access(
-            wrapfs::canonicalize(&project_root).map_err(LockError::Io)?,
-            None,
-        ),
-    );
-
-    do_lock_projects([(identifiers, &project)], resolver, provided_usages, ctx)
 }
 
 #[cfg(test)]
