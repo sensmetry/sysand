@@ -50,6 +50,19 @@ The final version release has several publication paths:
 
 ## Specific instructions
 
+### Bumping the SPDX pin
+
+`spdx` is pinned exactly (`spdx = "=<version>"`) in `core/Cargo.toml` and
+`sysand/Cargo.toml`, not left to the lockfile. The crate carries the SPDX
+License List, and which identifiers a `license` expression may use is part of
+the manifest format: a project that published with one Sysand must keep
+validating with the next.
+
+So bumping the pin is a release decision, not a dependency bump. Before
+raising it, check the crate's changelog for identifiers that were **removed
+or deprecated**, and say so in the release's changelog entry if any were: a
+manifest that was valid yesterday can stop being valid.
+
 ### Add a changelog entry
 
 We generate changelogs from merged PRs using their titles and labels with the
