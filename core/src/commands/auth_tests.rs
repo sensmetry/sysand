@@ -33,7 +33,7 @@ fn record(key: &str, secret: &str) -> CredentialRecord {
 }
 
 fn store_with(records: &[CredentialRecord]) -> LockedBlobStore<InMemoryBlobBackend> {
-    let mut store = in_memory_store();
+    let store = in_memory_store();
     for record in records {
         store.upsert(record.clone()).unwrap();
     }
@@ -42,7 +42,7 @@ fn store_with(records: &[CredentialRecord]) -> LockedBlobStore<InMemoryBlobBacke
 
 /// Logout through the same validate-then-call path the CLI uses.
 fn logout<B: BlobBackend>(
-    store: &mut LockedBlobStore<B>,
+    store: &LockedBlobStore<B>,
     index_url: &str,
 ) -> Result<String, AuthCommandError> {
     do_auth_logout(store, &IndexKey::validate(index_url)?)
@@ -61,9 +61,9 @@ fn env_entry(label: &str, pattern: &str) -> EnvCredentialEntry {
 #[test]
 fn logout_removes_only_the_matching_record() {
     let keep = record("https://other.example/", "tok-keep");
-    let mut store = store_with(&[record("https://example.com/idx/", "tok-gone"), keep.clone()]);
+    let store = store_with(&[record("https://example.com/idx/", "tok-gone"), keep.clone()]);
 
-    let key = logout(&mut store, "https://example.com/idx/").unwrap();
+    let key = logout(&store, "https://example.com/idx/").unwrap();
 
     assert_eq!(key, "https://example.com/idx/");
     assert_eq!(store.list().unwrap(), vec![keep]);
@@ -72,9 +72,9 @@ fn logout_removes_only_the_matching_record() {
 #[test]
 fn logout_normalizes_url_spellings_to_the_stored_key() {
     // Uppercase host, no trailing slash, default port: all the same key.
-    let mut store = store_with(&[record("https://example.com/idx/", "tok")]);
+    let store = store_with(&[record("https://example.com/idx/", "tok")]);
 
-    let key = logout(&mut store, "HTTPS://Example.COM:443/idx").unwrap();
+    let key = logout(&store, "HTTPS://Example.COM:443/idx").unwrap();
 
     assert_eq!(key, "https://example.com/idx/");
     assert_eq!(store.list().unwrap(), []);
@@ -82,9 +82,9 @@ fn logout_normalizes_url_spellings_to_the_stored_key() {
 
 #[test]
 fn logout_of_missing_credential_errors() {
-    let mut store = store_with(&[record("https://example.com/idx/", "tok")]);
+    let store = store_with(&[record("https://example.com/idx/", "tok")]);
 
-    let err = logout(&mut store, "https://absent.example/").unwrap_err();
+    let err = logout(&store, "https://absent.example/").unwrap_err();
 
     assert_matches!(&err,
     AuthCommandError::NoStoredCredential { index } if index == "https://absent.example/");
@@ -93,9 +93,9 @@ fn logout_of_missing_credential_errors() {
 
 #[test]
 fn logout_of_non_http_url_errors_without_touching_the_store() {
-    let mut store = store_with(&[record("https://example.com/idx/", "tok")]);
+    let store = store_with(&[record("https://example.com/idx/", "tok")]);
 
-    let err = logout(&mut store, "file:///srv/index").unwrap_err();
+    let err = logout(&store, "file:///srv/index").unwrap_err();
 
     assert_matches!(&err, AuthCommandError::NotHttpIndex { url: _ });
     assert!(
@@ -335,7 +335,7 @@ mod login {
     /// surface a probe would touch (or point at an unreachable local
     /// port, where the probes degrade to warnings).
     fn run_login<B: BlobBackend>(
-        store: &mut LockedBlobStore<B>,
+        store: &LockedBlobStore<B>,
         index_url: &str,
         secret: &str,
     ) -> (
@@ -445,9 +445,9 @@ mod login {
             .create();
         // Public read surface: probed, but never exercises the token.
         let _index = server.mock("HEAD", "/index.json").with_status(200).create();
-        let mut store = in_memory_store();
+        let store = in_memory_store();
 
-        let (outcome, notices) = run_login(&mut store, &server.url(), "tok");
+        let (outcome, notices) = run_login(&store, &server.url(), "tok");
 
         let (key, globs) = stored(outcome);
         assert_eq!(key, root);
@@ -469,9 +469,9 @@ mod login {
         let _mock = config_mock(&mut server, format!(r#"{{"api_root": "{api_root}"}}"#));
         let _index = server.mock("HEAD", "/index.json").with_status(200).create();
         let _whoami = whoami_ok(&mut server, "/api/v1/whoami", None);
-        let mut store = in_memory_store();
+        let store = in_memory_store();
 
-        let (outcome, notices) = run_login(&mut store, &root, "tok");
+        let (outcome, notices) = run_login(&store, &root, "tok");
 
         let (_, globs) = stored(outcome);
         assert_eq!(globs.len(), 1, "Case A must not add a glob: {globs:?}");
@@ -490,9 +490,9 @@ mod login {
         let _mock = config_mock(&mut server, format!(r#"{{"api_root": "{api_root}"}}"#));
         let _index = server.mock("HEAD", "/index.json").with_status(200).create();
         let _whoami = whoami_ok(&mut api_server, "/base/v1/whoami", None);
-        let mut store = in_memory_store();
+        let store = in_memory_store();
 
-        let (outcome, _) = run_login(&mut store, &root, "tok");
+        let (outcome, _) = run_login(&store, &root, "tok");
 
         let (_, globs) = stored(outcome);
         assert_eq!(
@@ -527,9 +527,9 @@ mod login {
             .with_status(200)
             .create();
         let _whoami = whoami_ok(&mut api_server, "/v1/whoami", None);
-        let mut store = in_memory_store();
+        let store = in_memory_store();
 
-        let (outcome, _) = run_login(&mut store, &root, "tok");
+        let (outcome, _) = run_login(&store, &root, "tok");
 
         let (_, globs) = stored(outcome);
         assert_eq!(globs.len(), 3, "Case B twice over: {globs:?}");
@@ -556,9 +556,9 @@ mod login {
             .with_status(200)
             .create();
         let _whoami = whoami_ok(&mut api_server, "/v1/whoami", None);
-        let mut store = in_memory_store();
+        let store = in_memory_store();
 
-        let (outcome, notices) = run_login(&mut store, &root, "tok");
+        let (outcome, notices) = run_login(&store, &root, "tok");
 
         let (_, globs) = stored(outcome);
         assert!(notices.is_empty(), "unexpected notices: {notices:?}");
@@ -596,9 +596,9 @@ mod login {
             .match_query(index_query)
             .with_status(200)
             .create();
-        let mut store = in_memory_store();
+        let store = in_memory_store();
 
-        let (outcome, notices) = run_login(&mut store, &root, "tok");
+        let (outcome, notices) = run_login(&store, &root, "tok");
 
         let (_, globs) = stored(outcome);
         assert!(notices.is_empty(), "unexpected notices: {notices:?}");
@@ -623,9 +623,9 @@ mod login {
         // Port 1 answers nothing, so discovery is unreachable and the
         // URL-derived fallback glob is used. The IPv6 literal would read
         // as a globset character class without escaping.
-        let mut store = in_memory_store();
+        let store = in_memory_store();
 
-        let (outcome, notices) = run_login(&mut store, "https://[::1]:1", "tok");
+        let (outcome, notices) = run_login(&store, "https://[::1]:1", "tok");
 
         let (key, globs) = stored(outcome);
         assert_eq!(key, "https://[::1]:1/");
@@ -642,8 +642,8 @@ mod login {
 
     #[test]
     fn login_over_an_existing_key_notifies_replacement_and_overwrites() {
-        let mut store = in_memory_store();
-        let (first, first_notices) = run_login(&mut store, "http://127.0.0.1:1", "old-tok");
+        let store = in_memory_store();
+        let (first, first_notices) = run_login(&store, "http://127.0.0.1:1", "old-tok");
         stored(first);
         assert!(
             !first_notices
@@ -651,7 +651,7 @@ mod login {
                 .any(|n| matches!(n, AuthLoginNotice::ReplacingExisting { key: _ }))
         );
 
-        let (second, second_notices) = run_login(&mut store, "http://127.0.0.1:1/", "new-tok");
+        let (second, second_notices) = run_login(&store, "http://127.0.0.1:1/", "new-tok");
 
         stored(second);
         assert!(second_notices.iter().any(|n| matches!(
@@ -665,11 +665,11 @@ mod login {
 
     #[test]
     fn login_reports_an_absent_backend_with_the_derived_globs() {
-        let mut store = failing_store(|| CredentialStoreError::BackendAbsent {
+        let store = failing_store(|| CredentialStoreError::BackendAbsent {
             source: "no secret service".into(),
         });
 
-        let (outcome, _) = run_login(&mut store, "http://127.0.0.1:1", "tok");
+        let (outcome, _) = run_login(&store, "http://127.0.0.1:1", "tok");
 
         match outcome.unwrap() {
             AuthLoginOutcome::BackendUnavailable { key, globs, reason } => {
@@ -689,6 +689,24 @@ mod login {
 
     // Template targets: templated login targets are supported, anchored
     // on their literal URL prefix.
+
+    /// A filesystem index has nothing to authenticate to; both spellings
+    /// are refused.
+    #[test]
+    fn auth_refuses_filesystem_index() {
+        assert_matches!(
+            IndexKey::validate("file:///srv/mirror"),
+            Err(AuthCommandError::NotHttpIndex { url: _ })
+        );
+        assert_matches!(
+            IndexKey::validate("./mirror"),
+            Err(AuthCommandError::InvalidIndexUrl(_))
+        );
+        assert_matches!(
+            IndexKey::validate("/srv/mirror"),
+            Err(AuthCommandError::InvalidIndexUrl(_))
+        );
+    }
 
     /// The motivating GitLab-shaped target: the key is the template's
     /// canonical `Display` text, with the literal prefix normalized at
@@ -740,15 +758,15 @@ mod login {
             .match_query(mockito::Matcher::UrlEncoded("ref".into(), "index".into()))
             .with_status(200)
             .create();
-        let mut store = in_memory_store();
+        let store = in_memory_store();
 
-        let (outcome, notices) = run_login(&mut store, &template, "tok");
+        let (outcome, notices) = run_login(&store, &template, "tok");
 
         let (key, globs) = stored(outcome);
         assert_eq!(key, template);
         assert!(notices.is_empty(), "unexpected notices: {notices:?}");
         assert_eq!(globs, vec![format!("{}**", globset::escape(&anchor))]);
-        // Section 8 coverage for a template without an api_root: the
+        // Coverage for a template without an api_root: the
         // template-resolved discovery URL, `index.json` URL, and an
         // encoded-`{path}` project-file URL all match the derived set.
         let location = IndexLocation::parse(&template).unwrap();
@@ -772,9 +790,9 @@ mod login {
         // Port 1 answers nothing: discovery is unreachable and the glob
         // set is the anchor-derived fallback.
         let template = "http://127.0.0.1:1/files/{path}/raw?ref=main";
-        let mut store = in_memory_store();
+        let store = in_memory_store();
 
-        let (outcome, notices) = run_login(&mut store, template, "tok");
+        let (outcome, notices) = run_login(&store, template, "tok");
 
         let (key, globs) = stored(outcome);
         assert_eq!(key, template);
@@ -797,7 +815,7 @@ mod login {
         };
         assert_eq!(stored[0].key, template);
         // A differently-spelled scheme normalizes to the same key.
-        let removed = logout(&mut store, "HTTP://127.0.0.1:1/files/{path}/raw?ref=main").unwrap();
+        let removed = logout(&store, "HTTP://127.0.0.1:1/files/{path}/raw?ref=main").unwrap();
         assert_eq!(removed, template);
         assert_eq!(store.list().unwrap(), []);
     }
@@ -808,9 +826,9 @@ mod login {
         // the last `/` of the literal prefix, shallower than the whole
         // prefix.
         let template = "http://127.0.0.1:1/repo/download?file={path}&ref=main";
-        let mut store = in_memory_store();
+        let store = in_memory_store();
 
-        let (outcome, _) = run_login(&mut store, template, "tok");
+        let (outcome, _) = run_login(&store, template, "tok");
 
         let (key, globs) = stored(outcome);
         assert_eq!(key, template);
@@ -831,9 +849,9 @@ mod login {
         // host). Resolved request URLs continue the path before the
         // query, so the glob anchors on the query-stripped root while
         // the key keeps the query.
-        let mut store = in_memory_store();
+        let store = in_memory_store();
 
-        let (outcome, _) = run_login(&mut store, "http://127.0.0.1:1/idx?ref=main", "tok");
+        let (outcome, _) = run_login(&store, "http://127.0.0.1:1/idx?ref=main", "tok");
 
         let (key, globs) = stored(outcome);
         assert_eq!(key, "http://127.0.0.1:1/idx/?ref=main");
@@ -848,15 +866,15 @@ mod login {
         );
         assert!(matcher(&globs).is_match(expanded.as_str()));
         // `logout` accepts the normalized key `status` would print.
-        assert_eq!(logout(&mut store, &key).unwrap(), key);
+        assert_eq!(logout(&store, &key).unwrap(), key);
     }
 
     #[test]
     fn login_with_a_path_raw_template_target_round_trips() {
         let template = "http://127.0.0.1:1/raw/{path_raw}?ref=main";
-        let mut store = in_memory_store();
+        let store = in_memory_store();
 
-        let (outcome, _) = run_login(&mut store, template, "tok");
+        let (outcome, _) = run_login(&store, template, "tok");
 
         let (key, globs) = stored(outcome);
         assert_eq!(key, template);
@@ -868,7 +886,7 @@ mod login {
                 .resolve(["pub", "name", "versions.json"]);
         assert!(expanded.as_str().contains("/raw/pub/name/versions.json"));
         assert!(matcher(&globs).is_match(expanded.as_str()));
-        assert_eq!(logout(&mut store, template).unwrap(), template);
+        assert_eq!(logout(&store, template).unwrap(), template);
     }
 
     #[test]
@@ -877,9 +895,9 @@ mod login {
         // gains the explicit root `/` and the glob anchors on the host
         // root. Port 1 answers nothing, so discovery is unreachable and
         // the glob set is the anchor-derived fallback.
-        let mut store = in_memory_store();
+        let store = in_memory_store();
 
-        let (outcome, notices) = run_login(&mut store, "http://127.0.0.1:1?f={path}", "tok");
+        let (outcome, notices) = run_login(&store, "http://127.0.0.1:1?f={path}", "tok");
 
         let (key, globs) = stored(outcome);
         assert_eq!(key, "http://127.0.0.1:1/?f={path}");
@@ -893,7 +911,7 @@ mod login {
                 .any(|n| matches!(n, AuthLoginNotice::DiscoveryUnreachable { error: _ }))
         );
         // `logout` accepts the normalized key `status` would print.
-        assert_eq!(logout(&mut store, &key).unwrap(), key);
+        assert_eq!(logout(&store, &key).unwrap(), key);
         assert_eq!(store.list().unwrap(), []);
     }
 
@@ -929,9 +947,9 @@ mod login {
             .mock("GET", mockito::Matcher::Regex("whoami".to_owned()))
             .expect(0)
             .create();
-        let mut store = in_memory_store();
+        let store = in_memory_store();
 
-        let (outcome, notices) = run_login(&mut store, &template, "tok");
+        let (outcome, notices) = run_login(&store, &template, "tok");
 
         let (key, _, validated) = stored_validated(outcome);
         assert_eq!(key, template);
@@ -1046,9 +1064,9 @@ mod login {
         let _config = no_discovery_mock(&mut server);
         let _index = server.mock("HEAD", "/index.json").with_status(200).create();
         let whoami = server.mock("GET", "/v1/whoami").expect(0).create();
-        let mut store = in_memory_store();
+        let store = in_memory_store();
 
-        let (outcome, notices) = run_login(&mut store, &server.url(), "tok");
+        let (outcome, notices) = run_login(&store, &server.url(), "tok");
 
         let (_, _, validated) = stored_validated(outcome);
         assert!(validated.is_empty(), "nothing was exercised: {validated:?}");
@@ -1066,9 +1084,9 @@ mod login {
         let _config = config_mock(&mut server, "{}".to_owned());
         let _index = server.mock("HEAD", "/index.json").with_status(200).create();
         let whoami = server.mock("GET", "/v1/whoami").expect(0).create();
-        let mut store = in_memory_store();
+        let store = in_memory_store();
 
-        let (outcome, _) = run_login(&mut store, &server.url(), "tok");
+        let (outcome, _) = run_login(&store, &server.url(), "tok");
 
         let (_, _, validated) = stored_validated(outcome);
         assert_eq!(validated, []);
@@ -1082,9 +1100,9 @@ mod login {
         let mut server = mockito::Server::new();
         let _config = no_discovery_mock(&mut server);
         let (unauth, forced) = private_index_json(&mut server, "tok", 200);
-        let mut store = in_memory_store();
+        let store = in_memory_store();
 
-        let (outcome, notices) = run_login(&mut store, &server.url(), "tok");
+        let (outcome, notices) = run_login(&store, &server.url(), "tok");
 
         let (_, _, validated) = stored_validated(outcome);
         assert_eq!(validated, vec![ProbeSurface::Read]);
@@ -1110,9 +1128,9 @@ mod login {
             .with_status(401)
             .create();
         let (_unauth, _forced) = private_index_json(&mut server, "tok", 200);
-        let mut store = in_memory_store();
+        let store = in_memory_store();
 
-        let (outcome, notices) = run_login(&mut store, &server.url(), "tok");
+        let (outcome, notices) = run_login(&store, &server.url(), "tok");
 
         let (_, _, validated) = stored_validated(outcome);
         assert_eq!(validated, vec![ProbeSurface::Read]);
@@ -1136,9 +1154,9 @@ mod login {
             .with_status(401)
             .expect(2)
             .create();
-        let mut store = store_with(&[record(&root, "old-tok")]);
+        let store = store_with(&[record(&root, "old-tok")]);
 
-        let (outcome, notices) = run_login(&mut store, &server.url(), "bad-tok");
+        let (outcome, notices) = run_login(&store, &server.url(), "bad-tok");
 
         let err = outcome.unwrap_err();
         assert_matches!(&err,
@@ -1179,9 +1197,9 @@ mod login {
         let _config = config_mock(&mut server, format!(r#"{{"api_root": "{root}api/"}}"#));
         let _index = server.mock("HEAD", "/index.json").with_status(200).create();
         let whoami = whoami_ok(&mut server, "/api/v1/whoami", Some("tok"));
-        let mut store = in_memory_store();
+        let store = in_memory_store();
 
-        let (outcome, notices) = run_login(&mut store, &server.url(), "tok");
+        let (outcome, notices) = run_login(&store, &server.url(), "tok");
 
         let (_, _, validated) = stored_validated(outcome);
         assert_eq!(validated, vec![ProbeSurface::Api]);
@@ -1215,9 +1233,9 @@ mod login {
             .mock("GET", "/api/v1/whoami")
             .with_status(401)
             .create();
-        let mut store = in_memory_store();
+        let store = in_memory_store();
 
-        let (outcome, _) = run_login(&mut store, &server.url(), "tok");
+        let (outcome, _) = run_login(&store, &server.url(), "tok");
 
         let err = outcome.unwrap_err();
         assert_matches!(&err,
@@ -1243,9 +1261,9 @@ mod login {
             .with_status(404)
             .expect(2)
             .create();
-        let mut store = in_memory_store();
+        let store = in_memory_store();
 
-        let (outcome, _) = run_login(&mut store, &server.url(), "tok");
+        let (outcome, _) = run_login(&store, &server.url(), "tok");
 
         let err = outcome.unwrap_err();
         assert_matches!(&err,
@@ -1271,9 +1289,9 @@ mod login {
         let mut server = mockito::Server::new();
         let _config = no_discovery_mock(&mut server);
         let (_unauth, _forced) = private_index_json(&mut server, "tok", 403);
-        let mut store = in_memory_store();
+        let store = in_memory_store();
 
-        let (outcome, _) = run_login(&mut store, &server.url(), "tok");
+        let (outcome, _) = run_login(&store, &server.url(), "tok");
 
         let err = outcome.unwrap_err();
         assert_matches!(&err,
@@ -1303,9 +1321,9 @@ mod login {
             .mock("GET", "/api/v1/whoami")
             .with_status(401)
             .create();
-        let mut store = in_memory_store();
+        let store = in_memory_store();
 
-        let (outcome, notices) = run_login(&mut store, &server.url(), "tok");
+        let (outcome, notices) = run_login(&store, &server.url(), "tok");
 
         let (_, _, validated) = stored_validated(outcome);
         assert_eq!(validated, vec![ProbeSurface::Read]);
@@ -1334,9 +1352,9 @@ mod login {
         let _config = config_mock(&mut server, format!(r#"{{"api_root": "{root}api/"}}"#));
         let (_unauth, _forced) = private_index_json(&mut server, "tok", 401);
         let _whoami = whoami_ok(&mut server, "/api/v1/whoami", None);
-        let mut store = in_memory_store();
+        let store = in_memory_store();
 
-        let (outcome, notices) = run_login(&mut store, &server.url(), "tok");
+        let (outcome, notices) = run_login(&store, &server.url(), "tok");
 
         let (_, _, validated) = stored_validated(outcome);
         assert_eq!(validated, vec![ProbeSurface::Api]);
@@ -1368,9 +1386,9 @@ mod login {
         let _config = config_mock(&mut server, format!(r#"{{"api_root": "{root}api/"}}"#));
         let (_unauth, _forced) = private_index_json(&mut server, "tok", 200);
         let _whoami = whoami_ok(&mut server, "/api/v1/whoami", None);
-        let mut store = in_memory_store();
+        let store = in_memory_store();
 
-        let (outcome, _) = run_login(&mut store, &server.url(), "tok");
+        let (outcome, _) = run_login(&store, &server.url(), "tok");
 
         let (_, _, validated) = stored_validated(outcome);
         assert_eq!(validated, vec![ProbeSurface::Read, ProbeSurface::Api]);
@@ -1389,9 +1407,9 @@ mod login {
         let mut server = mockito::Server::new();
         let _config = no_discovery_mock(&mut server);
         let _index = server.mock("HEAD", "/index.json").with_status(500).create();
-        let mut store = in_memory_store();
+        let store = in_memory_store();
 
-        let (outcome, notices) = run_login(&mut store, &server.url(), "tok");
+        let (outcome, notices) = run_login(&store, &server.url(), "tok");
 
         let (_, _, validated) = stored_validated(outcome);
         assert_eq!(validated, []);
@@ -1420,9 +1438,9 @@ mod login {
             .with_status(302)
             .with_header("location", target)
             .create();
-        let mut store = in_memory_store();
+        let store = in_memory_store();
 
-        let (outcome, notices) = run_login(&mut store, &server.url(), "tok");
+        let (outcome, notices) = run_login(&store, &server.url(), "tok");
 
         let (_, _, validated) = stored_validated(outcome);
         assert_eq!(validated, []);
@@ -1451,9 +1469,9 @@ mod login {
             .with_header("www-authenticate", r#"Basic realm="idx""#)
             .expect(2)
             .create();
-        let mut store = in_memory_store();
+        let store = in_memory_store();
 
-        let (outcome, _) = run_login(&mut store, &server.url(), "tok");
+        let (outcome, _) = run_login(&store, &server.url(), "tok");
 
         let err = outcome.unwrap_err();
         assert_matches!(&err,
@@ -1485,9 +1503,9 @@ mod login {
             .with_header("www-authenticate", r#"Bearer realm="Basic migration""#)
             .expect(2)
             .create();
-        let mut store = in_memory_store();
+        let store = in_memory_store();
 
-        let (outcome, _) = run_login(&mut store, &server.url(), "tok");
+        let (outcome, _) = run_login(&store, &server.url(), "tok");
 
         let err = outcome.unwrap_err();
         assert_matches!(&err,
@@ -1514,9 +1532,9 @@ mod login {
             .with_header("www-authenticate", "Negotiate")
             .expect(2)
             .create();
-        let mut store = in_memory_store();
+        let store = in_memory_store();
 
-        let (outcome, _) = run_login(&mut store, &server.url(), "tok");
+        let (outcome, _) = run_login(&store, &server.url(), "tok");
 
         let err = outcome.unwrap_err();
         assert_matches!(&err,
@@ -1550,9 +1568,9 @@ mod login {
             .with_header("www-authenticate", r#"Negotiate, Basic realm="idx""#)
             .expect(2)
             .create();
-        let mut store = in_memory_store();
+        let store = in_memory_store();
 
-        let (outcome, _) = run_login(&mut store, &server.url(), "tok");
+        let (outcome, _) = run_login(&store, &server.url(), "tok");
 
         let err = outcome.unwrap_err();
         assert_matches!(&err,
@@ -1620,9 +1638,9 @@ mod login {
             .with_status(200)
             .with_body("not json")
             .create();
-        let mut store = in_memory_store();
+        let store = in_memory_store();
 
-        let (outcome, _) = run_login(&mut store, &server.url(), "tok");
+        let (outcome, _) = run_login(&store, &server.url(), "tok");
 
         let (_, _, validated) = stored_validated(outcome);
         assert_eq!(validated, vec![ProbeSurface::Api]);
@@ -1653,9 +1671,9 @@ mod login {
             .match_header("authorization", "Bearer tok")
             .expect(0)
             .create();
-        let mut store = in_memory_store();
+        let store = in_memory_store();
 
-        let (outcome, notices) = run_login(&mut store, &server.url(), "tok");
+        let (outcome, notices) = run_login(&store, &server.url(), "tok");
 
         let (_, _, validated) = stored_validated(outcome);
         assert!(validated.is_empty(), "429 must not validate: {validated:?}");
@@ -1672,16 +1690,14 @@ mod login {
 
     #[test]
     fn validated_login_stores_when_the_forced_retry_is_rate_limited() {
-        // Formerly false-refusing sequence: baseline 401, forced 429
-        // counted as rejected and refused a possibly valid token. Now the
-        // surface is not tested and the credential is stored with a
-        // rate-limited warning.
+        // Baseline 401, forced 429: the surface is not tested and the
+        // credential is stored with a rate-limited warning, not refused.
         let mut server = mockito::Server::new();
         let _config = no_discovery_mock(&mut server);
         let (unauth, forced) = private_index_json(&mut server, "tok", 429);
-        let mut store = in_memory_store();
+        let store = in_memory_store();
 
-        let (outcome, notices) = run_login(&mut store, &server.url(), "tok");
+        let (outcome, notices) = run_login(&store, &server.url(), "tok");
 
         let (_, _, validated) = stored_validated(outcome);
         assert!(validated.is_empty(), "429 must not validate: {validated:?}");
@@ -1710,9 +1726,9 @@ mod login {
             .with_status(429)
             .expect(1)
             .create();
-        let mut store = in_memory_store();
+        let store = in_memory_store();
 
-        let (outcome, notices) = run_login(&mut store, &server.url(), "tok");
+        let (outcome, notices) = run_login(&store, &server.url(), "tok");
 
         let (_, _, validated) = stored_validated(outcome);
         assert!(validated.is_empty(), "429 must not validate: {validated:?}");
@@ -1735,9 +1751,9 @@ mod login {
         let _config = config_mock(&mut server, format!(r#"{{"api_root": "{root}api/"}}"#));
         let _index = server.mock("HEAD", "/index.json").with_status(429).create();
         let _whoami = whoami_ok(&mut server, "/api/v1/whoami", Some("tok"));
-        let mut store = in_memory_store();
+        let store = in_memory_store();
 
-        let (outcome, notices) = run_login(&mut store, &server.url(), "tok");
+        let (outcome, notices) = run_login(&store, &server.url(), "tok");
 
         let (_, _, validated) = stored_validated(outcome);
         assert_eq!(validated, vec![ProbeSurface::Api]);
@@ -1761,9 +1777,9 @@ mod login {
             .mock("GET", "/api/v1/whoami")
             .with_status(401)
             .create();
-        let mut store = in_memory_store();
+        let store = in_memory_store();
 
-        let (outcome, _) = run_login(&mut store, &server.url(), "tok");
+        let (outcome, _) = run_login(&store, &server.url(), "tok");
 
         let err = outcome.unwrap_err();
         assert_matches!(&err,
@@ -1806,9 +1822,9 @@ mod login {
         );
         let (unauth_index, forced_index) = private_index_json(&mut server, "tok", 200);
         let whoami = whoami_ok(&mut api_server, "/api/v1/whoami", Some("tok"));
-        let mut store = in_memory_store();
+        let store = in_memory_store();
 
-        let (outcome, notices) = run_login(&mut store, &server.url(), "tok");
+        let (outcome, notices) = run_login(&store, &server.url(), "tok");
 
         let (_, globs, validated) = stored_validated(outcome);
         assert_eq!(validated, vec![ProbeSurface::Read, ProbeSurface::Api]);
@@ -1860,9 +1876,9 @@ mod login {
         );
         let _index = server.mock("HEAD", "/index.json").with_status(200).create();
         let whoami = whoami_ok(&mut server, "/api/v1/whoami", Some("tok"));
-        let mut store = in_memory_store();
+        let store = in_memory_store();
 
-        let (outcome, notices) = run_login(&mut store, &server.url(), "tok");
+        let (outcome, notices) = run_login(&store, &server.url(), "tok");
 
         let (_, _, validated) = stored_validated(outcome);
         assert_eq!(validated, vec![ProbeSurface::Api]);
@@ -1886,9 +1902,9 @@ mod login {
             .create();
         let _index = server.mock("HEAD", "/index.json").with_status(200).create();
         let whoami = server.mock("GET", "/v1/whoami").expect(0).create();
-        let mut store = in_memory_store();
+        let store = in_memory_store();
 
-        let (outcome, notices) = run_login(&mut store, &server.url(), "tok");
+        let (outcome, notices) = run_login(&store, &server.url(), "tok");
 
         let (_, globs, validated) = stored_validated(outcome);
         assert_eq!(validated, []);
@@ -1914,9 +1930,9 @@ mod login {
             .with_status(401)
             .expect(2)
             .create();
-        let mut store = in_memory_store();
+        let store = in_memory_store();
 
-        let (outcome, notices) = run_login(&mut store, &server.url(), "bad-tok");
+        let (outcome, notices) = run_login(&store, &server.url(), "bad-tok");
 
         assert_matches!(outcome.unwrap_err(),
         AuthCommandError::ValidationRejected { rejected, index: _, challenge_schemes: _ }
@@ -1944,9 +1960,9 @@ mod login {
         let forced_config = forced_config_mock(&mut server, "tok", 429, "");
         let _index = server.mock("HEAD", "/index.json").with_status(200).create();
         let whoami = server.mock("GET", "/v1/whoami").expect(0).create();
-        let mut store = in_memory_store();
+        let store = in_memory_store();
 
-        let (outcome, notices) = run_login(&mut store, &server.url(), "tok");
+        let (outcome, notices) = run_login(&store, &server.url(), "tok");
 
         let (_, globs, validated) = stored_validated(outcome);
         assert_eq!(validated, []);
@@ -1973,9 +1989,9 @@ mod login {
         let _unauth_config = unauth_config_mock(&mut server, 401);
         let _forced_config = forced_config_mock(&mut server, "tok", 200, "not json");
         let (_unauth, _forced) = private_index_json(&mut server, "tok", 200);
-        let mut store = in_memory_store();
+        let store = in_memory_store();
 
-        let (outcome, notices) = run_login(&mut store, &server.url(), "tok");
+        let (outcome, notices) = run_login(&store, &server.url(), "tok");
 
         let (_, _, validated) = stored_validated(outcome);
         assert_eq!(validated, vec![ProbeSurface::Read]);
@@ -2002,9 +2018,9 @@ mod login {
             .create();
         let forced = no_authed_config_mock(&mut server);
         let _index = server.mock("HEAD", "/index.json").with_status(200).create();
-        let mut store = in_memory_store();
+        let store = in_memory_store();
 
-        let (outcome, notices) = run_login(&mut store, &server.url(), "tok");
+        let (outcome, notices) = run_login(&store, &server.url(), "tok");
 
         let (_, _, validated) = stored_validated(outcome);
         assert_eq!(validated, []);
@@ -2033,9 +2049,9 @@ mod login {
             .create();
         let forced = no_authed_config_mock(&mut server);
         let _index = server.mock("HEAD", "/index.json").with_status(200).create();
-        let mut store = in_memory_store();
+        let store = in_memory_store();
 
-        let (outcome, notices) = run_login(&mut store, &server.url(), "tok");
+        let (outcome, notices) = run_login(&store, &server.url(), "tok");
 
         let (_, globs, validated) = stored_validated(outcome);
         assert_eq!(validated, []);
@@ -2069,9 +2085,9 @@ mod login {
         let forced = no_authed_config_mock(&mut server);
         let _index = server.mock("HEAD", "/index.json").with_status(200).create();
         let _whoami = whoami_ok(&mut server, "/api/v1/whoami", None);
-        let mut store = in_memory_store();
+        let store = in_memory_store();
 
-        let (outcome, notices) = run_login(&mut store, &server.url(), "tok");
+        let (outcome, notices) = run_login(&store, &server.url(), "tok");
 
         let (_, _, validated) = stored_validated(outcome);
         assert_eq!(validated, vec![ProbeSurface::Api]);

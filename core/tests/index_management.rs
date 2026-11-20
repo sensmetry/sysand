@@ -8,6 +8,7 @@ use std::{fs, io::Write as _};
 use camino::{Utf8Path, Utf8PathBuf};
 use camino_tempfile::tempdir;
 use serde_json::{Value, json};
+use sysand_core::test_fs::exists;
 use zip::write::SimpleFileOptions;
 
 use sysand_core::{
@@ -126,6 +127,13 @@ fn file_state_test() {
     );
     let index_root = cwd.join("index");
     do_index_init(&index_root).unwrap();
+    // The discovery document is `{}`: every field defaults, so the
+    // directory served over HTTP later is discovered as the index it
+    // already is on disk (design/index-protocol.md "Filesystem indexes").
+    assert_eq!(
+        read_json(index_root.join("sysand-index-config.json")),
+        json!({})
+    );
     do_index_add::<&str, _, _>(None, &kpar1v1_path, &index_root).unwrap();
     do_index_add::<&str, _, _>(None, &kpar1v2_path, &index_root).unwrap();
     do_index_add::<&str, _, _>(None, &kpar2v1_path, &index_root).unwrap();
@@ -291,7 +299,7 @@ fn spelling_is_kept_per_project() {
         read_json(index_root.join("acme-labs/my-lib/versions.json")),
         versions_before
     );
-    assert!(!index_root.join("acme-labs/my-lib/2.0.0").exists());
+    assert!(!exists(index_root.join("acme-labs/my-lib/2.0.0")));
 
     // Yanked versions count, but removed ones are gone
     do_index_add::<&str, _, _>(None, &v2, &index_root).unwrap();
