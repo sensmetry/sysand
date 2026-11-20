@@ -11,8 +11,6 @@ use thiserror::Error;
 
 use crate::{env::ReadEnvironment, project::ProjectRead};
 
-use super::ProjectChecksumResult;
-
 #[derive(Debug)]
 pub struct NullEnvironment<Pr> {
     phantom: PhantomData<Pr>,
@@ -61,14 +59,5 @@ impl<Pr: ProjectRead + Debug> ReadEnvironment for NullEnvironment<Pr> {
         _version: T,
     ) -> Result<Self::InterchangeProjectRead, Self::ReadError> {
         Err(EmptyEnvironmentError::NullEnvironmentIsEmpty)
-    }
-
-    fn has_version_verified<S: AsRef<str>, V: AsRef<str>>(
-        &self,
-        _uri: S,
-        _version: V,
-        _checksum: &super::ProjectChecksum,
-    ) -> Result<ProjectChecksumResult, Self::ReadError> {
-        Ok(ProjectChecksumResult::VersionNotFound)
     }
 }

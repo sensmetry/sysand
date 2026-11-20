@@ -1,30 +1,30 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
-#![allow(unused_imports)]
+#![allow(
+    unused_imports,
+    reason = "the shared test imports are not all used by every test"
+)]
 
 use std::io::Read as _;
 
-#[cfg(feature = "alltests")]
 use camino::Utf8Path;
 use camino_tempfile::tempdir;
+use gix::index::write;
+use gix::object::tree::EntryKind;
 
 use crate::{
     context::ProjectContext,
     lock::Source,
     project::{ProjectRead as _, gix_git_download::GixDownloadedProject},
 };
-//use predicates::prelude::*;
 
 /// Writes `files` (relative path, content) into `dir`, makes `dir` a git
 /// repository and commits them, leaving an index that matches the commit.
 ///
-/// Built with gix in isolation rather than with the `git` binary: no
-/// system, user or environment git configuration is read, so nothing on
-/// the machine running the tests (commit signing, hooks, a default branch)
-/// changes the repository.
-#[cfg(feature = "alltests")]
-fn git_commit_files(
+/// Built with gix in isolation: no system, user or environment git
+/// configuration is read.
+pub(crate) fn git_commit_files(
     dir: &Utf8Path,
     files: &[(&str, &str)],
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -42,11 +42,7 @@ fn git_commit_files(
             std::fs::create_dir_all(parent)?;
         }
         std::fs::write(file, content)?;
-        tree.upsert(
-            *path,
-            gix::object::tree::EntryKind::Blob,
-            repo.write_blob(content)?,
-        )?;
+        tree.upsert(*path, EntryKind::Blob, repo.write_blob(content)?)?;
     }
     let tree = tree.write()?.detach();
     let signature = gix::actor::SignatureRef {
@@ -63,17 +59,14 @@ fn git_commit_files(
         gix::commit::NO_PARENT_IDS,
     )?;
     repo.index_from_tree(&tree)?
-        .write(gix::index::write::Options::default())?;
+        .write(write::Options::default())?;
     Ok(())
 }
 
-/// Not isolated from the machine's git configuration: the clone runs gix
-/// in the test process, and the `git upload-pack` it starts for `file://`
-/// inherits the test's environment, so both read the system and user git
-/// config. Isolating them needs a cleared environment, which is only sound
-/// before any thread exists; as an integration test that means its own
-/// `main` (`harness = false`, a `[[test]]` entry, `unsafe` environment
-/// edits), which is too much special-casing for one test.
+/// Not isolated from the machine's git configuration: gix in the test process
+/// and the `git upload-pack` it starts for `file://` both read the system and
+/// user git config. Isolating them needs a cleared environment, which is only
+/// sound before any thread exists.
 #[cfg(feature = "alltests")]
 #[test]
 pub fn basic_gix_access() -> Result<(), Box<dyn std::error::Error>> {
@@ -92,26 +85,14 @@ pub fn basic_gix_access() -> Result<(), Box<dyn std::error::Error>> {
         ],
     )?;
 
-    // NOTE: Gix does not support the "dumb" HTTP protocol
-
-    // let free_port = port_check::free_local_port().unwrap().to_string();
-    // let mut server = Command::new("uv")
-    //     .arg("run")
-    //     .arg("--isolated")
-    //     .arg("--with")
-    //     .arg("rangehttpserver")
-    //     .arg("-m")
-    //     .arg("RangeHTTPServer")
-    //     .arg(&free_port)
-    //     .current_dir(repo_dir.path().join(".git"))
-    //     .spawn()?;
-
-    // sleep(Duration::from_millis(100));
-
     let path = wrapfs::canonicalize(repo_dir.path())?;
     let project = GixDownloadedProject::new(format!("file://{path}"))?;
 
-    let (Some(info), Some(meta)) = project.get_project()? else {
+    let (Some(info), Some(meta)) = project
+        .get_project()?
+        .and_then(crate::project::ProjectDefinition::into_json)
+        .unzip()
+    else {
         panic!("expected info and meta");
     };
 
@@ -124,7 +105,6 @@ pub fn basic_gix_access() -> Result<(), Box<dyn std::error::Error>> {
         .read_to_string(&mut buf)?;
     assert_eq!(buf, "package Test;");
 
-    // server.kill()?;
     Ok(())
 }
 

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
+use std::assert_matches;
 use std::str::FromStr as _;
 
 use super::*;
@@ -24,6 +25,7 @@ identifiers = ["{iri}"]
         .unwrap();
     }
     LocalDirectoryEnvironment {
+        lock: None,
         root_dir: Utf8PathBuf::from("/env"),
         metadata: EnvMetadata::from_str(&toml).unwrap(),
     }
@@ -94,6 +96,7 @@ identifiers = ["urn:kpar:example"]
     );
 
     let env = LocalDirectoryEnvironment {
+        lock: None,
         root_dir: env_dir,
         metadata: EnvMetadata::from_str(&toml).unwrap(),
     };
@@ -115,8 +118,7 @@ fn src_checksum_of(env: &LocalDirectoryEnvironment) -> String {
 }
 
 /// An environment records the checksum of the source it installed, so
-/// `sources()` reports that instead of hashing the whole project tree to
-/// arrive at the same value. The reuse is only sound while the two agree.
+/// `sources()` reports that instead of hashing the whole project tree.
 #[test]
 fn installed_project_sources_reuse_the_recorded_src_checksum() {
     let dir = camino_tempfile::tempdir().unwrap();
@@ -145,13 +147,11 @@ fn installed_project_sources_ignore_a_recorded_kpar_checksum() {
     assert_eq!(src_checksum_of(&env), computed);
 }
 
-/// Documents the gap the TODO on `get_project_storage` describes: an
-/// environment holds every installed version of a project and `EnvResolver`
-/// hands all of them to the solver, so resolving through one *is* a version
-/// choice and should default a version constraint the way an index does. What
-/// comes back is a plain `LocalSrcProject`, which answers for the path it is
-/// rather than for the environment that produced it, so a `pkg:sysand` usage
-/// met only by the environment admits a prerelease where the index would not.
+/// Known gap: an environment holds every installed version of a project, so
+/// resolving through one is a version choice and should default a version
+/// constraint the way an index does. The project handed back answers only for
+/// its path, so a `pkg:sysand` usage met only by the environment admits a
+/// prerelease where the index would not.
 ///
 /// Drop the `#[should_panic]` when the environment says so itself.
 #[test]
@@ -189,6 +189,7 @@ identifiers = ["urn:kpar:example"]
 "#
         );
         let mut env = LocalDirectoryEnvironment {
+            lock: None,
             root_dir: Utf8PathBuf::from("/env"),
             metadata: EnvMetadata::from_str(&toml).unwrap(),
         };
@@ -214,4 +215,26 @@ identifiers = ["urn:kpar:example"]
         assert!(existing.editable);
         assert_eq!(existing.path.as_str(), "../example");
     }
+}
+
+#[test]
+fn an_editable_path_above_the_filesystem_root_is_refused() {
+    let toml = r#"version = "0.2"
+
+[[project]]
+name = "example"
+version = "1.0.0"
+path = "../../example"
+identifiers = ["urn:kpar:example"]
+editable = true
+"#;
+    let env = LocalDirectoryEnvironment {
+        lock: None,
+        root_dir: Utf8PathBuf::from(if cfg!(windows) { "C:\\env" } else { "/env" }),
+        metadata: EnvMetadata::from_str(toml).unwrap(),
+    };
+    assert_matches!(
+        env.get_project("urn:kpar:example", "1.0.0"),
+        Err(LocalReadError::PathAboveRoot { file: _, path }) if &*path == "../../example"
+    );
 }

@@ -3,15 +3,15 @@
 
 use std::sync::Arc;
 
+use crate::project::VersionAndUsage;
 use crate::{
     context::ProjectContext,
     lock::Source,
-    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
-    project::{ProjectFormat, ProjectRead},
+    manifest::edit::DocumentMut,
+    project::{ProjectDefinition, ProjectFormat, ProjectRead},
 };
 
-// Arc wrapper around project to make cloning possible
-// (necessary for compatibility with `MemoryResolver`)
+// `Arc` wrapper that makes a project cloneable
 #[derive(Debug)]
 pub struct ProjectReference<Project: ProjectRead> {
     project: Arc<Project>,
@@ -34,31 +34,17 @@ impl<Project: ProjectRead> Clone for ProjectReference<Project> {
 }
 
 impl<Project: ProjectRead> ProjectRead for ProjectReference<Project> {
-    /// Forwarded, not defaulted: this type wraps another project, and
-    /// the default would claim json for a `model.toml` project it holds.
     fn format(&self) -> Result<ProjectFormat, Self::Error> {
         self.project.format()
     }
 
-    /// Forwarded for the same reason as [`Self::format`].
-    fn manifest(
-        &self,
-    ) -> Result<crate::manifest::project::ResolvedProject, crate::project::ManifestError<Self::Error>>
-    {
-        self.project.manifest()
+    fn manifest_document(&self) -> Result<DocumentMut, crate::project::ManifestError<Self::Error>> {
+        self.project.manifest_document()
     }
 
     type Error = Project::Error;
 
-    fn get_project(
-        &self,
-    ) -> Result<
-        (
-            Option<InterchangeProjectInfoRaw>,
-            Option<InterchangeProjectMetadataRaw>,
-        ),
-        Self::Error,
-    > {
+    fn get_project(&self) -> Result<Option<ProjectDefinition>, Self::Error> {
         self.project.get_project()
     }
 
@@ -80,6 +66,10 @@ impl<Project: ProjectRead> ProjectRead for ProjectReference<Project> {
 
     fn source_may_offer_multiple_versions(&self) -> bool {
         self.project.source_may_offer_multiple_versions()
+    }
+
+    fn version_and_usage(&self) -> Result<Option<VersionAndUsage>, Self::Error> {
+        self.project.version_and_usage()
     }
 
     fn checksum_canonical_variant(&self) -> Result<super::ProjectChecksum, Self::Error> {

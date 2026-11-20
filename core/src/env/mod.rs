@@ -7,6 +7,7 @@ use futures::{Stream, StreamExt as _, TryStreamExt as _};
 use thiserror::Error;
 
 use crate::{
+    cancel::{Bridge, Cancellable, CancellationToken},
     env::utils::ErrorBound,
     project::{
         AsAsyncProject, AsSyncProjectTokio, ProjectChecksum, ProjectMut, ProjectRead,
@@ -14,13 +15,16 @@ use crate::{
     },
 };
 
-// Implementations
+#[cfg(all(feature = "filesystem", feature = "networking"))]
+pub mod any_index;
 #[cfg(all(feature = "filesystem", feature = "networking"))]
 pub mod discovery;
 #[cfg(all(feature = "filesystem", feature = "networking"))]
 pub mod index;
 #[cfg(feature = "filesystem")]
 pub mod local_directory;
+#[cfg(feature = "filesystem")]
+pub mod local_index;
 pub mod memory;
 pub mod null;
 
@@ -62,8 +66,6 @@ pub trait ReadEnvironment {
         version: T,
     ) -> Result<Self::InterchangeProjectRead, Self::ReadError>;
 
-    // Utilities
-
     fn has<S: AsRef<str>>(&self, uri: S) -> Result<bool, Self::ReadError> {
         for res in self.uris()? {
             let u = res?;
@@ -87,20 +89,6 @@ pub trait ReadEnvironment {
         }
         Ok(false)
     }
-
-    // TODO: decide on whtat should be returned here in these cases:
-    // - project not present: Ok(VersionNotFound)
-    // - project version not present: Ok(VersionNotFound) - both cases return VersionNotFound
-    //   to give freedom to implementers; also to callers it makes no difference whether
-    //   project or specific version was not found
-    // - checksum does not match: Ok(Mismatch)
-    // - checksum matches: Ok(Match)
-    fn has_version_verified<S: AsRef<str>, V: AsRef<str>>(
-        &self,
-        uri: S,
-        version: V,
-        checksum: &ProjectChecksum,
-    ) -> Result<ProjectChecksumResult, Self::ReadError>;
 
     fn candidate_projects<S: AsRef<str>>(
         &self,
@@ -146,8 +134,6 @@ pub trait ReadEnvironmentAsync {
         version: T,
     ) -> impl Future<Output = Result<Self::InterchangeProjectRead, Self::ReadError>>;
 
-    // Utilities
-
     #[expect(
         closure_returning_async_block,
         reason = "`try_any` needs an `FnMut`, which an async closure capturing `needle` is not"
@@ -179,13 +165,6 @@ pub trait ReadEnvironmentAsync {
         }
     }
 
-    fn has_version_verified_async<S: AsRef<str>, V: AsRef<str>>(
-        &self,
-        uri: S,
-        version: V,
-        checksum: &ProjectChecksum,
-    ) -> impl Future<Output = Result<ProjectChecksumResult, Self::ReadError>>;
-
     fn candidate_projects_async<S: AsRef<str>>(
         &self,
         uri: S,
@@ -206,15 +185,17 @@ pub trait ReadEnvironmentAsync {
 
     // TODO: Maybe make this return an associated type instead? Would, for example, allow
     // .as_async.as_tokio_sync == .as_tokio_sync.as_async == id
-    /// Treat this `ReadEnvironmentAsync` as a `ReadEnvironment`, using the supplied tokio runtime.
-    fn to_tokio_sync(self, runtime: Arc<tokio::runtime::Runtime>) -> AsSyncEnvironmentTokio<Self>
+    /// Treat this `ReadEnvironmentAsync` as a `ReadEnvironment` run on
+    /// `runtime`, observing `token` at every bridge.
+    fn to_tokio_sync(
+        self,
+        runtime: Arc<tokio::runtime::Runtime>,
+        token: CancellationToken,
+    ) -> AsSyncEnvironmentTokio<Self>
     where
         Self: Sized,
     {
-        AsSyncEnvironmentTokio {
-            runtime,
-            inner: self,
-        }
+        AsSyncEnvironmentTokio::new(Bridge::new(runtime, token), self)
     }
 }
 
@@ -260,36 +241,66 @@ where
             inner: self.inner.get_project(uri, version)?,
         })
     }
-
-    async fn has_version_verified_async<S: AsRef<str>, V: AsRef<str>>(
-        &self,
-        uri: S,
-        version: V,
-        checksum: &ProjectChecksum,
-    ) -> Result<ProjectChecksumResult, Self::ReadError> {
-        self.inner.has_version_verified(uri, version, checksum)
-    }
 }
 
 /// Wrapper intended to wrap an `ReadEnvironmentAsync` as a `ReadEnvironment`
-/// using a provided tokio runtime.
+/// using a provided tokio runtime; every bridge observes the cancellation
+/// token (`crate::cancel`).
 #[derive(Debug)]
+#[non_exhaustive]
 pub struct AsSyncEnvironmentTokio<T> {
-    runtime: Arc<tokio::runtime::Runtime>,
+    bridge: Bridge,
     inner: T,
 }
 
-#[derive(Debug)]
-pub struct SyncStreamIter<S> {
-    pub runtime: Arc<tokio::runtime::Runtime>,
-    pub inner: S,
+impl<T> AsSyncEnvironmentTokio<T> {
+    pub fn new(bridge: Bridge, inner: T) -> Self {
+        Self { bridge, inner }
+    }
 }
 
-impl<S: Stream + Unpin> Iterator for SyncStreamIter<S> {
-    type Item = <S as Stream>::Item;
+/// A `Stream` of results driven synchronously on a tokio runtime. A
+/// cancellation is yielded once, as `Err(Cancelled)`, and the iteration
+/// then ends.
+#[derive(Debug)]
+#[non_exhaustive]
+pub struct SyncStreamIter<S> {
+    bridge: Bridge,
+    inner: S,
+    done: bool,
+}
+
+impl<S> SyncStreamIter<S> {
+    pub fn new(bridge: Bridge, inner: S) -> Self {
+        Self {
+            bridge,
+            inner,
+            done: false,
+        }
+    }
+}
+
+impl<S, T, E> Iterator for SyncStreamIter<S>
+where
+    S: Stream<Item = Result<T, E>> + Unpin,
+{
+    type Item = Result<T, Cancellable<E>>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.runtime.block_on(self.inner.next())
+        if self.done {
+            return None;
+        }
+        match self.bridge.run_value(self.inner.next()) {
+            Some(Some(item)) => Some(item.map_err(Cancellable::Inner)),
+            Some(None) => {
+                self.done = true;
+                None
+            }
+            None => {
+                self.done = true;
+                Some(Err(Cancellable::Cancelled(crate::cancel::Cancelled)))
+            }
+        }
     }
 }
 
@@ -298,28 +309,20 @@ where
     <T as ReadEnvironmentAsync>::UriStream: Unpin,
     <T as ReadEnvironmentAsync>::VersionStream: Unpin,
 {
-    type ReadError = <T as ReadEnvironmentAsync>::ReadError;
+    type ReadError = Cancellable<<T as ReadEnvironmentAsync>::ReadError>;
 
     type UriIter = SyncStreamIter<<T as ReadEnvironmentAsync>::UriStream>;
 
     fn uris(&self) -> Result<Self::UriIter, Self::ReadError> {
-        let stream = self.runtime.block_on(self.inner.uris_async())?;
-
-        Ok(SyncStreamIter {
-            runtime: self.runtime.clone(),
-            inner: stream,
-        })
+        let stream = self.bridge.run(self.inner.uris_async())?;
+        Ok(SyncStreamIter::new(self.bridge.clone(), stream))
     }
 
     type VersionIter = SyncStreamIter<<T as ReadEnvironmentAsync>::VersionStream>;
 
     fn versions<S: AsRef<str>>(&self, uri: S) -> Result<Self::VersionIter, Self::ReadError> {
-        let stream = self.runtime.block_on(self.inner.versions_async(uri))?;
-
-        Ok(SyncStreamIter {
-            runtime: self.runtime.clone(),
-            inner: stream,
-        })
+        let stream = self.bridge.run(self.inner.versions_async(uri))?;
+        Ok(SyncStreamIter::new(self.bridge.clone(), stream))
     }
 
     type InterchangeProjectRead =
@@ -330,24 +333,10 @@ where
         uri: S,
         version: V,
     ) -> Result<Self::InterchangeProjectRead, Self::ReadError> {
-        Ok(AsSyncProjectTokio {
-            runtime: self.runtime.clone(),
-            inner: self
-                .runtime
-                .block_on(self.inner.get_project_async(uri, version))?,
-        })
-    }
-
-    fn has_version_verified<S: AsRef<str>, V: AsRef<str>>(
-        &self,
-        uri: S,
-        version: V,
-        checksum: &ProjectChecksum,
-    ) -> Result<ProjectChecksumResult, Self::ReadError> {
-        self.runtime.block_on(
-            self.inner
-                .has_version_verified_async(uri, version, checksum),
-        )
+        let project = self
+            .bridge
+            .run(self.inner.get_project_async(uri, version))?;
+        Ok(AsSyncProjectTokio::new(self.bridge.clone(), project))
     }
 }
 
@@ -359,11 +348,9 @@ pub enum PutProjectError<WE, CE> {
     Callback(CE),
     #[error("failed to parse `{0}` as IRI")]
     IriParse(String, #[source] fluent_uri::ParseError),
-    // #[error(transparent)]
-    // AddProject(AE),
 }
 
-pub trait WriteEnvironment {
+pub trait WriteEnvironment: ReadEnvironment {
     type WriteError: ErrorBound;
 
     type InterchangeProjectMut: ProjectMut;
@@ -376,8 +363,7 @@ pub trait WriteEnvironment {
         uri: S,
         version: T,
         checksum: Option<ProjectChecksum>,
-        // Callback allows the implementation to gracefully recover
-        // in case of an error, to just "allocate"
+        // Fills the allocated project; on error the implementation can recover
         write_project: F,
     ) -> Result<Self::InterchangeProjectMut, PutProjectError<Self::WriteError, CE>>
     where
@@ -390,4 +376,26 @@ pub trait WriteEnvironment {
     ) -> Result<(), Self::WriteError>;
 
     fn del_uri<S: AsRef<str>>(&mut self, uri: S) -> Result<(), Self::WriteError>;
+
+    /// Whether the environment holds its own copy of `uri` at `version`,
+    /// one it installed and may remove. An entry that only points at a
+    /// project used in place (an editable project or a workspace member)
+    /// is not one; neither is a version it does not have.
+    fn is_installed<S: AsRef<str>, T: AsRef<str>>(
+        &self,
+        uri: S,
+        version: T,
+    ) -> Result<bool, Self::WriteError>;
+
+    // TODO: decide what to return here in these cases:
+    // - project not present, or version not present: Ok(VersionNotFound)
+    //   (callers do not need to tell the two apart)
+    // - checksum does not match: Ok(Mismatch)
+    // - checksum matches: Ok(Match)
+    fn has_version_verified<S: AsRef<str>, V: AsRef<str>>(
+        &self,
+        uri: S,
+        version: V,
+        checksum: &ProjectChecksum,
+    ) -> Result<ProjectChecksumResult, Self::ReadError>;
 }

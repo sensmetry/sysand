@@ -10,9 +10,9 @@ use fluent_uri::Iri;
 use indexmap::IndexMap;
 use semver::Version;
 use sysand_core::{
-    commands::env::do_env_memory,
     env::{
         ReadEnvironment as _, WriteEnvironment as _,
+        memory::MemoryStorageEnvironment,
         utils::{CloneError, clone_project},
     },
     info::do_info,
@@ -27,17 +27,15 @@ use sysand_core::{
 use typed_path::Utf8UnixPath;
 
 #[test]
-fn env_basic() -> Result<(), Box<dyn std::error::Error>> {
-    let memory_environment = do_env_memory()?;
+fn env_basic() {
+    let memory_environment = MemoryStorageEnvironment::<InMemoryProject>::new();
 
     assert!(memory_environment.projects.is_empty());
-
-    Ok(())
 }
 
 #[test]
 fn env_manual_install() -> Result<(), Box<dyn std::error::Error>> {
-    let mut memory_environment = do_env_memory()?;
+    let mut memory_environment = MemoryStorageEnvironment::<InMemoryProject>::new();
     let iri = Iri::parse("urn:sysand_test:1").unwrap().to_owned();
 
     let info = InterchangeProjectInfo {
@@ -60,7 +58,9 @@ fn env_manual_install() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     let meta = InterchangeProjectMetadata {
-        index,
+        index: Some(index),
+        root: None,
+        exports: None,
         created: jiff::Timestamp::new(1, 2).unwrap(),
         metamodel: None,
         includes_derived: None,
@@ -107,7 +107,7 @@ fn env_manual_install() -> Result<(), Box<dyn std::error::Error>> {
 
     let resolved_project = do_info(&iri, &resolver)?;
 
-    assert_eq!(resolved_project, (info, meta));
+    assert_eq!(resolved_project.into_json(), Some((info, meta)));
 
     Ok(())
 }
