@@ -6,35 +6,52 @@ use std::sync::Arc;
 use anyhow::{Result, bail};
 use camino::Utf8PathBuf;
 use sysand_core::{
-    build::default_kpar_path,
+    build::{default_kpar_path_of, workspace_publish_order},
     commands::publish::{
         PublishBearerProvenance, PublishError, TrustedPublishingEnvironment, do_publish,
         prepare_publish_payload, resolve_publish_bearer, validate_api_root_url_shape,
     },
     context::ProjectContext,
     env::discovery::{ResolvedEndpoints, fetch_index_config},
-    index_location::IndexLocation,
+    index_location::IndexSource,
     project::utils::wrapfs,
+    workspace::model_toml::Workspace,
 };
 
-use crate::{CliAuthPolicy, CliError, cli::TrustedPublishingMode};
+use crate::{
+    CliAuthPolicy, CliError, cli::TrustedPublishingModeCli,
+    commands::build::current_definition_for_build,
+};
 
 pub fn command_publish(
     path: Option<Utf8PathBuf>,
-    index: IndexLocation,
-    trusted_publishing: TrustedPublishingMode,
+    index: IndexSource,
+    trusted_publishing: TrustedPublishingModeCli,
     ctx: &ProjectContext,
     auth_policy: Arc<CliAuthPolicy>,
     client: reqwest_middleware::ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
 ) -> Result<()> {
-    let kpar_path = resolve_publish_kpar_path(path, ctx)?;
-    if !wrapfs::is_file(&kpar_path)? {
-        bail!("KPAR file not found at `{kpar_path}`, run `sysand build` first");
+    // A directory has no upload endpoint; refuse before any archive is
+    // touched.
+    let index = match index {
+        IndexSource::Remote(index) => index,
+        IndexSource::Filesystem(path) => bail!(
+            "publishing to a filesystem index is not supported;\n\
+             add archives to `{path}` with `sysand index add`"
+        ),
+    };
+    let archives = resolve_publish_archives(path, ctx)?;
+    // Validate and prepare every payload before any network work, so
+    // kpar-content errors surface before discovery or credential matching
+    // and, for a workspace, before anything is uploaded.
+    let mut prepared = Vec::with_capacity(archives.len());
+    for kpar_path in &archives {
+        if !wrapfs::is_file(kpar_path)? {
+            bail!("KPAR file not found at `{kpar_path}`, run `sysand build` first");
+        }
+        prepared.push(prepare_publish_payload(kpar_path)?);
     }
-    // Validate and prepare the kpar payload before any network work, so
-    // kpar-content errors surface before discovery or credential matching.
-    let prepared = prepare_publish_payload(&kpar_path)?;
 
     // Resolve `api_root` before credential matching so publish credentials
     // are matched against the actual upload URL. Discovery uses the full
@@ -63,8 +80,7 @@ pub fn command_publish(
     // store is read only when no env bearer matches the upload URL.
     let env_bearers = auth_policy.env_policy().publish_bearer_auth_map()?;
     let trusted_publishing_env = TrustedPublishingEnvironment::from_env();
-    // Captured before `index` moves into `do_publish`, so both hint sites
-    // can name the index the user actually targeted.
+    // Captured before `index` moves into `do_publish`.
     let index_display = index.to_string();
     let bearer = resolve_publish_bearer(
         &env_bearers,
@@ -77,30 +93,47 @@ pub fn command_publish(
     )
     .map_err(|err| publish_error_with_hint(err, &index_display))?;
 
-    let response = do_publish(prepared, index, api_root, bearer, client, runtime)
-        .map_err(|err| publish_error_with_hint(err, &index_display))?;
-
     let header = sysand_core::style::get_style_config().header;
-    if response.is_new_project {
-        log::info!(
-            "{header}{:>12}{header:#} new project successfully",
-            "Published"
-        );
-    } else {
-        log::info!(
-            "{header}{:>12}{header:#} new release successfully",
-            "Published"
-        );
+    let mut published: Vec<String> = Vec::new();
+    for (payload, kpar_path) in prepared.into_iter().zip(&archives) {
+        let name = payload.identity();
+        let response = do_publish(
+            payload,
+            index.clone(),
+            api_root.clone(),
+            bearer.clone(),
+            client.clone(),
+            runtime.clone(),
+        )
+        .map_err(|err| {
+            // A failure stops the sequence; earlier uploads are not undone,
+            // so report which they were.
+            let err = publish_error_with_hint(err, &index_display);
+            if published.is_empty() {
+                err
+            } else {
+                err.context(format!(
+                    "already published: {}; `{kpar_path}` and any after it were not",
+                    published.join(", ")
+                ))
+            }
+        })?;
+
+        let what = if response.is_new_project {
+            "new project"
+        } else {
+            "new release"
+        };
+        log::info!("{header}{:>12}{header:#} {name} as a {what}", "Published");
+        published.push(name);
     }
 
     Ok(())
 }
 
 /// Add the CLI-specific `sysand auth` remediation to a publish error whose
-/// core message deliberately names no CLI command: the library states the
-/// condition (and the `SYSAND_CRED_*` fallback), and the frontend owns the
-/// command vocabulary. `index` is the index the user targeted, so the
-/// login hint is copy-pasteable.
+/// core message names no CLI command. `index` is the index the user
+/// targeted, so the login hint is copy-pasteable.
 fn publish_error_with_hint(err: PublishError, index: &str) -> anyhow::Error {
     let hint = match &err {
         PublishError::NoPublishBearer { upload_url: _ } => {
@@ -140,31 +173,40 @@ fn publish_error_with_hint(err: PublishError, index: &str) -> anyhow::Error {
     }
 }
 
-fn resolve_publish_kpar_path(
+/// The archives to publish, in the order they must go.
+///
+/// One for an explicit `[PATH]` or for a project directory (a workspace
+/// member included, which resolves to the member's own archive under the
+/// workspace `output/`). From a workspace root with no project, every
+/// member in dependency order.
+fn resolve_publish_archives(
     path: Option<Utf8PathBuf>,
     ctx: &ProjectContext,
-) -> Result<Utf8PathBuf> {
+) -> Result<Vec<Utf8PathBuf>> {
     if let Some(path) = path {
-        return Ok(path);
+        return Ok(vec![path]);
     }
 
-    // Without an explicit path, publish must resolve one concrete project artifact.
-    // If no current project is discovered but a workspace is, this is ambiguous
-    // (workspace-level context may contain multiple projects), so require `[PATH]`.
-    let current_project = match (ctx.current_project.as_ref(), ctx.current_workspace.as_ref()) {
-        (Some(current_project), _) => current_project,
-        (None, Some(_)) => {
-            bail!(
-                "`sysand publish` without [PATH] is not supported from a workspace; \
-                 run the command from a project directory or pass an explicit .kpar path"
+    match (ctx.current_project(), ctx.workspace()) {
+        // A member publishes the archive `sysand build` wrote for it.
+        (Some(current_project), workspace) => Ok(vec![default_kpar_path_of(
+            current_definition_for_build(ctx)?,
+            workspace.map(Workspace::root),
+            current_project.root_path(),
+        )]),
+        // From a workspace root, every member, in dependency order.
+        (None, Some(workspace)) => {
+            log::warn!(
+                "Workspaces are an experimental feature\n\
+                and their behavior may change even with minor\n\
+                releases. For the status of this feature, see\n\
+                https://github.com/sensmetry/sysand/issues/101."
             );
+            Ok(workspace_publish_order(workspace)
+                .into_iter()
+                .map(|(_, archive)| archive)
+                .collect())
         }
-        (None, None) => return Err(CliError::MissingProjectCurrentDir.into()),
-    };
-
-    Ok(default_kpar_path(
-        current_project,
-        ctx.current_workspace.as_ref(),
-        current_project.root_path(),
-    )?)
+        (None, None) => Err(CliError::MissingProjectCurrentDir.into()),
+    }
 }

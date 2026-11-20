@@ -56,7 +56,7 @@ pub fn command_index_init<R: AsRef<Utf8Path>>(
     match do_index_init(index_root) {
         Ok(()) => Ok(()),
         Err(e) => match &e {
-            IndexInitError::AlreadyExists | IndexInitError::WriteError(_) => {
+            IndexInitError::AlreadyExists(_) | IndexInitError::WriteError(_) => {
                 Err(IndexError::new_bare(e))
             }
         },
@@ -84,7 +84,6 @@ pub fn command_index_add<I: AsRef<str>, P: AsRef<Utf8Path>, R: AsRef<Utf8Path>>(
             | IndexAddError::IoWithCleanupSuccess { source: _ }
             | IndexAddError::MissingInfo(_)
             | IndexAddError::ProjectRemoved { iri: _ }
-            | IndexAddError::MissingMeta(_)
             | IndexAddError::ProjectDigest(_)
             | IndexAddError::ProjectRead(_)
             | IndexAddError::DuplicateVersion {
@@ -124,8 +123,8 @@ pub fn command_index_add<I: AsRef<str>, P: AsRef<Utf8Path>, R: AsRef<Utf8Path>>(
                 let existing_name = &existing.name;
                 let hint = match &existing.publisher {
                     Some(publisher) => format!(
-                        "spell them as the index does with:\n\
-                        sysand edit --publisher \"{publisher}\" --name \"{existing_name}\"{REBUILD_KPAR}"
+                        r#"spell them as the index does with:
+sysand edit --publisher "{publisher}" --name "{existing_name}"{REBUILD_KPAR}"#
                     ),
                     // `sysand edit` cannot unset the publisher
                     None => format!(
