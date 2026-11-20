@@ -1,5 +1,11 @@
+[alias]
+docs = "doc --workspace --no-deps --all-features"
+lint = "clippy --workspace --all-targets --all-features -- --deny warnings"
+
 # Dependency cooldown: the resolver ignores registry versions published less
 # than 7 days ago, unless they are already in `Cargo.lock`.
+# Update a package ignoring these rules:
+# CARGO_RESOLVER_INCOMPATIBLE_PUBLISH_AGE=allow cargo update <package>
 [registry]
 global-min-publish-age = "7 days"
 

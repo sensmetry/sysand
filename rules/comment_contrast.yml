@@ -1,0 +1,13 @@
+# Comments state what the code does, without rebutting an alternative
+# nobody proposed. Matches contrast phrasing only; bare "not", "not in" and
+# "never" are left out because they mostly state real conditions (a missing
+# entry, an unsupported case). A hint to review, not a verdict.
+id: comment-contrast
+severity: hint
+language: rust
+rule:
+  any:
+    - kind: line_comment
+    - kind: block_comment
+  regex: '(?i)\b(rather than|instead of|as opposed to|not just|not merely|not only|no need to|without having to)\b'
+message: "comment contrasts with an alternative; state what the code does"

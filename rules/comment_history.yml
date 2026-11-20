@@ -1,0 +1,13 @@
+# Comments describe the code as it is, without history. Wording
+# like this can occasionally describe a runtime state, so this is a hint to
+# review. "no longer", "the old" and "the fix" are deliberately not matched:
+# they mostly describe runtime state or user-facing fixes.
+id: comment-history
+severity: hint
+language: rust
+rule:
+  any:
+    - kind: line_comment
+    - kind: block_comment
+  regex: '(?i)\b(previously|formerly|used to be|was changed|the previous behaviou?r)\b'
+message: "comment may describe history; describe the code as it is"

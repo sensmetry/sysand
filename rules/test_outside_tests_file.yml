@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: MIT OR Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
+
+id: test-outside-tests-file
+severity: warning
+language: rust
+ignores:
+  - "**/*_tests.rs"
+  - "**/tests/**"
+rule:
+  kind: attribute_item
+  regex: ^#\[(\w+::)?test(\]|\()
+message: "tests live in the module's `<module>_tests.rs` file"
