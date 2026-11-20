@@ -5,8 +5,8 @@
 //!
 //! An embedder with a command line of its own parses into Sysand's types
 //! itself, so these tests build the global options by hand and take the
-//! command from clap, as such an embedder would. They run in this process,
-//! which is the point: no binary is involved.
+//! command from clap, as such an embedder would. They run in this process;
+//! no binary is involved.
 
 use camino_tempfile::tempdir;
 use clap::Parser as _;
@@ -15,6 +15,7 @@ use sysand::{
     cli::{Args, Command, GlobalOptions},
     run_parsed,
 };
+use sysand_core::test_fs::is_file;
 
 /// Global options with nothing turned on, and no configuration file read.
 fn global_opts() -> GlobalOptions {
@@ -23,6 +24,7 @@ fn global_opts() -> GlobalOptions {
         quiet: true,
         no_config: true,
         config_file: None,
+        lock_wait: None,
         help: None,
     }
 }
@@ -38,12 +40,21 @@ fn runs_the_command_it_is_given() {
     let dir = tempdir().unwrap();
     let path = dir.path().join("p");
 
-    let init = command(&["init", path.as_str(), "--name", "p", "--publisher", "acme"]);
+    let init = command(&[
+        "init",
+        path.as_str(),
+        "--name",
+        "proj",
+        "--publisher",
+        "acme",
+        "--metamodel",
+        "sysml",
+    ]);
     let code = run_parsed(global_opts(), init, ProcessOwnership::Embedded);
 
     assert_eq!(code, 0);
-    assert!(path.join(".project.json").is_file());
-    assert!(path.join(".meta.json").is_file());
+    // Whichever manifest the default kind writes.
+    assert!(is_file(path.join("model.toml")) || is_file(path.join(".project.json")));
 }
 
 #[test]

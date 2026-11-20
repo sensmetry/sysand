@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
+//! Tests that add resource usages (`sysand add --iri`) or write invalid usages
+//! into `.project.json` by hand create their project with `sysand init --kind
+//! project-json`, since only that form can declare a resource usage. The other
+//! tests use the default project kind.
+
 use std::path::Path;
 
 use assert_cmd::prelude::*;
@@ -26,9 +31,7 @@ use serde_json::json;
 /// and .meta.json files in the current working directory. (Non-interactive use)
 #[test]
 fn lock_trivial() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "lock_trivial", "1.2.3")?;
-
-    out.assert().success().stdout(predicate::str::is_empty());
+    let (_temp_dir, cwd) = cli_init_project_checked(None, "acme", "lock-trivial", "1.2.3", None)?;
 
     let out = run_sysand_in(&cwd, ["lock"], None)?;
 
@@ -54,17 +57,17 @@ fn lock_trivial() -> Result<(), Box<dyn std::error::Error>> {
 
 #[test]
 fn lock_local_source() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "lock_local_source", "1.2.3")?;
+    // A `--as-local-src` or config `LocalSrc` source is installed, which needs a
+    // project checksum that a `model.toml` project does not have, and `add --iri`
+    // needs a `.project.json` project
+    let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "lock-local-source", "1.2.3", None)?;
 
-    out.assert().success().stdout(predicate::str::is_empty());
-
-    let out = cli_init_project_in(&cwd, Some("local_dep"), "a", None, Some("1.0.0"), None)?;
-
-    out.assert().success().stdout(predicate::str::is_empty());
+    std::fs::create_dir_all(cwd.join("local-dep"))?;
+    write_json_project(&cwd.join("local-dep"), "acme", "local-dep", "1.0.0", None)?;
 
     let out = run_sysand_in(
         &cwd,
-        ["add", "--iri", "urn:kpar:local_dep", "--no-lock"],
+        ["add", "--iri", "urn:kpar:local-dep", "--no-lock"],
         None,
     )?;
 
@@ -73,9 +76,9 @@ fn lock_local_source() -> Result<(), Box<dyn std::error::Error>> {
     let cfg = toml::to_string(&config::Config {
         indexes: vec![],
         projects: vec![ConfigProject {
-            identifiers: vec![fluent_uri::Iri::parse("urn:kpar:local_dep".to_owned()).unwrap()],
+            identifiers: vec![fluent_uri::Iri::parse("urn:kpar:local-dep".to_owned()).unwrap()],
             sources: vec![OverrideSource::LocalSrc {
-                src_path: "local_dep".into(),
+                src_path: "local-dep".into(),
             }],
         }],
     })?;
@@ -98,24 +101,25 @@ fn lock_local_source() -> Result<(), Box<dyn std::error::Error>> {
 /// A local project is depended on by location, so no default constraint should apply
 #[test]
 fn lock_local_source_with_a_prerelease_version() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "app", "1.2.3")?;
-    out.assert().success().stdout(predicate::str::is_empty());
+    // A `--as-local-src` or config `LocalSrc` source is installed, which needs a
+    // project checksum that a `model.toml` project does not have, and `add --iri`
+    // needs a `.project.json` project
+    let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "app", "1.2.3", None)?;
 
-    let out = cli_init_project_in(
-        &cwd,
-        Some("local_dep"),
-        "a",
-        None,
-        Some("1.0.0-alpha.1"),
+    std::fs::create_dir_all(cwd.join("local-dep"))?;
+    write_json_project(
+        &cwd.join("local-dep"),
+        "acme",
+        "local-dep",
+        "1.0.0-alpha.1",
         None,
     )?;
-    out.assert().success().stdout(predicate::str::is_empty());
 
     // No version constraint: the usage says which project, the override says
     // where it lives.
     let out = run_sysand_in(
         &cwd,
-        ["add", "--iri", "urn:kpar:local_dep", "--no-lock"],
+        ["add", "--iri", "urn:kpar:local-dep", "--no-lock"],
         None,
     )?;
     out.assert().success().stdout(predicate::str::is_empty());
@@ -123,9 +127,9 @@ fn lock_local_source_with_a_prerelease_version() -> Result<(), Box<dyn std::erro
     let cfg = toml::to_string(&config::Config {
         indexes: vec![],
         projects: vec![ConfigProject {
-            identifiers: vec![fluent_uri::Iri::parse("urn:kpar:local_dep".to_owned()).unwrap()],
+            identifiers: vec![fluent_uri::Iri::parse("urn:kpar:local-dep".to_owned()).unwrap()],
             sources: vec![OverrideSource::LocalSrc {
-                src_path: "local_dep".into(),
+                src_path: "local-dep".into(),
             }],
         }],
     })?;
@@ -141,8 +145,8 @@ fn lock_local_source_with_a_prerelease_version() -> Result<(), Box<dyn std::erro
     assert_eq!(projects.len(), 2, "got: {projects:#?}");
     let dep = projects
         .iter()
-        .find(|p| p.name == "local_dep")
-        .unwrap_or_else(|| panic!("`local_dep` missing from lockfile: {projects:#?}"));
+        .find(|p| p.name == "local-dep")
+        .unwrap_or_else(|| panic!("`local-dep` missing from lockfile: {projects:#?}"));
     assert_eq!(dep.version, "1.0.0-alpha.1");
 
     Ok(())
@@ -153,20 +157,19 @@ fn lock_local_source_with_a_prerelease_version() -> Result<(), Box<dyn std::erro
 #[test]
 fn lock_purl_local_source_override_with_a_prerelease_version()
 -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "app", "1.2.3")?;
-    out.assert().success().stdout(predicate::str::is_empty());
+    // A `--as-local-src` or config `LocalSrc` source is installed, which needs a
+    // project checksum that a `model.toml` project does not have, and `add --iri`
+    // needs a `.project.json` project
+    let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "app", "1.2.3", None)?;
 
-    cli_init_project_in(
-        &cwd,
-        Some("local_dep"),
+    std::fs::create_dir_all(cwd.join("local-dep"))?;
+    write_json_project(
+        &cwd.join("local-dep"),
         "acme",
-        Some("widget"),
-        Some("1.0.0-alpha.1"),
+        "widget",
+        "1.0.0-alpha.1",
         None,
-    )?
-    .assert()
-    .success()
-    .stdout(predicate::str::is_empty());
+    )?;
 
     // No version constraint: the usage says which project, the override says
     // where it lives.
@@ -190,7 +193,7 @@ fn lock_purl_local_source_override_with_a_prerelease_version()
         projects: vec![ConfigProject {
             identifiers: vec![fluent_uri::Iri::parse("pkg:sysand/acme/widget".to_owned()).unwrap()],
             sources: vec![OverrideSource::LocalSrc {
-                src_path: "local_dep".into(),
+                src_path: "local-dep".into(),
             }],
         }],
     })?;
@@ -217,21 +220,11 @@ fn lock_purl_local_source_override_with_a_prerelease_version()
 /// carries a version constraint at all.
 #[test]
 fn lock_directory_usage_with_a_prerelease_version() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "app", "1.2.3")?;
-    out.assert().success().stdout(predicate::str::is_empty());
+    let (_temp_dir, cwd) = cli_init_project_checked(None, "acme", "app", "1.2.3", None)?;
 
     let widget_dir = cwd.join("deps").join("widget");
     std::fs::create_dir_all(&widget_dir)?;
-    cli_init_project_in(
-        &widget_dir,
-        None,
-        "b",
-        Some("widget"),
-        Some("2.0.0-beta.3"),
-        None,
-    )?
-    .assert()
-    .success();
+    init_project_dir(&widget_dir, "bravo", "widget", "2.0.0-beta.3")?;
 
     run_sysand_in(&cwd, ["add", "--no-lock", "--dir", "deps/widget"], None)?
         .assert()
@@ -254,9 +247,7 @@ fn lock_directory_usage_with_a_prerelease_version() -> Result<(), Box<dyn std::e
 
 #[test]
 fn lock_std_lib() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "lock_std_lib", "1.2.3")?;
-
-    out.assert().success().stdout(predicate::str::is_empty());
+    let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "lock-std-lib", "1.2.3", None)?;
 
     let out = run_sysand_in(
         &cwd,
@@ -277,15 +268,16 @@ fn lock_std_lib() -> Result<(), Box<dyn std::error::Error>> {
     let cfg = toml::to_string(&config::Config {
         indexes: vec![],
         projects: vec![ConfigProject {
-            identifiers: vec![fluent_uri::Iri::parse("urn:kpar:local_dep".to_owned()).unwrap()],
+            identifiers: vec![fluent_uri::Iri::parse("urn:kpar:local-dep".to_owned()).unwrap()],
             sources: vec![OverrideSource::LocalSrc {
-                src_path: cwd.join("local_dep").as_str().into(),
+                src_path: "local-dep".into(),
             }],
         }],
     })?;
 
     let cfg_path = cwd.join(config::local_fs::CONFIG_FILE);
     std::fs::write(&cfg_path, cfg)?;
+    std::fs::create_dir(cwd.join("local-dep"))?;
 
     let out = run_sysand_in(&cwd, ["lock"], Some(cfg_path.as_str()))?;
 
@@ -370,22 +362,26 @@ fn mock_project<
 
 const NO_DEP: [&str; 0] = [""; 0];
 
-fn inject_usages<P: AsRef<Path>, D: AsRef<str>, I: IntoIterator<Item = D>>(
-    project_path: P,
-    usages: I,
+/// `sysand add --iri` of each IRI, with the optional version constraint, to
+/// the project at `cwd`
+fn add_iri_usages<D: AsRef<str>, VR: AsRef<str>>(
+    cwd: &camino::Utf8Path,
+    usages: impl IntoIterator<Item = (D, Option<VR>)>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    inject_usages_versions(
-        project_path,
-        usages.into_iter().map(|x| -> (D, Option<D>) { (x, None) }),
-    )
+    for (usage, version_req) in usages {
+        let mut args = vec!["add", "--iri", usage.as_ref(), "--no-lock"];
+        if let Some(version_req) = version_req.as_ref() {
+            args.push("--version-constraint");
+            args.push(version_req.as_ref());
+        }
+        run_sysand_in(cwd, args, None)?.assert().success();
+    }
+    Ok(())
 }
 
-fn inject_usages_versions<
-    P: AsRef<Path>,
-    D: AsRef<str>,
-    VR: AsRef<str>,
-    I: IntoIterator<Item = (D, Option<VR>)>,
->(
+/// An invalid usage cannot be added with `sysand add`, so it is written into
+/// `.project.json` directly.
+fn inject_usages<P: AsRef<Path>, D: AsRef<str>, I: IntoIterator<Item = D>>(
     project_path: P,
     usages: I,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -393,10 +389,10 @@ fn inject_usages_versions<
         &std::fs::read_to_string(&project_path)?,
     )?;
 
-    for (usage, version_req) in usages {
+    for usage in usages {
         info.usage.push(InterchangeProjectUsageRaw::Resource {
             resource: usage.as_ref().to_owned(),
-            version_constraint: version_req.map(|x| x.as_ref().to_owned()),
+            version_constraint: None,
         });
     }
 
@@ -413,10 +409,8 @@ fn lock_basic_http_deps() -> Result<(), Box<dyn std::error::Error>> {
     let c_url = mock_project(
         &mut server,
         &mut project_mocks,
-        // A `.project.json` GET more for sync to check the project against
-        // the lockfile before installing it
-        [1, 8, 1, 5],
-        "c",
+        [1, 6, 1, 5],
+        "charlie",
         "lock_basic_http_deps_c",
         "1.0.0",
         NO_DEP,
@@ -425,10 +419,8 @@ fn lock_basic_http_deps() -> Result<(), Box<dyn std::error::Error>> {
     let a_url = mock_project(
         &mut server,
         &mut project_mocks,
-        // A `.project.json` GET more for sync to check the project against
-        // the lockfile before installing it
-        [1, 8, 1, 5],
-        "a",
+        [1, 6, 1, 5],
+        "acme",
         "lock_basic_http_deps_a",
         "1.0.0",
         [&c_url],
@@ -436,20 +428,20 @@ fn lock_basic_http_deps() -> Result<(), Box<dyn std::error::Error>> {
     let b_url = mock_project(
         &mut server,
         &mut project_mocks,
-        // A `.project.json` GET more for sync to check the project against
-        // the lockfile before installing it
-        [1, 8, 1, 5],
-        "b",
+        [1, 6, 1, 5],
+        "bravo",
         "lock_basic_http_deps_b",
         "1.0.0",
         [&c_url],
     );
 
-    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "lock_basic_http_deps", "1.2.3")?;
+    let (_temp_dir, cwd) =
+        cli_init_json_project(None, "acme", "lock-basic-http-deps", "1.2.3", None)?;
 
-    out.assert().success().stdout(predicate::str::is_empty());
-
-    inject_usages(cwd.join(".project.json"), [a_url.clone(), b_url.clone()])?;
+    add_iri_usages(
+        &cwd,
+        [a_url.clone(), b_url.clone()].map(|u| (u, None::<&str>)),
+    )?;
 
     let out = run_sysand_in(&cwd, ["lock"], None)?;
     out.assert().success().stdout(predicate::str::is_empty());
@@ -465,7 +457,7 @@ fn lock_basic_http_deps() -> Result<(), Box<dyn std::error::Error>> {
         .map(|project| project.name)
         .collect();
 
-    assert!(project_names.contains(&"lock_basic_http_deps".to_owned()));
+    assert!(project_names.contains(&"lock-basic-http-deps".to_owned()));
     assert!(project_names.contains(&"lock_basic_http_deps_a".to_owned()));
     assert!(project_names.contains(&"lock_basic_http_deps_b".to_owned()));
     assert!(project_names.contains(&"lock_basic_http_deps_c".to_owned()));
@@ -506,8 +498,8 @@ fn lock_and_sync_against_mock_index() -> Result<(), Box<dyn std::error::Error>> 
 
     let (kpar_bytes, info, meta) = build_index_kpar_bytes("mock", "dep", "0.1.0");
     let kpar_sha256_hex = sha256_lowercase_hex(&kpar_bytes);
-    // No `meta.checksum` entries → canonical digest == raw digest for this
-    // fixture; see the docstring on `build_index_kpar_bytes`.
+    // No `meta.checksum` entries, so the canonical digest equals the raw
+    // digest for this fixture.
     let kpar_size = kpar_bytes.len();
 
     // `sysand lock` targets a specific IRI via `versions_async`; it must not
@@ -567,13 +559,17 @@ fn lock_and_sync_against_mock_index() -> Result<(), Box<dyn std::error::Error>> 
         .expect(1)
         .create();
 
-    let (_temp_dir, cwd, out) =
-        cli_init_project_basic("a", "lock_and_sync_against_mock_index", "1.2.3")?;
-    out.assert().success().stdout(predicate::str::is_empty());
+    let (_temp_dir, cwd) = cli_init_json_project(
+        None,
+        "acme",
+        "lock-and-sync-against-mock-index",
+        "1.2.3",
+        None,
+    )?;
 
-    inject_usages(
-        cwd.join(".project.json"),
-        [format!("{PKG_SYSAND_PREFIX}mock/dep")],
+    add_iri_usages(
+        &cwd,
+        [(format!("{PKG_SYSAND_PREFIX}mock/dep"), None::<&str>)],
     )?;
 
     let server_url = server.url();
@@ -681,12 +677,11 @@ fn sync_hard_fails_on_kpar_digest_drift_from_lockfile() -> Result<(), Box<dyn st
         .expect(0)
         .create();
 
-    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "sync_tripwire", "1.2.3")?;
-    out.assert().success().stdout(predicate::str::is_empty());
+    let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "sync-tripwire", "1.2.3", None)?;
 
-    inject_usages(
-        cwd.join(".project.json"),
-        [format!("{PKG_SYSAND_PREFIX}mock/dep")],
+    add_iri_usages(
+        &cwd,
+        [(format!("{PKG_SYSAND_PREFIX}mock/dep"), None::<&str>)],
     )?;
 
     let server_url = server.url();
@@ -754,12 +749,14 @@ fn lock_rejects_non_normalized_sysand_purl() -> Result<(), Box<dyn std::error::E
     // A `pkg:sysand/<publisher>/<name>` IRI in a project's declared usages
     // that isn't normalized (uppercase, spaces, wrong segment count, etc.)
     // must be rejected at validation time with an error that names the
-    // offending IRI and shows the suggested normalized form, rather than
-    // being silently rerouted to `_iri/<sha256>/` and surfacing only as
-    // an opaque "not found" downstream.
-    let (_temp_dir, cwd, out) =
-        cli_init_project_basic("a", "lock_rejects_non_normalized_sysand_purl", "1.2.3")?;
-    out.assert().success().stdout(predicate::str::is_empty());
+    // offending IRI and shows the suggested normalized form.
+    let (_temp_dir, cwd) = cli_init_json_project(
+        None,
+        "acme",
+        "lock-rejects-non-normalized-sysand-purl",
+        "1.2.3",
+        None,
+    )?;
 
     inject_usages(
         cwd.join(".project.json"),
@@ -783,20 +780,15 @@ fn lock_rejects_non_normalized_sysand_purl() -> Result<(), Box<dyn std::error::E
 /// outside the temporary directory and resolution would fail
 #[test]
 fn lock_directory_usage_transitive() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "app", "1.2.3")?;
-    out.assert().success().stdout(predicate::str::is_empty());
+    let (_temp_dir, cwd) = cli_init_project_checked(None, "acme", "app", "1.2.3", None)?;
 
     let widget_dir = cwd.join("deps").join("widget");
     std::fs::create_dir_all(&widget_dir)?;
-    cli_init_project_in(&widget_dir, None, "b", Some("widget"), Some("1.0.0"), None)?
-        .assert()
-        .success();
+    init_project_dir(&widget_dir, "bravo", "widget", "1.0.0")?;
 
     let gadget_dir = cwd.join("deps").join("gadget");
     std::fs::create_dir_all(&gadget_dir)?;
-    cli_init_project_in(&gadget_dir, None, "c", Some("gadget"), Some("2.0.0"), None)?
-        .assert()
-        .success();
+    init_project_dir(&gadget_dir, "charlie", "gadget", "2.0.0")?;
 
     run_sysand_in(&cwd, ["add", "--no-lock", "--dir", "deps/widget"], None)?
         .assert()
@@ -824,7 +816,7 @@ fn lock_directory_usage_transitive() -> Result<(), Box<dyn std::error::Error>> {
 
     // Resolved paths are relativized back against the top-level project
     // root when recorded in the lockfile
-    for (name, version, expected_src_path) in [
+    for (name, version, expected_path) in [
         ("widget", "1.0.0", "deps/widget"),
         ("gadget", "2.0.0", "deps/gadget"),
     ] {
@@ -833,116 +825,29 @@ fn lock_directory_usage_transitive() -> Result<(), Box<dyn std::error::Error>> {
             .find(|p| p.name == name)
             .unwrap_or_else(|| panic!("`{name}` missing from lockfile: {projects:#?}"));
         assert_eq!(project.version, version);
-        let [
-            Source::LocalSrc {
-                src_path,
-                checksum: _,
-            },
-        ] = project.sources.as_slice()
-        else {
-            panic!("expected a single local source for `{name}`, got: {project:#?}");
+        let [Source::Editable { editable }] = project.sources.as_slice() else {
+            panic!("expected a single editable source for `{name}`, got: {project:#?}");
         };
-        assert_eq!(src_path.as_str(), expected_src_path);
-    }
-
-    Ok(())
-}
-
-/// A dependency resolved *from the environment* can declare a directory
-/// usage whose relative path only made sense in its original source tree:
-/// `app` was authored next to `widget` and uses `../widget`, but once `app`
-/// is installed into `.sysand`, that path (relative to the env-internal
-/// project root) points at nothing. Resolution must then fall back to the
-/// environment, where the usage's publisher/name identify `widget`, instead
-/// of failing the whole lock on the file resolver's `NotFound`
-#[test]
-fn lock_directory_usage_env_installed_dependency() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "consumer", "1.0.0")?;
-    out.assert().success();
-
-    // Source tree: `app` uses `widget` via the directory usage `../widget`
-    let app_dir = cwd.join("src").join("app");
-    let widget_dir = cwd.join("src").join("widget");
-    std::fs::create_dir_all(&app_dir)?;
-    std::fs::create_dir_all(&widget_dir)?;
-    cli_init_project_in(
-        &widget_dir,
-        None,
-        "acme",
-        Some("widget"),
-        Some("1.0.0"),
-        None,
-    )?
-    .assert()
-    .success();
-    cli_init_project_in(&app_dir, None, "acme", Some("app"), Some("1.0.0"), None)?
-        .assert()
-        .success();
-    run_sysand_in(&app_dir, ["add", "--no-lock", "--dir", "../widget"], None)?
-        .assert()
-        .success();
-
-    // Add `app` as a usage of the consumer while the source tree still
-    // exists: this resolves and installs both `app` and (transitively,
-    // via its `../widget` directory usage) `widget` into `.sysand`.
-    run_sysand_in(
-        &cwd,
-        [
-            "add",
-            "--iri",
-            "pkg:sysand/acme/app",
-            "--as-local-src",
-            "src/app",
-            "--no-index",
-        ],
-        None,
-    )?
-    .assert()
-    .success();
-
-    // Delete the source tree: the env copies are the only ones left, and the
-    // `../widget` recorded in `app` now points at a non-existent path inside
-    // `.sysand`. Also drop the lockfile written by `add` (the `--as-local-src`
-    // override itself is not persisted, as there is no config file), so
-    // `lock` below can only resolve from the env
-    std::fs::remove_dir_all(cwd.join("src"))?;
-    std::fs::remove_file(cwd.join(DEFAULT_LOCKFILE_NAME))?;
-
-    let out = run_sysand_in(&cwd, ["lock", "--no-index"], None)?;
-    out.assert().success();
-
-    let lock_file = Lockfile::read(&cwd)?.into_lock();
-    let projects = lock_file.projects;
-
-    assert_eq!(
-        projects.len(),
-        3,
-        "expected consumer, app and widget in the lockfile, got: {projects:#?}"
-    );
-    for name in ["app", "widget"] {
-        let project = projects
-            .iter()
-            .find(|p| p.name == name)
-            .unwrap_or_else(|| panic!("`{name}` missing from lockfile: {projects:#?}"));
-        assert_eq!(project.version, "1.0.0");
+        assert_eq!(editable.as_str(), expected_path);
     }
 
     Ok(())
 }
 
 /// A `--as-local-src` override in the config file whose directory has since
-/// been deleted is authoritative: `lock` fails instead of silently falling back
-/// to the copy that is still installed in the env.
+/// been deleted is authoritative: `lock` fails, even though a copy is still
+/// installed in the env.
 #[test]
 fn lock_local_src_override_deleted() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "consumer", "1.0.0")?;
-    out.assert().success();
+    // `add --iri` records a resource usage, which only a `.project.json`
+    // project can declare
+    let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "consumer", "1.0.0", None)?;
 
     let app_dir = cwd.join("src").join("app");
     std::fs::create_dir_all(&app_dir)?;
-    cli_init_project_in(&app_dir, None, "acme", Some("app"), Some("1.0.0"), None)?
-        .assert()
-        .success();
+    // A `--as-local-src` source is installed, which needs a project checksum
+    // that a `model.toml` project does not have
+    write_json_project(&app_dir, "acme", "app", "1.0.0", None)?;
 
     let config_path = cwd.join("sysand.toml");
     run_sysand_in(
@@ -973,9 +878,9 @@ fn lock_local_src_override_deleted() -> Result<(), Box<dyn std::error::Error>> {
         .assert()
         .failure()
         .stderr(contains(
-            "no valid candidates found for project IRI `pkg:sysand/acme/app`",
+            "invalid source for `pkg:sysand/acme/app` in the configuration",
         ));
-    assert!(!cwd.join(DEFAULT_LOCKFILE_NAME).exists());
+    assert!(!exists(cwd.join(DEFAULT_LOCKFILE_NAME)));
 
     Ok(())
 }
@@ -984,12 +889,13 @@ fn lock_local_src_override_deleted() -> Result<(), Box<dyn std::error::Error>> {
 /// must not echo the password, whether it came from a flag or an env var.
 #[test]
 fn lock_invalid_index_url_error_redacts_password() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic(
-        "a",
-        "lock_invalid_index_url_error_redacts_password",
+    let (_temp_dir, cwd) = cli_init_project_checked(
+        None,
+        "acme",
+        "lock-invalid-index-url-error-redacts-password",
         "1.2.3",
+        None,
     )?;
-    out.assert().success();
 
     run_sysand_in(
         &cwd,
@@ -1022,9 +928,13 @@ fn lock_invalid_index_url_error_redacts_password() -> Result<(), Box<dyn std::er
 
 #[test]
 fn lock_empty_index_url_hints_at_a_stray_comma() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) =
-        cli_init_project_basic("a", "lock_empty_index_url_hints_at_a_stray_comma", "1.2.3")?;
-    out.assert().success();
+    let (_temp_dir, cwd) = cli_init_project_checked(
+        None,
+        "acme",
+        "lock-empty-index-url-hints-at-a-stray-comma",
+        "1.2.3",
+        None,
+    )?;
 
     run_sysand_in(&cwd, ["lock", "--index", "https://example.org,"], None)?
         .assert()
@@ -1058,18 +968,17 @@ fn lock_fail_unsatisfiable() -> Result<(), Box<dyn std::error::Error>> {
     let a_url = mock_project(
         &mut server,
         &mut project_mocks,
-        [1, 3, 1, 1],
-        "a",
+        [1, 2, 1, 1],
+        "acme",
         "lock_basic_http_deps_a",
         "1.0.0",
         NO_DEP,
     );
 
-    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "lock_basic_http_deps", "1.2.3")?;
+    let (_temp_dir, cwd) =
+        cli_init_json_project(None, "acme", "lock-basic-http-deps", "1.2.3", None)?;
 
-    out.assert().success().stdout(predicate::str::is_empty());
-
-    inject_usages_versions(cwd.join(".project.json"), [(a_url, Some(">1.0.0"))])?;
+    add_iri_usages(&cwd, [(a_url, Some(">1.0.0"))])?;
 
     let out = run_sysand_in(&cwd, ["lock"], None)?;
 
@@ -1125,9 +1034,13 @@ fn lock_fails_on_a_broken_index_version() -> Result<(), Box<dyn std::error::Erro
         .with_body(serde_json::to_string(&meta)?)
         .create();
 
-    let (_temp_dir, cwd, out) =
-        cli_init_project_basic("a", "lock_fails_on_a_broken_index_version", "1.2.3")?;
-    out.assert().success();
+    let (_temp_dir, cwd) = cli_init_json_project(
+        None,
+        "acme",
+        "lock-fails-on-a-broken-index-version",
+        "1.2.3",
+        None,
+    )?;
     let mut project: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(cwd.join(".project.json"))?)?;
     project["usage"] = json!([{ "publisher": "mock", "name": "dep", "versionConstraint": "*" }]);
@@ -1138,8 +1051,7 @@ fn lock_fails_on_a_broken_index_version() -> Result<(), Box<dyn std::error::Erro
     out.assert()
         .failure()
         .stderr(contains(
-            "error: version 0.2.0 offered for index usage `mock/dep` (*) is not a valid project,\n\
-             and a broken version fails the solve instead of being skipped;\n\
+            "error: version 0.2.0 offered for index usage `mock/dep` (*) is not a valid project;\n\
              exclude it with a version constraint, or have the version fixed where it comes from:\n\
              its publisher can fix or yank it in an index, and a broken copy can be removed from \
              the local environment\n",
@@ -1149,7 +1061,7 @@ fn lock_fails_on_a_broken_index_version() -> Result<(), Box<dyn std::error::Erro
             "caused by: malformed `pkg:sysand` IRI `pkg:sysand/Acme/Lib`\n",
         ))
         .stderr(contains("can be normalized to `pkg:sysand/acme/lib`"));
-    assert!(!cwd.join(DEFAULT_LOCKFILE_NAME).exists());
+    assert!(!exists(cwd.join(DEFAULT_LOCKFILE_NAME)));
 
     project["usage"] = json!([{ "publisher": "mock", "name": "dep", "versionConstraint": "<0.2" }]);
     std::fs::write(cwd.join(".project.json"), project.to_string())?;
@@ -1166,18 +1078,9 @@ fn lock_fails_on_a_broken_index_version() -> Result<(), Box<dyn std::error::Erro
 /// name as the usage does fails the lock
 #[test]
 fn lock_fails_on_a_misspelled_directory_usage() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "misspelled_dir", "1.2.3")?;
-    out.assert().success();
-    cli_init_project_in(
-        &cwd,
-        Some("dep"),
-        "Acme Labs",
-        Some("My Lib"),
-        Some("1.0.0"),
-        None,
-    )?
-    .assert()
-    .success();
+    let (_temp_dir, cwd) = cli_init_project_checked(None, "acme", "misspelled-dir", "1.2.3", None)?;
+    std::fs::create_dir_all(cwd.join("dep"))?;
+    init_project_dir(&cwd.join("dep"), "Acme Labs", "My Lib", "1.0.0")?;
     run_sysand_in(
         &cwd,
         ["add", "--no-index", "--no-sync", "--dir", "dep"],
@@ -1186,13 +1089,13 @@ fn lock_fails_on_a_misspelled_directory_usage() -> Result<(), Box<dyn std::error
     .assert()
     .success();
 
-    rename_project(&cwd.join("dep"), "My Lib", "My Library")?;
+    reinit_project_dir(&cwd.join("dep"), "Acme Labs", "My Library", "1.0.0")?;
 
     run_sysand_in(&cwd, ["lock", "--no-index"], None)?
         .assert()
         .failure()
         .stderr(contains(
-            "a directory usage `Acme Labs/My Lib` in `misspelled_dir` 1.2.3 resolved to version \
+            "a directory usage `Acme Labs/My Lib` in `misspelled-dir` 1.2.3 resolved to version \
              1.0.0 of `Acme Labs/My Library`, but is rejected because its spelling does not match \
              the project's;\nspell the usage exactly as `Acme Labs/My Library`",
         ));
@@ -1204,18 +1107,10 @@ fn lock_fails_on_a_misspelled_directory_usage() -> Result<(), Box<dyn std::error
 /// the usage does fails the lock
 #[test]
 fn lock_fails_on_a_misspelled_kpar_usage() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "misspelled_kpar", "1.2.3")?;
-    out.assert().success();
-    cli_init_project_in(
-        &cwd,
-        Some("dep"),
-        "Acme Labs",
-        Some("My Lib"),
-        Some("1.0.0"),
-        None,
-    )?
-    .assert()
-    .success();
+    let (_temp_dir, cwd) =
+        cli_init_project_checked(None, "acme", "misspelled-kpar", "1.2.3", None)?;
+    std::fs::create_dir_all(cwd.join("dep"))?;
+    init_project_dir(&cwd.join("dep"), "Acme Labs", "My Lib", "1.0.0")?;
     let dep = cwd.join("dep");
     run_sysand_in(&dep, ["build", "../lib.kpar"], None)?
         .assert()
@@ -1228,7 +1123,7 @@ fn lock_fails_on_a_misspelled_kpar_usage() -> Result<(), Box<dyn std::error::Err
     .assert()
     .success();
 
-    rename_project(&dep, "My Lib", "My Library")?;
+    reinit_project_dir(&dep, "Acme Labs", "My Library", "1.0.0")?;
     run_sysand_in(&dep, ["build", "../lib.kpar"], None)?
         .assert()
         .success();
@@ -1237,7 +1132,7 @@ fn lock_fails_on_a_misspelled_kpar_usage() -> Result<(), Box<dyn std::error::Err
         .assert()
         .failure()
         .stderr(contains(
-            "a KPAR path usage `Acme Labs/My Lib` in `misspelled_kpar` 1.2.3 resolved to version \
+            "a KPAR path usage `Acme Labs/My Lib` in `misspelled-kpar` 1.2.3 resolved to version \
              1.0.0 of `Acme Labs/My Library`",
         ));
 
@@ -1245,18 +1140,15 @@ fn lock_fails_on_a_misspelled_kpar_usage() -> Result<(), Box<dyn std::error::Err
 }
 
 /// When a `dir` usage's target declares a different publisher, the
-/// solver refuses it — and has to say so: not only "failed to obtain
+/// solver refuses it and has to say so: not only "failed to obtain
 /// version of resolved usage", but which publisher was found.
 #[test]
 fn lock_reports_why_a_dir_usage_failed() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "app", "1.2.3")?;
-    out.assert().success();
+    let (_temp_dir, cwd) = cli_init_project_checked(None, "acme", "app", "1.2.3", None)?;
 
     let widget_dir = cwd.join("deps").join("widget");
     std::fs::create_dir_all(&widget_dir)?;
-    cli_init_project_in(&widget_dir, None, "b", Some("widget"), Some("1.0.0"), None)?
-        .assert()
-        .success();
+    init_project_dir(&widget_dir, "bravo", "widget", "1.0.0")?;
 
     run_sysand_in(
         &cwd,
@@ -1266,16 +1158,1228 @@ fn lock_reports_why_a_dir_usage_failed() -> Result<(), Box<dyn std::error::Error
     .assert()
     .success();
 
-    // The usage was written against publisher `b`; the target is then
-    // edited to say something else.
-    let info_path = widget_dir.join(".project.json");
-    let text = std::fs::read_to_string(&info_path)?;
-    std::fs::write(&info_path, text.replace("\"b\"", "\"someone-else\""))?;
+    // The usage was written against publisher `bravo`; the target now
+    // says something else.
+    reinit_project_dir(&widget_dir, "someone-else", "widget", "1.0.0")?;
 
     run_sysand_in(&cwd, ["lock", "--no-index"], None)?
         .assert()
         .failure()
         .stderr(contains("someone-else"));
 
+    Ok(())
+}
+
+/// A `kpar-url` takes an `http` or `https` URL; a local archive is a
+/// `kpar-path`.
+#[test]
+fn a_kpar_url_naming_a_file_url_is_refused() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = run_sysand(
+        [
+            "init",
+            "--metamodel",
+            "https://www.omg.org/spec/SysML/20250201",
+            "--publisher",
+            "acme",
+            "--name",
+            "app",
+            "--version",
+            "1.0.0",
+        ],
+        None,
+    )?;
+    out.assert().success();
+    let manifest_path = cwd.join("model.toml");
+    let manifest = std::fs::read_to_string(&manifest_path)?;
+    let url = file_url_from_path(cwd.join("dep.kpar"));
+    std::fs::write(
+        &manifest_path,
+        format!(
+            r#"{manifest}
+[[inline-usages]]
+publisher = "acme"
+name = "dep"
+kpar-url = "{url}"
+"#
+        ),
+    )?;
+
+    run_sysand_in(&cwd, ["lock", "--no-index"], None)?
+        .assert()
+        .failure()
+        .stderr(contains(format!(
+            "sets `kpar-url = \"{url}\"`, which is not an `http` or `https` URL"
+        )));
+    Ok(())
+}
+
+/// A `kpar-url` usage names its target, and the target is checked.
+///
+/// Unchecked, the usage could declare anything and `lock` would write a
+/// lockfile that silently disagreed with the manifest that produced it.
+///
+/// The comparison is **literal**, so `Acme` against `acme` is refused.
+fn kpar_url_identity_case(
+    publisher: &str,
+    name: &str,
+) -> Result<
+    (
+        camino_tempfile::Utf8TempDir,
+        camino::Utf8PathBuf,
+        ServerGuard,
+    ),
+    Box<dyn std::error::Error>,
+> {
+    let (temp_dir, cwd, server) = served_dependency()?;
+
+    let app = cwd.join("app");
+    std::fs::create_dir_all(&app)?;
+    run_sysand_in(
+        &app,
+        [
+            "init",
+            "--metamodel",
+            "https://www.omg.org/spec/SysML/20250201",
+            "--publisher",
+            "acme",
+            "--name",
+            "app",
+            "--version",
+            "1.0.0",
+        ],
+        None,
+    )?
+    .assert()
+    .success();
+    let manifest_path = app.join("model.toml");
+    let manifest = std::fs::read_to_string(&manifest_path)?;
+    std::fs::write(
+        &manifest_path,
+        format!(
+            r#"{manifest}
+[[inline-usages]]
+publisher = "{publisher}"
+name = "{name}"
+kpar-url = "{}/dep.kpar"
+"#,
+            server.url()
+        ),
+    )?;
+    Ok((temp_dir, app, server))
+}
+
+/// The project `acme/dep` 1.0.0, built and served over HTTP at
+/// `/dep.kpar`. The server is returned so it outlives the commands run
+/// against it.
+fn served_dependency() -> Result<
+    (
+        camino_tempfile::Utf8TempDir,
+        camino::Utf8PathBuf,
+        ServerGuard,
+    ),
+    Box<dyn std::error::Error>,
+> {
+    let (temp_dir, cwd, out) = run_sysand(
+        [
+            "init",
+            "--metamodel",
+            "https://www.omg.org/spec/SysML/20250201",
+            "--publisher",
+            "acme",
+            "--name",
+            "dep",
+            "--version",
+            "1.0.0",
+        ],
+        None,
+    )?;
+    out.assert().success();
+    run_sysand_in(&cwd, ["build", "dep.kpar"], None)?
+        .assert()
+        .success();
+
+    let mut server = Server::new();
+    server
+        .mock("GET", "/dep.kpar")
+        .with_status(200)
+        .with_header("content-type", "application/zip")
+        .with_body(std::fs::read(cwd.join("dep.kpar"))?)
+        .expect_at_least(1)
+        .create();
+    Ok((temp_dir, cwd, server))
+}
+
+/// A json project's `kparUrl` usage resolves over HTTP, and its target
+/// is checked against the declared publisher and name.
+fn json_kpar_url_case(
+    name: &str,
+) -> Result<
+    (
+        camino_tempfile::Utf8TempDir,
+        camino::Utf8PathBuf,
+        ServerGuard,
+    ),
+    Box<dyn std::error::Error>,
+> {
+    let (temp_dir, cwd, server) = served_dependency()?;
+    let app = cwd.join("app");
+    std::fs::create_dir_all(&app)?;
+    std::fs::write(
+        app.join(".project.json"),
+        serde_json::to_string_pretty(&json!({
+            "name": "app",
+            "publisher": "acme",
+            "version": "1.0.0",
+            "usage": [{
+                "kparUrl": format!("{}/dep.kpar", server.url()),
+                "publisher": "acme",
+                "name": name,
+            }],
+        }))?,
+    )?;
+    std::fs::write(
+        app.join(".meta.json"),
+        serde_json::to_string_pretty(&json!({
+            "index": {},
+            "created": "2026-01-01T00:00:00Z",
+            "metamodel": "https://www.omg.org/spec/SysML/20250201",
+        }))?,
+    )?;
+    Ok((temp_dir, app, server))
+}
+
+#[test]
+fn a_json_kpar_url_usage_that_names_its_target_locks() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, app, _server) = json_kpar_url_case("dep")?;
+    run_sysand_in(&app, ["lock", "--no-index"], None)?
+        .assert()
+        .success();
+    let lockfile = std::fs::read_to_string(app.join("sysand-lock.toml"))?;
+    assert!(lockfile.contains("/dep.kpar"), "lockfile: {lockfile}");
+    Ok(())
+}
+
+#[test]
+fn a_json_kpar_url_usage_with_the_wrong_name_is_refused() -> Result<(), Box<dyn std::error::Error>>
+{
+    let (_temp_dir, app, _server) = json_kpar_url_case("wrongname")?;
+    run_sysand_in(&app, ["lock", "--no-index"], None)?
+        .assert()
+        .failure()
+        .stderr(contains(SPELLS_AS_DECLARED));
+    Ok(())
+}
+
+const SPELLS_AS_DECLARED: &str = "is rejected because its spelling does not match the project's";
+
+#[test]
+fn a_kpar_url_usage_with_the_wrong_name_is_refused() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, app, _server) = kpar_url_identity_case("acme", "wrongname")?;
+    run_sysand_in(&app, ["lock", "--no-index"], None)?
+        .assert()
+        .failure()
+        .stderr(contains(SPELLS_AS_DECLARED));
+    Ok(())
+}
+
+#[test]
+fn a_kpar_url_usage_with_the_wrong_publisher_is_refused() -> Result<(), Box<dyn std::error::Error>>
+{
+    let (_temp_dir, app, _server) = kpar_url_identity_case("wrongpub", "dep")?;
+    run_sysand_in(&app, ["lock", "--no-index"], None)?
+        .assert()
+        .failure()
+        .stderr(contains(SPELLS_AS_DECLARED));
+    Ok(())
+}
+
+/// A difference only normalization would erase is still a difference,
+/// which is what the `dir` and `kpar-path` rules say too.
+#[test]
+fn a_kpar_url_usage_that_differs_only_by_normalization_is_refused()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, app, _server) = kpar_url_identity_case("Acme", "dep")?;
+    run_sysand_in(&app, ["lock", "--no-index"], None)?
+        .assert()
+        .failure()
+        .stderr(contains(SPELLS_AS_DECLARED));
+    Ok(())
+}
+
+#[test]
+fn a_kpar_url_usage_that_names_its_target_locks() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, app, _server) = kpar_url_identity_case("acme", "dep")?;
+    run_sysand_in(&app, ["lock", "--no-index"], None)?
+        .assert()
+        .success();
+    Ok(())
+}
+
+/// `sync` with no lockfile resolves and writes one, and `clone` resolves
+/// through its own call; neither goes through `lock`.
+#[test]
+fn sync_without_a_lockfile_refuses_the_same_mismatch() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, app, _server) = kpar_url_identity_case("acme", "wrongname")?;
+    run_sysand_in(&app, ["sync", "--no-index"], None)?
+        .assert()
+        .failure()
+        .stderr(contains(SPELLS_AS_DECLARED));
+    Ok(())
+}
+
+/// End to end. By default the standard library is provided by the
+/// tooling: `lock` resolves the
+/// publisher-less `kpar-url` against the metadata Sysand embeds, without
+/// network or index, and `sync` installs nothing.
+///
+/// The lockfile records the **IRI**, not `(omg, <name>)`: resolution is
+/// by IRI, and every embedded asset declares no publisher.
+#[test]
+fn a_toml_stdlib_usage_locks_and_syncs_offline() -> Result<(), Box<dyn std::error::Error>> {
+    const IRI: &str = "https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar";
+    let (_temp_dir, cwd, out) = run_sysand(
+        [
+            "init",
+            "--metamodel",
+            "https://www.omg.org/spec/KerML/20250201",
+            "--publisher",
+            "acme",
+            "--name",
+            "app",
+            "--version",
+            "1.0.0",
+        ],
+        None,
+    )?;
+    out.assert().success();
+
+    let manifest_path = cwd.join("model.toml");
+    let manifest = std::fs::read_to_string(&manifest_path)?;
+    std::fs::write(
+        &manifest_path,
+        format!(
+            r#"{manifest}
+[[inline-usages]]
+name = "Kernel Semantic Library"
+kpar-url = "{IRI}"
+"#
+        ),
+    )?;
+
+    run_sysand_in(&cwd, ["lock", "--no-index"], None)?
+        .assert()
+        .success();
+
+    let lockfile = std::fs::read_to_string(cwd.join(DEFAULT_LOCKFILE_NAME))?;
+    assert!(lockfile.contains(IRI), "{lockfile}");
+    assert!(
+        lockfile.contains("name = \"Kernel Semantic Library\""),
+        "{lockfile}"
+    );
+    // "provided by the tooling": no source list to install from.
+    assert!(!lockfile.contains("publisher = \"omg\""), "{lockfile}");
+
+    run_sysand_in(&cwd, ["sync", "--no-index"], None)?
+        .assert()
+        .success()
+        .stderr(contains("nothing to do"));
+
+    Ok(())
+}
+
+/// `--include-std` stops treating the standard library as
+/// provided by the tooling and resolves it like any other `kpar-url`.
+///
+/// A `[[project]]` override maps the IRI to a local KPAR and takes priority
+/// over the standard resolver, so the flag's effect shows in the lockfile
+/// entry gaining a source.
+#[test]
+fn include_std_resolves_the_library_at_its_iri() -> Result<(), Box<dyn std::error::Error>> {
+    const IRI: &str = "https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar";
+    let (_temp_dir, cwd, out) = run_sysand(
+        [
+            "init",
+            "--metamodel",
+            "https://www.omg.org/spec/KerML/20250201",
+            "--publisher",
+            "acme",
+            "--name",
+            "app",
+            "--version",
+            "1.0.0",
+        ],
+        None,
+    )?;
+    out.assert().success();
+
+    // A stand-in for the published KPAR, built here so the test needs
+    // no fixture binary.
+    let lib = cwd.join("lib");
+    std::fs::create_dir_all(&lib)?;
+    std::fs::write(
+        lib.join("model.toml"),
+        r#"manifest-version = "1.0"
+
+[project]
+publisher = "OMG"
+name = "Kernel Semantic Library"
+version = "1.0.0"
+sources = ["a.kerml"]
+metamodel = "https://www.omg.org/spec/KerML/20250201"
+"#,
+    )?;
+    std::fs::write(lib.join("a.kerml"), b"package A;\n")?;
+    run_sysand_in(&lib, ["build"], None)?.assert().success();
+
+    let manifest_path = cwd.join("model.toml");
+    let manifest = std::fs::read_to_string(&manifest_path)?;
+    std::fs::write(
+        &manifest_path,
+        format!(
+            r#"{manifest}
+[[inline-usages]]
+name = "Kernel Semantic Library"
+kpar-url = "{IRI}"
+"#
+        ),
+    )?;
+
+    let config = cwd.join("override.toml");
+    std::fs::write(
+        &config,
+        format!(
+            r#"[[project]]
+identifiers = ["{IRI}"]
+sources = [{{ kpar_path = "lib/output/omg_kernel-semantic-library_1.0.0.kpar" }}]
+"#
+        ),
+    )?;
+
+    // Without the flag the library is provided: no source is recorded.
+    run_sysand_in(&cwd, ["lock", "--no-index"], None)?
+        .assert()
+        .success();
+    let provided = std::fs::read_to_string(cwd.join(DEFAULT_LOCKFILE_NAME))?;
+    assert!(!provided.contains("kpar_path"), "{provided}");
+
+    // With it, the same usage is resolved at its IRI like any other.
+    run_sysand_in(
+        &cwd,
+        [
+            "lock",
+            "--no-index",
+            "--include-std",
+            "--config-file",
+            config.as_str(),
+        ],
+        None,
+    )?
+    .assert()
+    .success();
+    let fetched = std::fs::read_to_string(cwd.join(DEFAULT_LOCKFILE_NAME))?;
+    assert!(fetched.contains("kpar_path"), "{fetched}");
+
+    Ok(())
+}
+
+/// The standard-library workspace fixture locks, with the Kernel cycle
+/// accepted.
+///
+/// The members inherit their `metamodel` from a group, and a member that
+/// inherits cannot be read as a standalone project, so the resolver has to
+/// read a `dir` target inside the workspace as a member.
+#[test]
+fn the_stdlib_workspace_locks() -> Result<(), Box<dyn std::error::Error>> {
+    let Some(sources) = stdlib_sources() else {
+        return Ok(());
+    };
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    sysand_core::stdlib_compare::stage_release_workspace(&stdlib_fixture(), &sources, &cwd)?;
+
+    run_sysand_in(&cwd, ["lock", "--no-index"], None)?
+        .assert()
+        .success();
+
+    let lock = std::fs::read_to_string(cwd.join("sysand-lock.toml"))?;
+    assert_eq!(
+        lock.matches("[[project]]").count(),
+        10,
+        "every member is in the lockfile:\n{lock}"
+    );
+    // Each member is recorded at its own directory, not the root's.
+    for member in ["semantic-library", "systems-library", "geometry-library"] {
+        assert!(
+            lock.contains(&format!("editable = \"{member}\"")),
+            "`{member}` must be editable at its own path:\n{lock}"
+        );
+    }
+    Ok(())
+}
+
+/// `lock` from inside a member locks the whole workspace, into the
+/// workspace root.
+///
+/// The target inherits its `metamodel`, which the resolver can only read
+/// with the workspace table.
+#[test]
+fn lock_from_inside_a_member_writes_at_the_root() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    write_workspace_root(
+        &cwd,
+        &["app", "lib"],
+        "\n[workspace.group.fam]\n\
+            metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
+    )?;
+    for (at, body) in [
+        (
+            "app",
+            r#"publisher = "acme"
+name = "alpha"
+version = "1.0.0"
+sources = []
+metamodel = "https://www.omg.org/spec/SysML/20250201"
+
+[[inline-usages]]
+publisher = "acme"
+name = "beta"
+dir = "../lib"
+"#,
+        ),
+        (
+            "lib",
+            r#"publisher = "acme"
+name = "beta"
+version = "1.0.0"
+sources = []
+metamodel.workspace = "fam"
+"#,
+        ),
+    ] {
+        let path = cwd.join(at);
+        std::fs::create_dir_all(&path)?;
+        std::fs::write(
+            path.join("model.toml"),
+            format!("manifest-version = \"1.0\"\n\n[project]\n{body}"),
+        )?;
+    }
+
+    run_sysand_in(&cwd.join("app"), ["lock", "--no-index"], None)?
+        .assert()
+        .success();
+
+    assert!(
+        !exists(cwd.join("app/sysand-lock.toml")),
+        "the lockfile belongs to the workspace, not the member it was run from"
+    );
+    let lock = std::fs::read_to_string(cwd.join("sysand-lock.toml"))?;
+    assert_eq!(
+        lock.matches("[[project]]").count(),
+        2,
+        "both members:\n{lock}"
+    );
+    Ok(())
+}
+
+/// `cwd/app`, outside every workspace, depending by `dir` on `target`,
+/// where `cwd/ws` is a workspace listing only `lib` (whose `model.toml` is
+/// `lib_body`) and holding the group `fam`.
+fn write_app_beside_a_workspace(
+    cwd: &camino::Utf8Path,
+    lib_body: &str,
+    target: &str,
+) -> Result<camino::Utf8PathBuf, Box<dyn std::error::Error>> {
+    std::fs::create_dir_all(cwd.join("ws"))?;
+    write_workspace_root(
+        cwd.join("ws"),
+        &["lib"],
+        "\n[workspace.group.fam]\n\
+            metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
+    )?;
+    for (at, body) in [("ws/lib", lib_body), ("ws/other", lib_body)] {
+        std::fs::create_dir_all(cwd.join(at))?;
+        std::fs::write(
+            cwd.join(at).join("model.toml"),
+            format!("manifest-version = \"1.0\"\n\n[project]\n{body}"),
+        )?;
+    }
+    let app = cwd.join("app");
+    std::fs::create_dir_all(&app)?;
+    std::fs::write(
+        app.join("model.toml"),
+        format!(
+            r#"manifest-version = "1.0"
+
+[project]
+publisher = "acme"
+name = "alpha"
+version = "1.0.0"
+sources = []
+metamodel = "https://www.omg.org/spec/SysML/20250201"
+
+[[inline-usages]]
+publisher = "acme"
+name = "beta"
+dir = "{target}"
+"#
+        ),
+    )?;
+    Ok(app)
+}
+
+const FAM_LIB: &str = r#"publisher = "acme"
+name = "beta"
+version = "1.0.0"
+sources = []
+metamodel.workspace = "fam"
+"#;
+
+/// A project outside every workspace may depend by `dir` on a member of an
+/// unrelated workspace, though the member inherits its `metamodel`.
+#[test]
+fn a_project_may_depend_on_a_member_of_an_unrelated_workspace()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    let app = write_app_beside_a_workspace(&cwd, FAM_LIB, "../ws/lib")?;
+
+    run_sysand_in(&app, ["lock", "--no-index"], None)?
+        .assert()
+        .success();
+
+    let lock = std::fs::read_to_string(app.join("sysand-lock.toml"))?;
+    assert!(lock.contains("pkg:sysand/acme/beta"), "{lock}");
+    Ok(())
+}
+
+/// Only the member a `dir` usage names is read: an invalid sibling member
+/// of the unrelated workspace does not affect the lock.
+#[test]
+fn the_other_members_of_an_unrelated_workspace_are_not_read()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    let app = write_app_beside_a_workspace(&cwd, FAM_LIB, "../ws/lib")?;
+    write_workspace_root(
+        cwd.join("ws"),
+        &["lib", "broken"],
+        "\n[workspace.group.fam]\n\
+            metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
+    )?;
+    std::fs::create_dir_all(cwd.join("ws/broken"))?;
+    std::fs::write(cwd.join("ws/broken/model.toml"), "this is not toml = = =")?;
+
+    run_sysand_in(&app, ["lock", "--no-index"], None)?
+        .assert()
+        .success();
+    Ok(())
+}
+
+/// A member of an unrelated workspace that inherits from a group the
+/// workspace does not have is refused.
+#[test]
+fn a_member_of_an_unrelated_workspace_must_resolve_against_its_workspace()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    let app = write_app_beside_a_workspace(
+        &cwd,
+        &FAM_LIB.replace("\"fam\"", "\"nonexistent\""),
+        "../ws/lib",
+    )?;
+
+    run_sysand_in(&app, ["lock", "--no-index"], None)?
+        .assert()
+        .failure()
+        .stderr(contains("nonexistent"));
+    Ok(())
+}
+
+/// A project under an unrelated workspace's root that the workspace
+/// neither lists nor excludes is refused.
+#[test]
+fn an_unlisted_project_of_an_unrelated_workspace_is_refused()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    let app = write_app_beside_a_workspace(&cwd, FAM_LIB, "../ws/other")?;
+
+    run_sysand_in(&app, ["lock", "--no-index"], None)?
+        .assert()
+        .failure()
+        .stderr(contains("neither listed in `workspace.members`"));
+    Ok(())
+}
+
+/// `cwd/app`, outside every workspace, depending by `dir` on `../ws/lib`,
+/// where `cwd/ws/model.toml` is `root_body`.
+fn write_app_beside_a_root(
+    cwd: &camino::Utf8Path,
+    root_body: &str,
+) -> Result<camino::Utf8PathBuf, Box<dyn std::error::Error>> {
+    std::fs::create_dir_all(cwd.join("ws/lib"))?;
+    std::fs::write(cwd.join("ws/model.toml"), root_body)?;
+    let app = write_app_beside_a_workspace(cwd, FAM_LIB, "../ws/lib")?;
+    // The helper wrote its own root and `lib`; the caller's root wins.
+    std::fs::write(cwd.join("ws/model.toml"), root_body)?;
+    Ok(app)
+}
+
+/// A project under an unrelated workspace's `exclude` stands alone: it
+/// inherits nothing and resolves.
+#[test]
+fn an_excluded_project_of_an_unrelated_workspace_resolves() -> Result<(), Box<dyn std::error::Error>>
+{
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    let app = write_app_beside_a_workspace(&cwd, FAM_LIB, "../ws/lib")?;
+    write_workspace_root(cwd.join("ws"), &["other"], "exclude = [\"lib\"]\n")?;
+    std::fs::write(
+        cwd.join("ws/lib/model.toml"),
+        r#"manifest-version = "1.0"
+
+[project]
+publisher = "acme"
+name = "beta"
+version = "1.0.0"
+sources = []
+metamodel = "https://www.omg.org/spec/SysML/20250201"
+"#,
+    )?;
+
+    run_sysand_in(&app, ["lock", "--no-index"], None)?
+        .assert()
+        .success();
+    Ok(())
+}
+
+/// A `.project.json` project that an unrelated workspace lists in `members`
+/// is refused, as a workspace member is a `model.toml` project.
+#[test]
+fn a_json_project_listed_by_an_unrelated_workspace_is_refused()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    let app = write_app_beside_a_workspace(&cwd, FAM_LIB, "../ws/lib")?;
+    std::fs::remove_file(cwd.join("ws/lib/model.toml"))?;
+    write_hand_written_json_project(&cwd.join("ws/lib"), "acme", "beta", "1.0.0")?;
+
+    run_sysand_in(&app, ["lock", "--no-index"], None)?
+        .assert()
+        .failure()
+        .stderr(contains("is not a `model.toml` project"));
+    Ok(())
+}
+
+/// A directory with both manifests that an unrelated workspace lists in
+/// `members` is refused as ambiguous.
+#[test]
+fn a_project_with_both_manifests_listed_by_an_unrelated_workspace_is_ambiguous()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    let app = write_app_beside_a_workspace(&cwd, FAM_LIB, "../ws/lib")?;
+    write_hand_written_json_project(&cwd.join("ws/lib"), "acme", "beta", "1.0.0")?;
+
+    run_sysand_in(&app, ["lock", "--no-index"], None)?
+        .assert()
+        .failure()
+        .stderr(contains("it is unclear whether"))
+        .stderr(contains("is not a `model.toml` project").not());
+    Ok(())
+}
+
+/// A `model.toml` above the project that is not valid is reported, not
+/// skipped.
+#[test]
+fn an_invalid_model_toml_above_a_dir_usage_is_refused() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    let app = write_app_beside_a_root(&cwd, "this is not toml = = =")?;
+
+    run_sysand_in(&app, ["lock", "--no-index"], None)?
+        .assert()
+        .failure()
+        .stderr(contains("model.toml"));
+    Ok(())
+}
+
+/// A `model.toml` project at `cwd/at`, with `extra` appended.
+fn write_metamodel_member(
+    cwd: &camino::Utf8Path,
+    at: &str,
+    name: &str,
+    metamodel: &str,
+    extra: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let path = cwd.join(at);
+    std::fs::create_dir_all(&path)?;
+    // A test that is about the file list writes `sources` into `extra`.
+    let sources = if extra.contains("sources") {
+        ""
+    } else {
+        "sources = []\n"
+    };
+    write_toml_project(
+        &path,
+        name,
+        "1.0.0",
+        &format!("{sources}metamodel = \"{metamodel}\"\n{extra}"),
+    )?;
+    Ok(())
+}
+
+const OMG_SYSML: &str = "https://www.omg.org/spec/SysML/20250201";
+
+/// The metamodel direction check runs before the lockfile is written.
+#[cfg(feature = "syside-kpar")]
+#[test]
+fn lock_refuses_a_metamodel_direction_error() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    // The Syside dependency is the extracted form of an archive, which
+    // sits under the workspace root and so is excluded.
+    write_workspace_root(&cwd, &["app"], "exclude = [\"lib\"]\n")?;
+    write_metamodel_member(
+        &cwd,
+        "app",
+        "alpha",
+        OMG_SYSML,
+        r#"
+[[inline-usages]]
+publisher = "acme"
+name = "beta"
+dir = "../lib"
+"#,
+    )?;
+    write_syside_project(&cwd.join("lib"), "beta", "1.0.0", "Beta", json!([]))?;
+
+    run_sysand_in(&cwd, ["lock", "--no-index"], None)?
+        .assert()
+        .failure()
+        .stderr(contains(
+            "only Syside-metamodel projects may depend on Syside-metamodel projects",
+        ))
+        .stderr(contains("acme/alpha"))
+        .stderr(contains("acme/beta"));
+
+    assert!(
+        !exists(cwd.join("sysand-lock.toml")),
+        "no lockfile is written for a graph that cannot be built"
+    );
+    Ok(())
+}
+
+/// The release mismatch is a warning: locking succeeds and says so.
+///
+/// A characterisation test. The warning must reach stderr in a release
+/// build as well as a debug one; nothing in the suite can see that
+/// difference, so the check must not be left to a `debug_assert!`.
+#[test]
+fn lock_warns_on_a_metamodel_release_mismatch() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    write_workspace_root(&cwd, &["app", "lib"], "")?;
+    write_metamodel_member(
+        &cwd,
+        "app",
+        "alpha",
+        OMG_SYSML,
+        r#"
+[[inline-usages]]
+publisher = "acme"
+name = "beta"
+dir = "../lib"
+"#,
+    )?;
+    write_metamodel_member(
+        &cwd,
+        "lib",
+        "beta",
+        "https://www.omg.org/spec/SysML/20230201",
+        "",
+    )?;
+
+    run_sysand_in(&cwd, ["lock", "--no-index"], None)?
+        .assert()
+        .success()
+        .stderr(contains("20250201"))
+        .stderr(contains("20230201"));
+
+    assert!(
+        exists(cwd.join("sysand-lock.toml")),
+        "a release mismatch is a warning, so the lockfile is still written"
+    );
+    Ok(())
+}
+
+/// A dependency's unparsable version is named, through the command.
+///
+/// The error carries the version string that failed to parse, as
+/// `semver::Error` does not echo its input.
+///
+/// The target is a **json** project: a `model.toml` target with the same
+/// version is rejected by the manifest reader before the solver.
+#[test]
+fn lock_reports_a_non_semver_dependency_version() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    write_metamodel_member(
+        &cwd,
+        "app",
+        "alpha",
+        OMG_SYSML,
+        r#"
+[[inline-usages]]
+publisher = "acme"
+name = "beta"
+dir = "../lib"
+"#,
+    )?;
+    let lib = cwd.join("lib");
+    std::fs::create_dir_all(&lib)?;
+    std::fs::write(
+        lib.join(".project.json"),
+        r#"{"name":"beta","publisher":"acme","version":"2023-11","usage":[]}"#,
+    )?;
+    std::fs::write(
+        lib.join(".meta.json"),
+        r#"{"index":{},"created":"2026-01-01T00:00:00Z"}"#,
+    )?;
+
+    run_sysand_in(&cwd.join("app"), ["lock", "--no-index"], None)?
+        .assert()
+        .failure()
+        .stderr(contains("declares version `2023-11`, which is not semver"));
+    Ok(())
+}
+
+// ---------------------------------------------------------------------
+// Syside projects as dependencies, end to end.
+
+/// A Syside json project at `dir` (the extracted form of a Syside
+/// archive) declaring and exporting one package, with `usage` as its
+/// usages. A Syside `model.toml` names `root` alone, and neither builds
+/// nor locks until the files it reaches can be found.
+#[cfg(feature = "syside-kpar")]
+fn write_syside_project(
+    dir: &camino::Utf8Path,
+    name: &str,
+    version: &str,
+    package: &str,
+    usage: serde_json::Value,
+) -> Result<(), Box<dyn std::error::Error>> {
+    write_syside_json_project(
+        dir,
+        name,
+        version,
+        usage,
+        &[package],
+        &[("main.sysml", format!("package {package};\n").as_bytes())],
+    )
+}
+
+/// An OMG `model.toml` project at `dir` declaring one package.
+#[cfg(feature = "syside-kpar")]
+fn write_omg_project(
+    dir: &camino::Utf8Path,
+    name: &str,
+    version: &str,
+    package: &str,
+    metamodel: &str,
+    extra: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    std::fs::create_dir_all(dir)?;
+    write_toml_project(
+        dir,
+        name,
+        version,
+        &format!(
+            r#"sources = ["main.sysml"]
+metamodel = "{metamodel}"
+{extra}"#
+        ),
+    )?;
+    std::fs::write(dir.join("main.sysml"), format!("package {package};\n"))?;
+    Ok(())
+}
+
+#[cfg(feature = "syside-kpar")]
+const DIRECTION_TEXT: &str =
+    "only Syside-metamodel projects may depend on Syside-metamodel projects";
+
+/// The direction rule in archive form: an OMG project with a `kpar-path`
+/// usage of a built Syside KPAR.
+#[cfg(feature = "syside-kpar")]
+#[test]
+fn an_omg_project_cannot_depend_on_a_syside_kpar() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    write_syside_project(&cwd.join("leaf-src"), "leaf", "1.0.0", "Leaf", json!([]))?;
+    run_sysand_in(&cwd.join("leaf-src"), ["build", "../leaf.kpar"], None)?
+        .assert()
+        .success();
+    let app = cwd.join("app");
+    write_omg_project(
+        &app,
+        "app",
+        "1.0.0",
+        "App",
+        OMG_SYSML,
+        r#"
+[[inline-usages]]
+publisher = "acme"
+name = "leaf"
+kpar-path = "../leaf.kpar"
+"#,
+    )?;
+
+    run_sysand_in(&app, ["lock", "--no-index"], None)?
+        .assert()
+        .failure()
+        .stderr(contains(DIRECTION_TEXT))
+        .stderr(contains("acme/app"))
+        .stderr(contains("acme/leaf"));
+    assert!(!exists(app.join("sysand-lock.toml")));
+    Ok(())
+}
+
+/// Every edge is checked, so the rule is transitive without
+/// bookkeeping: an OMG project reaching a Syside leaf through an OMG
+/// intermediate is refused at the intermediate's edge.
+#[cfg(feature = "syside-kpar")]
+#[test]
+fn the_direction_rule_reaches_a_syside_leaf_through_an_omg_intermediate()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    write_omg_project(
+        &cwd.join("app"),
+        "app",
+        "1.0.0",
+        "App",
+        OMG_SYSML,
+        r#"
+[[inline-usages]]
+publisher = "acme"
+name = "mid"
+dir = "../mid"
+"#,
+    )?;
+    write_omg_project(
+        &cwd.join("mid"),
+        "mid",
+        "1.0.0",
+        "Mid",
+        OMG_SYSML,
+        r#"
+[[inline-usages]]
+publisher = "acme"
+name = "leaf"
+dir = "../leaf"
+"#,
+    )?;
+    write_syside_project(&cwd.join("leaf"), "leaf", "1.0.0", "Leaf", json!([]))?;
+
+    run_sysand_in(&cwd.join("app"), ["lock", "--no-index"], None)?
+        .assert()
+        .failure()
+        .stderr(contains(DIRECTION_TEXT))
+        .stderr(contains("acme/mid"))
+        .stderr(contains("acme/leaf"));
+    Ok(())
+}
+
+/// The accepted directions, in both forms: a Syside project depending
+/// on an OMG project and a Syside project by `dir`, and on an OMG
+/// archive by `kpar-path`. The Syside entries export their files' names.
+#[cfg(feature = "syside-kpar")]
+#[test]
+fn a_syside_project_may_depend_on_omg_and_syside_projects_and_archives()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    write_syside_project(
+        &cwd.join("app"),
+        "app",
+        "1.0.0",
+        "App",
+        json!([
+            {"dir": "../omg", "publisher": "acme", "name": "omg"},
+            {"dir": "../lib", "publisher": "acme", "name": "lib"},
+            {"kparPath": "../deps/gadget.kpar", "publisher": "acme", "name": "gadget"},
+        ]),
+    )?;
+    write_omg_project(&cwd.join("omg"), "omg", "1.0.0", "Omg", OMG_SYSML, "")?;
+    write_syside_project(&cwd.join("lib"), "lib", "1.0.0", "Lib", json!([]))?;
+    write_omg_project(
+        &cwd.join("deps/gadget-src"),
+        "gadget",
+        "2.0.0",
+        "Gadget",
+        OMG_SYSML,
+        "",
+    )?;
+    run_sysand_in(
+        &cwd.join("deps/gadget-src"),
+        ["build", "../gadget.kpar"],
+        None,
+    )?
+    .assert()
+    .success();
+
+    run_sysand_in(&cwd.join("app"), ["lock", "--no-index"], None)?
+        .assert()
+        .success();
+    let lock = Lockfile::read(cwd.join("app"))?.into_lock();
+    let by_name = |name: &str| {
+        lock.projects
+            .iter()
+            .find(|p| p.name == name)
+            .unwrap_or_else(|| panic!("`{name}` is in the lockfile"))
+    };
+    assert_eq!(by_name("app").exports, ["App".to_owned()]);
+    assert_eq!(by_name("lib").exports, ["Lib".to_owned()]);
+    assert_eq!(by_name("gadget").exports, ["Gadget".to_owned()]);
+    Ok(())
+}
+
+/// The standard library stays an OMG project, and a Syside project
+/// depending on it is legal and normal. The staged release workspace gains
+/// a Syside member depending on the Kernel Semantic Library.
+#[cfg(feature = "syside-kpar")]
+#[test]
+fn a_syside_project_may_depend_on_the_standard_library() -> Result<(), Box<dyn std::error::Error>> {
+    let Some(sources) = stdlib_sources() else {
+        return Ok(());
+    };
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    sysand_core::stdlib_compare::stage_release_workspace(&stdlib_fixture(), &sources, &cwd)?;
+
+    // The staged copy of the root is edited, not the shared fixture.
+    let root = std::fs::read_to_string(cwd.join("model.toml"))?;
+    let root = root.replacen(
+        "[workspace]\n",
+        "[workspace]\nexclude = [\"syside-app\"]\n",
+        1,
+    );
+    assert!(root.contains("\"syside-app\""), "{root}");
+    std::fs::write(cwd.join("model.toml"), root)?;
+    write_syside_project(
+        &cwd.join("syside-app"),
+        "app",
+        "1.0.0",
+        "App",
+        json!([{
+            "dir": "../semantic-library",
+            "publisher": "OMG",
+            "name": "Kernel Semantic Library",
+        }]),
+    )?;
+
+    run_sysand_in(&cwd.join("syside-app"), ["lock", "--no-index"], None)?
+        .assert()
+        .success();
+    let lock = std::fs::read_to_string(cwd.join("syside-app/sysand-lock.toml"))?;
+    assert!(lock.contains("Kernel Semantic Library"), "{lock}");
+    Ok(())
+}
+
+/// The release warning runs across families: only the date is compared.
+#[cfg(feature = "syside-kpar")]
+#[test]
+fn a_release_mismatch_warns_across_families() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    write_syside_project(
+        &cwd.join("app"),
+        "app",
+        "1.0.0",
+        "App",
+        json!([{"dir": "../lib", "publisher": "acme", "name": "lib"}]),
+    )?;
+    write_omg_project(
+        &cwd.join("lib"),
+        "lib",
+        "1.0.0",
+        "Lib",
+        "https://www.omg.org/spec/SysML/20230201",
+        "",
+    )?;
+
+    run_sysand_in(&cwd.join("app"), ["lock", "--no-index"], None)?
+        .assert()
+        .success()
+        .stderr(contains("20250201"))
+        .stderr(contains("20230201"));
+    assert!(exists(cwd.join("app/sysand-lock.toml")));
+    Ok(())
+}
+
+/// The collision check's input is what a project exports, and a Syside
+/// archive's `exports` array feeds it. Two Syside archives declaring one
+/// name collide; the same two declaring different names lock.
+#[cfg(feature = "syside-kpar")]
+#[test]
+fn two_syside_archives_exporting_one_name_collide() -> Result<(), Box<dyn std::error::Error>> {
+    for (second_package, collides) in [("Shared", true), ("Other", false)] {
+        let (_temp_dir, cwd) = new_temp_cwd()?;
+        write_syside_project(&cwd.join("one-src"), "one", "1.0.0", "Shared", json!([]))?;
+        write_syside_project(
+            &cwd.join("two-src"),
+            "two",
+            "1.0.0",
+            second_package,
+            json!([]),
+        )?;
+        for name in ["one", "two"] {
+            run_sysand_in(
+                &cwd.join(format!("{name}-src")),
+                ["build", &format!("../{name}.kpar")],
+                None,
+            )?
+            .assert()
+            .success();
+        }
+        // A Syside depender, to avoid a refusal on the direction rule.
+        write_syside_project(
+            &cwd.join("app"),
+            "app",
+            "1.0.0",
+            "App",
+            json!([
+                {"kparPath": "../one.kpar", "publisher": "acme", "name": "one"},
+                {"kparPath": "../two.kpar", "publisher": "acme", "name": "two"},
+            ]),
+        )?;
+
+        let out = run_sysand_in(&cwd.join("app"), ["lock", "--no-index"], None)?;
+        if collides {
+            out.assert()
+                .failure()
+                .stderr(contains("Shared"))
+                .stderr(contains("one"))
+                .stderr(contains("two"));
+        } else {
+            out.assert().success();
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn a_usage_path_above_the_filesystem_root_is_refused() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    let dir = "../".repeat(cwd.components().count()) + "dep";
+    std::fs::write(
+        cwd.join("model.toml"),
+        format!(
+            r#"manifest-version = "1.0"
+
+[project]
+publisher = "acme"
+name = "app"
+version = "1.0.0"
+sources = []
+metamodel = "https://www.omg.org/spec/SysML/20250201"
+
+[[inline-usages]]
+publisher = "acme"
+name = "dep"
+dir = "{dir}"
+"#
+        ),
+    )?;
+
+    run_sysand_in(&cwd, ["lock", "--no-index"], None)?
+        .assert()
+        .failure()
+        .stderr(contains(format!(
+            "path `{dir}` climbs above the filesystem root"
+        )));
     Ok(())
 }
