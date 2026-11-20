@@ -17,35 +17,75 @@ use sysand_core::model::InterchangeProjectMetadataRaw;
 mod common;
 pub use common::*;
 
-#[test]
-fn include_expands_glob_pattern() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "windows_glob", "1.0.0")?;
-
-    out.assert().success();
-
+/// Runs `include '*.sysml'` in `cwd` as one unexpanded argument, exactly as
+/// `cmd.exe` and PowerShell would hand it to us.
+fn include_glob(cwd: &camino::Utf8Path) -> Result<(), Box<dyn std::error::Error>> {
     fs::write(cwd.join("p1.sysml"), b"package P1;\n")?;
     fs::write(cwd.join("p2.sysml"), b"package P2;\n")?;
     fs::write(cwd.join("p3.sysml"), b"package P3;\n")?;
-    // Should not be picked up by the `*.sysml` glob below.
+    // Should not be picked up by the glob.
     fs::write(cwd.join("readme.txt"), b"not a model file\n")?;
 
-    // Passed as a single, unexpanded argument, exactly as `cmd.exe` and
-    // PowerShell would hand it to us.
-    let out = run_sysand_in(&cwd, ["include", "*.sysml"], None)?;
+    run_sysand_in(cwd, ["include", "*.sysml"], None)?
+        .assert()
+        .success();
+    Ok(())
+}
 
-    out.assert().success();
+#[test]
+fn include_expands_glob_pattern_toml() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    run_sysand_in(
+        &cwd,
+        [
+            "init",
+            "--kind",
+            "model-toml",
+            "--metamodel",
+            SYSML,
+            "--publisher",
+            "acme",
+            "--name",
+            "windows-glob",
+            "--version",
+            "1.0.0",
+        ],
+        None,
+    )?
+    .assert()
+    .success();
+
+    include_glob(&cwd)?;
+
+    let manifest = fs::read_to_string(cwd.join("model.toml"))?;
+    for expected in ["\"p1.sysml\"", "\"p2.sysml\"", "\"p3.sysml\""] {
+        assert!(
+            manifest.contains(expected),
+            "the glob expanded to {expected}:\n{manifest}"
+        );
+    }
+    assert!(
+        !manifest.contains("readme.txt"),
+        "`*.sysml` does not match a `.txt`:\n{manifest}"
+    );
+    Ok(())
+}
+
+#[test]
+fn include_expands_glob_pattern_json() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "windows-glob", "1.0.0", None)?;
+
+    include_glob(&cwd)?;
 
     let meta: InterchangeProjectMetadataRaw =
         serde_json::from_reader(fs::File::open(cwd.join(".meta.json"))?)?;
-
     assert_eq!(
         meta.index,
-        IndexMap::from([
+        Some(IndexMap::from([
             ("P1".to_owned(), "p1.sysml".to_owned()),
             ("P2".to_owned(), "p2.sysml".to_owned()),
             ("P3".to_owned(), "p3.sysml".to_owned()),
-        ])
+        ]))
     );
-
     Ok(())
 }

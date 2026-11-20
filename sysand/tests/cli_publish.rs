@@ -1,6 +1,14 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
+//! Projects in this file are created with `sysand init` of the default kind.
+//! Tests that store a value a `model.toml` refuses use a `.project.json`
+//! project, and the stdlib-usage, workspace and Syside cases write their
+//! manifests explicitly.
+//!
+//! `sysand publish` does *not* build: it uploads the archive
+//! `sysand build` left in `output/`.
+
 use std::fs;
 
 use assert_cmd::prelude::*;
@@ -17,14 +25,26 @@ pub use common::*;
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 
 fn init_project(name: &str) -> Result<(Utf8TempDir, Utf8PathBuf), Box<dyn std::error::Error>> {
-    let (temp_dir, cwd, out) =
-        cli_init_project(None, "example-pub1", Some(name), Some("1.0.0"), Some("MIT"))?;
-    out.assert().success();
+    let (temp_dir, cwd) =
+        cli_init_project_checked(None, "example-pub1", name, "1.0.0", Some("MIT"))?;
+    add_license_text(&cwd)?;
+    Ok((temp_dir, cwd))
+}
+
+/// A `.project.json` project, for tests that store a value a `model.toml`
+/// refuses (a malformed publisher or name, build metadata in the version).
+fn init_json_project(name: &str) -> Result<(Utf8TempDir, Utf8PathBuf), Box<dyn std::error::Error>> {
+    let (temp_dir, cwd) = cli_init_json_project(None, "example-pub1", name, "1.0.0", Some("MIT"))?;
+    add_license_text(&cwd)?;
+    Ok((temp_dir, cwd))
+}
+
+fn add_license_text(cwd: &Utf8Path) -> TestResult {
     let mut licenses = cwd.join("LICENSES");
     fs::create_dir(&licenses)?;
     licenses.push("MIT.txt");
     fs::File::create(licenses)?;
-    Ok((temp_dir, cwd))
+    Ok(())
 }
 
 fn run_sysand_ok(cwd: &Utf8Path, args: &[&str], cfg: Option<&str>) -> TestResult {
@@ -35,7 +55,7 @@ fn run_sysand_ok(cwd: &Utf8Path, args: &[&str], cfg: Option<&str>) -> TestResult
 
 fn include_basic_model(cwd: &Utf8Path) -> TestResult {
     fs::write(cwd.join("test.sysml"), "package P;\n")?;
-    run_sysand_ok(cwd, &["include", "--no-index-symbols", "test.sysml"], None)?;
+    run_sysand_ok(cwd, &["include", "test.sysml"], None)?;
     run_sysand_ok(cwd, &["edit", "--metamodel", "sysml"], None)
 }
 
@@ -117,29 +137,56 @@ fn mock_oidc_exchange(
 }
 
 fn mock_publish_with_bearer(server: &mut Server, token: &str) -> mockito::Mock {
+    mock_publish_with_bearer_times(server, token, 1)
+}
+
+/// The same, for a workspace publish, which uploads once per member.
+fn mock_publish_with_bearer_times(server: &mut Server, token: &str, times: usize) -> mockito::Mock {
     server
         .mock("POST", "/api/v1/upload")
         .match_header("authorization", format!("Bearer {token}").as_str())
         .with_status(201)
         .with_body("created")
-        .expect(1)
+        .expect(times)
         .create()
 }
 
+/// A workspace publish resolves every member's archive before it
+/// uploads anything, so a member with no archive stops the command with
+/// nothing sent.
 #[test]
-fn publish_without_path_from_workspace_root_reports_explicit_error() -> TestResult {
+fn publish_workspace_with_an_unbuilt_member_uploads_nothing() -> TestResult {
     let (_temp_dir, cwd) = new_temp_cwd()?;
-    fs::write(
-        cwd.join(".workspace.json"),
-        br#"{"projects": [{"path": "project1", "iris": ["urn:kpar:project1"]}]}"#,
-    )?;
+    workspace_of(&cwd, &["project1"])?;
+    // Reads as a project, and cannot be built.
     fs::create_dir(cwd.join("project1"))?;
+    fs::write(
+        cwd.join("project1/model.toml"),
+        r#"manifest-version = "1.0"
 
-    let out = run_sysand_in(&cwd, ["publish", "--index", "http://localhost:1"], None)?;
-    out.assert()
-        .failure()
-        .stderr(predicate::str::contains("not supported from a workspace"))
-        .stderr(predicate::str::contains("explicit .kpar path"));
+[project]
+publisher = "example-pub1"
+name = "project1"
+version = "1.0.0"
+sources = ["missing.sysml"]
+metamodel = "https://www.omg.org/spec/SysML/20250201"
+"#,
+    )?;
+
+    let mut server = Server::new();
+    let upload_mock = mock_publish_with_bearer_times(&mut server, "test-token", 0);
+    let env = bearer_env_for_url(server.url().as_str());
+
+    run_sysand_in_with(
+        &cwd,
+        ["publish", "--index", server.url().as_str()],
+        None,
+        &env,
+    )?
+    .assert()
+    .failure()
+    .stderr(predicate::str::contains("example-pub1_project1_1.0.0.kpar"));
+    upload_mock.assert();
 
     Ok(())
 }
@@ -192,9 +239,9 @@ fn publish_network_error() -> TestResult {
     out.assert()
         .failure()
         // After discovery, the network error surfaces through the
-        // `sysand-index-config.json` fetch — the wording is
-        // `HTTP request to \`…\` failed: …`, so match the stable
-        // `HTTP request` prefix plus a separate `failed` assertion.
+        // `sysand-index-config.json` fetch. The wording is
+        // `HTTP request to \`…\` failed: …`, so match the stable prefix
+        // plus a separate `failed` assertion.
         .stderr(predicate::str::contains("HTTP request"))
         .stderr(predicate::str::contains("failed"));
 
@@ -212,6 +259,22 @@ fn publish_requires_index_argument() -> TestResult {
         ))
         .stderr(predicate::str::contains("--index <URL>"));
 
+    Ok(())
+}
+
+/// A directory has no upload endpoint: the refusal names the write path
+/// that does exist.
+#[test]
+fn publish_refuses_filesystem_index() -> TestResult {
+    let (_temp_dir, cwd) = setup_built_project("test-publish")?;
+    fs::create_dir_all(cwd.join("mirror"))?;
+    let out = run_sysand_in(&cwd, ["publish", "--index", "./mirror"], None)?;
+    out.assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "publishing to a filesystem index is not supported",
+        ))
+        .stderr(predicate::str::contains("`sysand index add`"));
     Ok(())
 }
 
@@ -368,7 +431,7 @@ fn env_credentials_without_a_label_get_a_labels_are_required_error() -> TestResu
     // group; the error explains the label grammar instead.
     let (_temp_dir, cwd) = setup_built_project("publish-label-less-creds")?;
     let mut env = IndexMap::new();
-    env.insert("SYSAND_CRED".to_owned(), "https://a.org".to_owned());
+    env.insert("SYSAND_CRED".to_owned(), "https://acme.org".to_owned());
     env.insert("SYSAND_CRED_BASIC_USER".to_owned(), "user-a".to_owned());
     env.insert(
         "SYSAND_CRED_BASIC_PASS".to_owned(),
@@ -470,6 +533,23 @@ fn publish_with_explicit_index_succeeds() -> TestResult {
 }
 
 #[test]
+fn publish_without_a_path_outside_a_project_fails() -> TestResult {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    let env = bearer_env_for_url("http://localhost:1");
+    run_sysand_in_with(
+        &cwd,
+        ["publish", "--index", "http://localhost:1"],
+        None,
+        &env,
+    )?
+    .assert()
+    .failure()
+    .stderr(predicate::str::contains("is not inside a project"));
+
+    Ok(())
+}
+
+#[test]
 fn publish_explicit_path_outside_project_dir() -> TestResult {
     let (_temp_dir, cwd) = setup_built_project_at("outside-publish", "artifact.kpar")?;
     let kpar_path = cwd.join("artifact.kpar");
@@ -492,9 +572,9 @@ fn publish_explicit_path_outside_project_dir() -> TestResult {
         .failure()
         .stderr(predicate::str::contains("unable to find interchange project").not())
         // After discovery, the network error surfaces through the
-        // `sysand-index-config.json` fetch — the wording is
-        // `HTTP request to \`…\` failed: …`, so match the stable
-        // `HTTP request` prefix plus a separate `failed` assertion.
+        // `sysand-index-config.json` fetch. The wording is
+        // `HTTP request to \`…\` failed: …`, so match the stable prefix
+        // plus a separate `failed` assertion.
         .stderr(predicate::str::contains("HTTP request"))
         .stderr(predicate::str::contains("failed"));
 
@@ -562,9 +642,9 @@ fn publish_rejects_upload_endpoint_index_url() -> TestResult {
 
 #[test]
 fn publish_rejects_invalid_semver_version() -> TestResult {
-    // `sysand build` now validates the version itself, so a kpar with an
-    // invalid version can no longer come from the normal build path; write
-    // one directly to exercise `publish`'s own validation.
+    // `sysand build` validates the version itself, so a kpar with an
+    // invalid version cannot come from the normal build path; write one
+    // directly to exercise `publish`'s own validation.
     let (_temp_dir, cwd) = init_project("invalid-version")?;
 
     let (kpar_bytes, _info, _meta) =
@@ -589,13 +669,12 @@ fn publish_rejects_invalid_semver_version() -> TestResult {
 
 #[test]
 fn publish_rejects_version_build_metadata() -> TestResult {
-    let (_temp_dir, cwd) = init_project("version-build-metadata")?;
+    let (_temp_dir, cwd) = init_json_project("version-build-metadata")?;
 
-    // Manually set the field, since set_project_field runs the CLI
+    // Set the field by hand, bypassing the CLI.
     let project_file = cwd.join(".project.json");
     let project_json = fs::read_to_string(&project_file)?;
-    let project_json =
-        project_json.replace("\"version\": \"1.0.0\"", "\"version\": \"1.2.3+build\"");
+    let project_json = project_json.replace(r#""version": "1.0.0""#, r#""version": "1.2.3+build""#);
     fs::write(project_file, project_json)?;
 
     include_basic_model(&cwd)?;
@@ -620,7 +699,7 @@ fn publish_rejects_version_build_metadata() -> TestResult {
 
 #[test]
 fn publish_rejects_noncanonicalizable_publisher() -> TestResult {
-    let (_temp_dir, cwd) = init_project("valid-publish-name")?;
+    let (_temp_dir, cwd) = init_json_project("valid-publish-name")?;
     set_project_field(&cwd, "publisher", "bad__publisher")?;
     include_basic_model(&cwd)?;
     build_kpar_at(&cwd, "artifact.kpar")?;
@@ -644,7 +723,7 @@ fn publish_rejects_noncanonicalizable_publisher() -> TestResult {
 
 #[test]
 fn publish_rejects_noncanonicalizable_name() -> TestResult {
-    let (_temp_dir, cwd) = init_project("valid-publish-name")?;
+    let (_temp_dir, cwd) = init_json_project("valid-publish-name")?;
     set_project_field(&cwd, "name", "bad__name")?;
     include_basic_model(&cwd)?;
     build_kpar_at(&cwd, "artifact.kpar")?;
@@ -743,9 +822,8 @@ fn publish_ignores_basic_auth_credentials() -> TestResult {
         .stderr(predicate::str::contains(
             "no bearer token credentials configured for publish URL",
         ))
-        // The CLI adds the `sysand auth login` remediation the core message
-        // deliberately omits (core/CLI message split), naming the actual
-        // index URL so the hint is copy-pasteable.
+        // The CLI adds the `sysand auth login` remediation, naming the
+        // actual index URL.
         .stderr(predicate::str::contains(format!(
             "run `sysand auth login {}",
             server.url()
@@ -761,7 +839,7 @@ fn publish_ignores_basic_auth_credentials() -> TestResult {
 #[test]
 fn publish_uses_stored_credential_when_no_env_bearer_matches() -> TestResult {
     // A stored login (seeded through the debug-only file-backed store
-    // seam, see cli_auth.rs) must reach the upload's Authorization header
+    // seam) must reach the upload's Authorization header
     // when no `SYSAND_CRED_*` bearer matches: publish reads the store
     // directly, exactly once, during credential selection.
     let (_temp_dir, cwd) = setup_built_project("publish-stored-credential")?;
@@ -887,8 +965,7 @@ fn assert_publish_error_status(
 #[test]
 fn publish_401_maps_to_auth_error() -> TestResult {
     // The bearer came from the `SYSAND_CRED_TEST` environment credential,
-    // so the failure names that source with the env remediation
-    // (design/credential-storage.md section 7).
+    // so the failure names that source with the env remediation.
     assert_publish_error_status(
         "publish-auth-401",
         401,
@@ -905,9 +982,8 @@ fn publish_401_maps_to_auth_error() -> TestResult {
 
 #[test]
 fn publish_403_maps_to_auth_error() -> TestResult {
-    // 403 additionally points at `sysand auth status` (added by the CLI, per
-    // the core/CLI message split: core states the condition, the frontend
-    // names the command).
+    // 403 additionally points at `sysand auth status`, added by the CLI
+    // (core states the condition, the frontend names the command).
     assert_publish_error_status(
         "publish-auth-403",
         403,
@@ -997,5 +1073,391 @@ fn publish_index_with_unknown_placeholder_reports_parse_error() -> TestResult {
         .failure()
         .stderr(predicate::str::contains("unknown placeholder `{file}`"));
 
+    Ok(())
+}
+
+/// `build` and `publish` agree about a standard-library usage.
+///
+/// The manifest is written by hand, as `add --iri` cannot add a resource
+/// usage to a `model.toml` project. It carries `license` and `metamodel`
+/// because `publish` requires both.
+///
+/// The usage is the publisher-less `kpar-url` form.
+#[test]
+fn publish_toml_project_with_a_stdlib_usage() -> TestResult {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    write_toml_project(
+        &cwd,
+        "widgets",
+        "1.0.0",
+        r#"license = "MIT"
+metamodel = "https://www.omg.org/spec/SysML/20250201"
+sources = ["a.sysml"]
+
+[[inline-usages]]
+name = "Kernel Semantic Library"
+kpar-url = "https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar"
+"#,
+    )?;
+    fs::write(cwd.join("a.sysml"), b"package A;\n")?;
+    fs::create_dir(cwd.join("LICENSES"))?;
+    fs::write(cwd.join("LICENSES/MIT.txt"), "MIT\n")?;
+
+    // `publish` uploads what `build` left behind.
+    run_sysand_ok(&cwd, &["build"], None)?;
+
+    let mut server = Server::new();
+    let config_mock = mock_index_config_api_at_api(&mut server);
+    let publish_mock = mock_publish_with_bearer(&mut server, "test-token");
+    let env = bearer_env_for_url(server.url().as_str());
+
+    run_sysand_in_with(
+        &cwd,
+        ["publish", "--index", server.url().as_str()],
+        None,
+        &env,
+    )?
+    .assert()
+    .success();
+
+    config_mock.assert();
+    publish_mock.assert();
+    Ok(())
+}
+
+// ------------------------ publishing a workspace in dependency order
+
+/// A `model.toml` member at `at`, with a license file, a source, a
+/// metamodel and optional `dir` usages of its siblings.
+///
+/// A *toml* member: a toml build rewrites an inter-member `dir` usage into
+/// a typed index usage constrained to the target's version, which
+/// publishes.
+fn workspace_member(root: &Utf8Path, at: &str, deps: &[&str]) -> TestResult {
+    let cwd = root.join(at);
+    fs::create_dir_all(&cwd)?;
+    let mut manifest = format!(
+        r#"manifest-version = "1.0"
+
+[project]
+publisher = "example-pub1"
+name = "{at}"
+version = "1.0.0"
+license = "MIT"
+metamodel = "https://www.omg.org/spec/SysML/20250201"
+sources = ["test.sysml"]
+"#
+    );
+    for dep in deps {
+        let name = dep.rsplit('/').next().unwrap_or(dep);
+        manifest.push_str(
+            r#"
+[[inline-usages]]
+publisher = "example-pub1"
+name = ""#,
+        );
+        manifest.push_str(name);
+        manifest.push_str("\"\ndir = \"");
+        manifest.push_str(dep);
+        manifest.push_str("\"\n");
+    }
+    fs::write(cwd.join("model.toml"), manifest)?;
+    fs::write(cwd.join("test.sysml"), "package P;\n")?;
+    fs::create_dir(cwd.join("LICENSES"))?;
+    fs::File::create(cwd.join("LICENSES/MIT.txt"))?;
+    Ok(())
+}
+
+fn workspace_of(root: &Utf8Path, members: &[&str]) -> TestResult {
+    let entries: Vec<String> = members.iter().map(|m| format!("\"{m}\"")).collect();
+    fs::write(
+        root.join("model.toml"),
+        format!(
+            "manifest-version = \"1.0\"\n\n[workspace]\nmembers = [{}]\n",
+            entries.join(", ")
+        ),
+    )?;
+    Ok(())
+}
+
+/// Every member is published, in dependency order. The order is read from
+/// stderr's byte offsets: a mock records a hit count, and `contains` is
+/// order-blind.
+#[test]
+fn publish_workspace_publishes_every_member() -> TestResult {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    workspace_of(&cwd, &["gamma", "beta", "alpha"])?;
+    workspace_member(&cwd, "alpha", &[])?;
+    workspace_member(&cwd, "beta", &["../alpha"])?;
+    workspace_member(&cwd, "gamma", &["../beta"])?;
+    run_sysand_ok(&cwd, &["build"], None)?;
+
+    let mut server = Server::new();
+    let config_mock = mock_index_config_api_at_api(&mut server);
+    let upload_mock = mock_publish_with_bearer_times(&mut server, "test-token", 3);
+    let env = bearer_env_for_url(server.url().as_str());
+
+    let out = run_sysand_in_with(
+        &cwd,
+        ["publish", "--index", server.url().as_str()],
+        None,
+        &env,
+    )?;
+    out.clone().assert().success();
+    // The config mock is `expect(1)`: discovery is a property of the
+    // index, not of the archive, so it must not repeat per member.
+    config_mock.assert();
+    upload_mock.assert();
+
+    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+    let at = |name: &str| {
+        stderr
+            .find(&format!("Published example-pub1/{name}"))
+            .unwrap_or_else(|| panic!("`{name}` was not reported as published:\n{stderr}"))
+    };
+    assert!(
+        at("alpha") < at("beta") && at("beta") < at("gamma"),
+        "members must publish dependency-first:\n{stderr}"
+    );
+    Ok(())
+}
+
+/// "a failure stops the sequence and reports what was published".
+#[test]
+fn publish_workspace_stops_at_the_first_failure() -> TestResult {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    workspace_of(&cwd, &["gamma", "beta", "alpha"])?;
+    workspace_member(&cwd, "alpha", &[])?;
+    workspace_member(&cwd, "beta", &["../alpha"])?;
+    workspace_member(&cwd, "gamma", &["../beta"])?;
+    run_sysand_ok(&cwd, &["build"], None)?;
+
+    let mut server = Server::new();
+    let config_mock = mock_index_config_api_at_api(&mut server);
+    // The 201 is created first, so it takes the first request; the
+    // rejection then takes the second. A third upload would push it to
+    // two hits and fail its assert.
+    let ok_mock = mock_publish_with_bearer_times(&mut server, "test-token", 1);
+    let reject_mock = server
+        .mock("POST", "/api/v1/upload")
+        .with_status(409)
+        .with_body("conflict")
+        .expect(1)
+        .create();
+    let env = bearer_env_for_url(server.url().as_str());
+
+    run_sysand_in_with(
+        &cwd,
+        ["publish", "--index", server.url().as_str()],
+        None,
+        &env,
+    )?
+    .assert()
+    .failure()
+    .stderr(predicate::str::contains("already published"))
+    .stderr(predicate::str::contains("example-pub1/alpha"));
+    config_mock.assert();
+    ok_mock.assert();
+    reject_mock.assert();
+    Ok(())
+}
+
+/// The archive exists and is not a zip. Unlike a *missing* archive,
+/// which the existence check catches wherever it sits, this is only
+/// found before the first upload if every payload is prepared up front.
+#[test]
+fn publish_workspace_with_a_malformed_archive_uploads_nothing() -> TestResult {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    workspace_of(&cwd, &["beta", "alpha"])?;
+    workspace_member(&cwd, "alpha", &[])?;
+    workspace_member(&cwd, "beta", &["../alpha"])?;
+    run_sysand_ok(&cwd, &["build"], None)?;
+    // `beta` comes second in dependency order.
+    fs::write(
+        cwd.join("output/example-pub1_beta_1.0.0.kpar"),
+        b"not a zip\n",
+    )?;
+
+    let mut server = Server::new();
+    // The config mock matters: without it the command fails at
+    // discovery, before any upload, and the test could not tell a
+    // payload prepared up front from one prepared in the loop.
+    let _config_mock = mock_index_config_api_at_api(&mut server);
+    let upload_mock = mock_publish_with_bearer_times(&mut server, "test-token", 0);
+    let env = bearer_env_for_url(server.url().as_str());
+
+    run_sysand_in_with(
+        &cwd,
+        ["publish", "--index", server.url().as_str()],
+        None,
+        &env,
+    )?
+    .assert()
+    .failure();
+    upload_mock.assert();
+    Ok(())
+}
+
+/// From a member directory, only that member.
+#[test]
+fn publish_from_a_member_directory_publishes_only_that_member() -> TestResult {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    workspace_of(&cwd, &["beta", "alpha"])?;
+    workspace_member(&cwd, "alpha", &[])?;
+    workspace_member(&cwd, "beta", &[])?;
+    run_sysand_ok(&cwd, &["build"], None)?;
+
+    let mut server = Server::new();
+    let config_mock = mock_index_config_api_at_api(&mut server);
+    let upload_mock = mock_publish_with_bearer_times(&mut server, "test-token", 1);
+    let env = bearer_env_for_url(server.url().as_str());
+
+    run_sysand_in_with(
+        &cwd.join("alpha"),
+        ["publish", "--index", server.url().as_str()],
+        None,
+        &env,
+    )?
+    .assert()
+    .success()
+    .stderr(predicate::str::contains("Published example-pub1/alpha"));
+    config_mock.assert();
+    upload_mock.assert();
+    Ok(())
+}
+
+/// `--member <name>` from the root publishes exactly that member.
+///
+/// The negative assertions use the qualified `example-pub1/<name>`, as the
+/// bare directory name would also match a path in an error line.
+#[test]
+fn publish_member_from_the_root_publishes_one() -> TestResult {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    workspace_of(&cwd, &["gamma", "beta", "alpha"])?;
+    workspace_member(&cwd, "alpha", &[])?;
+    workspace_member(&cwd, "beta", &["../alpha"])?;
+    workspace_member(&cwd, "gamma", &["../beta"])?;
+    run_sysand_ok(&cwd, &["build"], None)?;
+
+    let mut server = Server::new();
+    let config_mock = mock_index_config_api_at_api(&mut server);
+    let upload_mock = mock_publish_with_bearer_times(&mut server, "test-token", 1);
+    let env = bearer_env_for_url(server.url().as_str());
+
+    let out = run_sysand_in_with(
+        &cwd,
+        [
+            "publish",
+            "--member",
+            "beta",
+            "--index",
+            server.url().as_str(),
+        ],
+        None,
+        &env,
+    )?;
+    out.clone().assert().success();
+    config_mock.assert();
+    upload_mock.assert();
+
+    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+    assert!(
+        stderr.contains("Published example-pub1/beta"),
+        "`beta` must be the one published:\n{stderr}"
+    );
+    for other in ["example-pub1/alpha", "example-pub1/gamma"] {
+        assert!(
+            !stderr.contains(other),
+            "`{other}` must not be published:\n{stderr}"
+        );
+    }
+    Ok(())
+}
+
+/// `--workspace` from a member directory publishes every member, in
+/// dependency order.
+#[test]
+fn publish_workspace_from_a_member_dir_publishes_every_member() -> TestResult {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    workspace_of(&cwd, &["gamma", "beta", "alpha"])?;
+    workspace_member(&cwd, "alpha", &[])?;
+    workspace_member(&cwd, "beta", &["../alpha"])?;
+    workspace_member(&cwd, "gamma", &["../beta"])?;
+    run_sysand_ok(&cwd, &["build"], None)?;
+
+    let mut server = Server::new();
+    let config_mock = mock_index_config_api_at_api(&mut server);
+    let upload_mock = mock_publish_with_bearer_times(&mut server, "test-token", 3);
+    let env = bearer_env_for_url(server.url().as_str());
+
+    let out = run_sysand_in_with(
+        &cwd.join("beta"),
+        ["publish", "--workspace", "--index", server.url().as_str()],
+        None,
+        &env,
+    )?;
+    out.clone().assert().success();
+    config_mock.assert();
+    upload_mock.assert();
+
+    // `contains` is order-blind, so the order is the byte offsets.
+    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+    let at = |name: &str| {
+        stderr
+            .find(&format!("Published example-pub1/{name}"))
+            .unwrap_or_else(|| panic!("`{name}` was not published:\n{stderr}"))
+    };
+    assert!(
+        at("alpha") < at("beta") && at("beta") < at("gamma"),
+        "members must publish dependency-first:\n{stderr}"
+    );
+    Ok(())
+}
+
+/// A built Syside KPAR passes publish's validation and is uploaded. It is
+/// built from the extracted form of a Syside archive, since a Syside
+/// `model.toml` names `root` alone and is not built yet.
+#[cfg(feature = "syside-kpar")]
+#[test]
+fn publish_accepts_a_built_syside_kpar() -> TestResult {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    write_syside_json_project(
+        &cwd,
+        "widgets",
+        "1.0.0",
+        serde_json::json!([]),
+        &["Widgets"],
+        &[
+            ("main.sysml", b"package Widgets;\n"),
+            ("README.md", b"# widgets\n"),
+            ("LICENSES/MIT.txt", b"MIT\n"),
+        ],
+    )?;
+    let info =
+        fs::read_to_string(cwd.join(".project.json"))?.replacen('{', r#"{"license":"MIT","#, 1);
+    fs::write(cwd.join(".project.json"), info)?;
+    run_sysand_ok(&cwd, &["build"], None)?;
+
+    let mut server = Server::new();
+    let config_mock = mock_index_config_api_at_api(&mut server);
+    let publish_mock = server
+        .mock("POST", "/api/v1/upload")
+        .match_header("authorization", "Bearer test-token")
+        .with_status(201)
+        .with_body("created")
+        .expect(1)
+        .create();
+
+    let env = bearer_env_for_url(server.url().as_str());
+    run_sysand_in_with(
+        &cwd,
+        ["publish", "--index", server.url().as_str()],
+        None,
+        &env,
+    )?
+    .assert()
+    .success();
+    publish_mock.assert();
+    config_mock.assert();
     Ok(())
 }
