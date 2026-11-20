@@ -49,6 +49,7 @@ sha2 = { version = "0.11", default-features = false }
 # and deprecates others, and deprecated identifiers are refused, so a bump
 # can reject a `license` a published project already uses; see RELEASE.md.
 spdx = { version = "=0.13.6", default-features = false, features = ["std"] }
+sysand = { path = "sysand", default-features = false }
 sysand-core = { path = "core" }
 thiserror = { version = "2.0.18", default-features = false, features = ["std"] }
 tokio = { version = "1.50.0", default-features = false }

@@ -28,7 +28,6 @@ use sysand::{
             get_or_create_lockfile, sync_context,
         },
     },
-    context::{ContextOptions, discover_context},
     get_overrides, http_options_from_env, standard_auth_policy, sync_lock_mode,
 };
 use sysand_core::{
@@ -49,6 +48,7 @@ use sysand_core::{
         local_fs::{load_configs, read_config},
     },
     context::{EditError, ManifestStep, ProjectContext},
+    context_discovery::{ContextError, ContextOptions, discover_context},
     discover::{Ancestry, Seek},
     env::{
         DEFAULT_ENV_NAME, PutProjectError, ReadEnvironment,
@@ -740,7 +740,7 @@ fn project_context(
         lock,
     ) {
         Ok(discovered) => Ok(discovered.ctx),
-        Err(err) => Err(context_error_to_pyerr(&err.into_error())),
+        Err(err) => Err(context_error_to_pyerr(err)),
     }
 }
 
@@ -760,7 +760,7 @@ fn init_context(start: &Utf8Path) -> PyResult<ProjectContext> {
         |_| None,
     ) {
         Ok(discovered) => Ok(discovered.ctx),
-        Err(err) => Err(context_error_to_pyerr(&err.into_error())),
+        Err(err) => Err(context_error_to_pyerr(err)),
     }
 }
 
@@ -785,15 +785,25 @@ fn project_context_at(
 /// A held workspace lock is a `LockHeldError`, failing to take one an
 /// `OSError`, and an unreadable `.sysand` an `EnvError`; anything else is
 /// a `ProjectError`.
-fn context_error_to_pyerr(err: &anyhow::Error) -> PyErr {
-    let message = format_err(&**err);
-    if let Some(err) = err.downcast_ref::<EnvMetadataError>() {
-        return env_error(err);
-    }
-    match err.downcast_ref::<WorkspaceLockError>() {
-        Some(WorkspaceLockError::Held { root: _ }) => PyLockHeldError::new_err(message),
-        Some(WorkspaceLockError::Io(_)) => PyIOError::new_err(message),
-        None => ProjectError::new_err(message),
+fn context_error_to_pyerr(err: ContextError) -> PyErr {
+    let message = format_err(&err);
+    match err {
+        ContextError::Environment(err) => env_error(&err),
+        ContextError::Lock(WorkspaceLockError::Held { root: _ }) => {
+            PyLockHeldError::new_err(message)
+        }
+        ContextError::Lock(WorkspaceLockError::Io(_)) => PyIOError::new_err(message),
+        ContextError::Fs(_)
+        | ContextError::Workspace(_)
+        | ContextError::Load(_)
+        | ContextError::Select(_)
+        | ContextError::Project(_)
+        | ContextError::ForeignLock(_)
+        | ContextError::NotInProject(_)
+        | ContextError::MemberNeedsWorkspace {
+            selector: _,
+            cwd: _,
+        } => ProjectError::new_err(message),
     }
 }
 

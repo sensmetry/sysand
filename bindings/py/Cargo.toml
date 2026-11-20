@@ -24,7 +24,7 @@ kpar-ppmd = ["sysand-core/kpar-ppmd", "sysand/kpar-ppmd"]
 
 [dependencies]
 sysand-core = { workspace = true, features = ["python", "filesystem", "networking"] }
-sysand = { path = "../../sysand", default-features = false }
+sysand = { workspace = true }
 anyhow.workspace = true
 camino.workspace = true
 fluent-uri.workspace = true

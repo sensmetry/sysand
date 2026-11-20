@@ -22,7 +22,7 @@ use jni::{
     sys::{JNI_ERR, jint},
     vm::JavaVM,
 };
-use sysand::context::{ContextOptions, discover_context};
+use sysand_core::context_discovery::{ContextOptions, discover_context};
 use sysand_core::{
     auth::Unauthenticated,
     cancel::CancellationToken,
@@ -685,7 +685,7 @@ fn load_project_context(path: &Utf8Path) -> Result<ProjectContext, String> {
         },
         |_| None,
     )
-    .map_err(|failure| format_err(&*failure.into_error()))?;
+    .map_err(|error| format_err(&error))?;
     let ctx = discovered.ctx;
     match ctx.project_root() {
         Some(root) if wrapfs::canonicalize(&root).map_err(format_err)? == canonical => Ok(ctx),

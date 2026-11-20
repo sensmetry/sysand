@@ -15,6 +15,8 @@ pub mod auth;
 pub mod cancel;
 pub mod config;
 pub mod context;
+#[cfg(feature = "filesystem")]
+pub mod context_discovery;
 pub mod credential_store;
 pub mod env;
 mod format_migrate;
