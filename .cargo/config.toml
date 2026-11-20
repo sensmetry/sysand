@@ -1,3 +1,7 @@
+[alias]
+docs = "doc --workspace --no-deps --all-features"
+lint = "clippy --workspace --all-targets --all-features -- --deny warnings"
+
 # Dependency cooldown: the resolver ignores registry versions published less
 # than 7 days ago, unless they are already in `Cargo.lock`.
 [registry]

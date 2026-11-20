@@ -1,0 +1,10 @@
+# User-facing messages start lowercase. Only flags a capital
+# followed by a lowercase letter, so messages starting with an acronym or
+# initialism (`IRI`, `HTTP`, `KPAR`) are not matched.
+id: error-message-capitalized
+severity: warning
+language: rust
+rule:
+  kind: attribute_item
+  regex: '^#\[error\(\s*"[A-Z][a-z]'
+message: "error message starts with a capital letter; start lowercase"

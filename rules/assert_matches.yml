@@ -26,13 +26,20 @@ rule:
         pattern:
           context: assert!(matches!($$$ARGS))
           strictness: cst
+    # The loose pattern also matches `assert!(!matches!(...))`.
+    - not:
+        regex: '^assert!\(\s*!'
 message: "manual `assert_matches!()`; can't be safely auto-fixed due to comment"
 ---
 id: assert-matches-msg
 severity: warning
 language: rust
 rule:
-  pattern: assert!(matches!($$$ARGS), $$$MSG)
+  all:
+    - pattern: assert!(matches!($$$ARGS), $$$MSG)
+    # The pattern also matches `assert!(!matches!(...), ...)`.
+    - not:
+        regex: '^assert!\(\s*!'
 message: "manual `assert_matches!()` (custom message, so no fix offered)"
 ---
 # Debug assert
@@ -63,11 +70,18 @@ rule:
         pattern:
           context: debug_assert!(matches!($$$ARGS))
           strictness: cst
+    # The loose pattern also matches `debug_assert!(!matches!(...))`.
+    - not:
+        regex: '^debug_assert!\(\s*!'
 message: "manual `debug_assert_matches!()`; a comment near the assertion blocks the automatic fix, convert by hand"
 ---
 id: debug-assert-matches-msg
 severity: warning
 language: rust
 rule:
-  pattern: debug_assert!(matches!($$$ARGS), $$$MSG)
+  all:
+    - pattern: debug_assert!(matches!($$$ARGS), $$$MSG)
+    # The pattern also matches `debug_assert!(!matches!(...), ...)`.
+    - not:
+        regex: '^debug_assert!\(\s*!'
 message: "manual `debug_assert_matches!()` (custom message, so no fix offered)"

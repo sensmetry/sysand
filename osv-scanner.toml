@@ -23,3 +23,51 @@ reason = "unmaintained `zbus_names`, pulled in by `keyring` via zbus 5; no upgra
 id = "RUSTSEC-2026-0372"
 ignoreUntil = 2027-04-20
 reason = "unmaintained `zvariant_derive`, pulled in by `keyring` via zbus 5; no upgrade path yet"
+
+# heapless 0.8 comes in through gix -> gix-hash -> faster-hex 0.10, which pins
+# heapless 0.8. faster-hex uses it only when its `alloc` feature is off, and
+# `alloc` is always on here, so no code calls it. Revisit once gix moves to faster-hex 1.0.
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0574"
+ignoreUntil = 2027-01-19
+reason = "use after free in `FindMutView::pop`"
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0575"
+ignoreUntil = 2027-01-19
+reason = "`Spsc::peek` ordering bug"
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0576"
+ignoreUntil = 2027-01-19
+reason = "`IndexMap::truncate` inconsistent state"
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0577"
+ignoreUntil = 2027-01-19
+reason = "panicking `Drop` leading to UB"
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0578"
+ignoreUntil = 2027-01-19
+reason = "`SortedLinkedList::zeroize` inconsistent state"
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0579"
+ignoreUntil = 2027-01-19
+reason = "wrong `Deque` from `TryFrom` when full"
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0580"
+ignoreUntil = 2027-01-19
+reason = "treiber stack race condition"
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0581"
+ignoreUntil = 2027-01-19
+reason = "`Deque::make_contiguous` broken invariants"
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0582"
+ignoreUntil = 2027-01-19
+reason = "`IndexMap::insert` broken invariant at `u16::MAX` elements"

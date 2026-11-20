@@ -1,0 +1,11 @@
+# No commented-out code. Matches plain `//` comments (not doc
+# comments) whose text is a Rust statement, item header or closing brace.
+id: commented-out-code
+severity: hint
+language: rust
+rule:
+  kind: line_comment
+  not:
+    regex: "^//[/!]"
+  regex: '^//\s*(let\s.*;|(pub\s+)?(async\s+)?fn\s.*\{|use\s.*;|\}\)?;?|[\w:.]+\(.*\);|match\s.*\{|if\s.*\{|for\s.*\{|return\b.*;)\s*$'
+message: "commented-out code; delete it"
