@@ -5,6 +5,8 @@ use std::collections::HashMap;
 
 use fluent_uri::component::Scheme;
 
+#[cfg(feature = "filesystem")]
+use crate::workspace::model_toml::Workspace;
 use crate::{
     model::InterchangeProjectUsage,
     project::{ProjectRead, utils::Identifier},
@@ -57,9 +59,9 @@ impl IRIPredicate for AcceptAll {
     }
 }
 
-/// Accepts only `Resource` usages. Source overrides are keyed by the IRIs
-/// of resource usages, so they must not resolve typed usages that happen to
-/// share an [`Identifier`]
+/// Accepts only usages identified by their IRI: resource and remote KPAR
+/// usages. Source overrides are keyed by those IRIs, so they must not
+/// resolve typed usages that happen to share an [`Identifier`]
 #[derive(Debug, Clone, Copy)]
 pub struct AcceptResource;
 
@@ -70,13 +72,18 @@ impl IRIPredicate for AcceptResource {
             InterchangeProjectUsage::Resource {
                 resource: _,
                 version_constraint: _
+            } | InterchangeProjectUsage::RemoteKpar {
+                kpar_url: _,
+                publisher: _,
+                name: _
             }
         )
     }
 }
 
 impl<Project: ProjectRead + Clone> MemoryResolver<AcceptResource, Project> {
-    /// A resolver of only `Resource` usages, e.g. for source overrides
+    /// A resolver of only resource and remote KPAR usages, e.g. for source
+    /// overrides
     pub fn resources_only(projects: impl IntoIterator<Item = (Identifier, Vec<Project>)>) -> Self {
         Self {
             iri_predicate: AcceptResource,
@@ -96,6 +103,11 @@ impl IRIPredicate for AcceptScheme<'_> {
             InterchangeProjectUsage::Resource {
                 resource,
                 version_constraint: _,
+            }
+            | InterchangeProjectUsage::RemoteKpar {
+                kpar_url: resource,
+                publisher: _,
+                name: _,
             } => resource.scheme() == self.scheme,
             InterchangeProjectUsage::Directory {
                 dir: _,
@@ -120,6 +132,12 @@ impl<Predicate: IRIPredicate, ProjectStorage: ProjectRead + Clone> ResolveRead
     for MemoryResolver<Predicate, ProjectStorage>
 {
     type Error = !;
+
+    #[cfg(feature = "filesystem")]
+    fn within_workspace(self, _workspace: std::sync::Arc<Workspace>) -> Self {
+        // This resolver reads no local targets.
+        self
+    }
 
     type ProjectStorage = ProjectStorage;
 

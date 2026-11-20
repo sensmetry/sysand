@@ -36,7 +36,9 @@ fn mock_project<S: AsRef<str>, T: AsRef<str>, V: AsRef<str>>(
                 usage: vec![],
             }),
             meta: Some(InterchangeProjectMetadataRaw {
-                index: IndexMap::default(),
+                index: Some(IndexMap::default()),
+                root: None,
+                exports: None,
                 created: crate::model::format_created_now(),
                 metamodel: None,
                 includes_derived: None,
@@ -95,16 +97,40 @@ fn resolution_preference() {
     let foos = expect_to_resolve_iri(&resolver, "urn:kpar:foo");
 
     assert_eq!(foos.len(), 1);
-    assert_eq!(foos[0].version().unwrap(), Some("1.2.3".to_owned()));
+    assert_eq!(
+        foos[0]
+            .version_and_usage()
+            .unwrap()
+            .map(|read| read.version),
+        Some("1.2.3".to_owned())
+    );
 
     let bars = expect_to_resolve_iri(&resolver, "urn:kpar:bar");
 
     assert_eq!(bars.len(), 2);
-    assert_eq!(bars[0].version().unwrap(), Some("1.2.3".to_owned()));
-    assert_eq!(bars[1].version().unwrap(), Some("3.2.1".to_owned()));
+    assert_eq!(
+        bars[0]
+            .version_and_usage()
+            .unwrap()
+            .map(|read| read.version),
+        Some("1.2.3".to_owned())
+    );
+    assert_eq!(
+        bars[1]
+            .version_and_usage()
+            .unwrap()
+            .map(|read| read.version),
+        Some("3.2.1".to_owned())
+    );
 
     let bazs = expect_to_resolve_iri(&resolver, "urn:kpar:baz");
 
     assert_eq!(bazs.len(), 1);
-    assert_eq!(bazs[0].version().unwrap(), Some("3.2.1".to_owned()));
+    assert_eq!(
+        bazs[0]
+            .version_and_usage()
+            .unwrap()
+            .map(|read| read.version),
+        Some("3.2.1".to_owned())
+    );
 }

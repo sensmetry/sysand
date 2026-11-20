@@ -8,12 +8,15 @@ use std::{
 
 use thiserror::Error;
 
+use crate::project::VersionAndUsage;
+#[cfg(feature = "filesystem")]
+use crate::workspace::model_toml::Workspace;
 use crate::{
     context::ProjectContext,
     env::utils::ErrorBound,
     lock::Source,
-    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
-    project::{CanonicalizationError, ProjectRead},
+    manifest::edit::DocumentMut,
+    project::{CanonicalizationError, ProjectDefinition, ProjectFormat, ProjectRead},
     resolve::{ResolutionInfo, ResolveRead},
 };
 
@@ -108,15 +111,18 @@ impl<HigherProject: ProjectRead, LowerProject: ProjectRead> ProjectRead
 {
     type Error = PriorityError<HigherProject::Error, LowerProject::Error>;
 
-    fn get_project(
-        &self,
-    ) -> Result<
-        (
-            Option<InterchangeProjectInfoRaw>,
-            Option<InterchangeProjectMetadataRaw>,
-        ),
-        Self::Error,
-    > {
+    fn manifest_document(&self) -> Result<DocumentMut, crate::project::ManifestError<Self::Error>> {
+        match self {
+            Self::HigherProject(project) => project
+                .manifest_document()
+                .map_err(|e| e.map_project_read(PriorityError::Higher)),
+            Self::LowerProject(project) => project
+                .manifest_document()
+                .map_err(|e| e.map_project_read(PriorityError::Lower)),
+        }
+    }
+
+    fn get_project(&self) -> Result<Option<ProjectDefinition>, Self::Error> {
         match self {
             Self::HigherProject(project) => project.get_project().map_err(PriorityError::Higher),
             Self::LowerProject(project) => project.get_project().map_err(PriorityError::Lower),
@@ -144,6 +150,13 @@ impl<HigherProject: ProjectRead, LowerProject: ProjectRead> ProjectRead
         }
     }
 
+    fn format(&self) -> Result<ProjectFormat, Self::Error> {
+        match self {
+            Self::HigherProject(project) => project.format().map_err(PriorityError::Higher),
+            Self::LowerProject(project) => project.format().map_err(PriorityError::Lower),
+        }
+    }
+
     fn sources(&self, ctx: &ProjectContext) -> Result<Vec<Source>, Self::Error> {
         match self {
             Self::HigherProject(project) => project.sources(ctx).map_err(PriorityError::Higher),
@@ -158,31 +171,14 @@ impl<HigherProject: ProjectRead, LowerProject: ProjectRead> ProjectRead
         }
     }
 
-    fn get_info(&self) -> Result<Option<InterchangeProjectInfoRaw>, Self::Error> {
+    fn version_and_usage(&self) -> Result<Option<VersionAndUsage>, Self::Error> {
         match self {
-            Self::HigherProject(project) => project.get_info().map_err(PriorityError::Higher),
-            Self::LowerProject(project) => project.get_info().map_err(PriorityError::Lower),
-        }
-    }
-
-    fn get_meta(&self) -> Result<Option<InterchangeProjectMetadataRaw>, Self::Error> {
-        match self {
-            Self::HigherProject(project) => project.get_meta().map_err(PriorityError::Higher),
-            Self::LowerProject(project) => project.get_meta().map_err(PriorityError::Lower),
-        }
-    }
-
-    fn version(&self) -> Result<Option<String>, Self::Error> {
-        match self {
-            Self::HigherProject(project) => project.version().map_err(PriorityError::Higher),
-            Self::LowerProject(project) => project.version().map_err(PriorityError::Lower),
-        }
-    }
-
-    fn usage(&self) -> Result<Option<Vec<crate::model::InterchangeProjectUsageRaw>>, Self::Error> {
-        match self {
-            Self::HigherProject(project) => project.usage().map_err(PriorityError::Higher),
-            Self::LowerProject(project) => project.usage().map_err(PriorityError::Lower),
+            Self::HigherProject(project) => {
+                project.version_and_usage().map_err(PriorityError::Higher)
+            }
+            Self::LowerProject(project) => {
+                project.version_and_usage().map_err(PriorityError::Lower)
+            }
         }
     }
 
@@ -224,6 +220,16 @@ impl<HigherProject: ProjectRead, LowerProject: ProjectRead> ProjectRead
 }
 
 impl<Higher: ResolveRead, Lower: ResolveRead> ResolveRead for PriorityResolver<Higher, Lower> {
+    /// Both halves: either may be the one that reads local paths, and a
+    /// resolver that does not care has a default that ignores it.
+    #[cfg(feature = "filesystem")]
+    fn within_workspace(self, workspace: std::sync::Arc<Workspace>) -> Self {
+        Self {
+            higher: self.higher.within_workspace(workspace.clone()),
+            lower: self.lower.within_workspace(workspace),
+        }
+    }
+
     type Error = PriorityError<Higher::Error, Lower::Error>;
 
     type ProjectStorage = PriorityProject<Higher::ProjectStorage, Lower::ProjectStorage>;
