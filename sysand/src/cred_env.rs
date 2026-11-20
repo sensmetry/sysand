@@ -13,7 +13,10 @@
 //! keeps its own lenient reading, so it stays usable against a private
 //! index even when an unrelated group is malformed.
 
-#![expect(clippy::field_scoped_visibility_modifiers)]
+#![expect(
+    clippy::field_scoped_visibility_modifiers,
+    reason = "fields are shared within the crate but not exported"
+)]
 
 use std::collections::HashMap;
 

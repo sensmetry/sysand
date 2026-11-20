@@ -3,39 +3,32 @@
 
 use super::{blob_full_message, cred_env_var_stem};
 use jiff::{SignedDuration, Timestamp};
+use sysand_core::commands::auth::IndexKey;
+
+fn stem(index_url: &str) -> String {
+    cred_env_var_stem(&IndexKey::validate(index_url).expect("a valid index URL"))
+}
 
 #[test]
 fn cred_env_var_stem_uses_the_uppercased_host() {
-    assert_eq!(
-        cred_env_var_stem("https://sysand.example/idx/"),
-        "SYSAND_EXAMPLE"
-    );
+    assert_eq!(stem("https://sysand.example/idx/"), "SYSAND_EXAMPLE");
 }
 
 #[test]
 fn cred_env_var_stem_includes_a_non_default_port() {
     // Two indexes on different ports of one host must not suggest the
     // same variable names.
-    assert_eq!(
-        cred_env_var_stem("https://sysand.example:8443/"),
-        "SYSAND_EXAMPLE_8443"
-    );
+    assert_eq!(stem("https://sysand.example:8443/"), "SYSAND_EXAMPLE_8443");
     assert_ne!(
-        cred_env_var_stem("https://sysand.example:8443/"),
-        cred_env_var_stem("https://sysand.example:9000/")
+        stem("https://sysand.example:8443/"),
+        stem("https://sysand.example:9000/")
     );
 }
 
 #[test]
 fn cred_env_var_stem_omits_a_scheme_default_port() {
-    assert_eq!(
-        cred_env_var_stem("https://sysand.example:443/"),
-        "SYSAND_EXAMPLE"
-    );
-    assert_eq!(
-        cred_env_var_stem("http://sysand.example:80/"),
-        "SYSAND_EXAMPLE"
-    );
+    assert_eq!(stem("https://sysand.example:443/"), "SYSAND_EXAMPLE");
+    assert_eq!(stem("http://sysand.example:80/"), "SYSAND_EXAMPLE");
 }
 
 #[test]
@@ -52,7 +45,7 @@ fn cred_env_var_stem_escapes_reserved_and_labelless_spellings() {
         ("https://bearer-token.example/", "BEARER_TOKEN_EXAMPLE"),
         ("https://x.example:1234/", "X_EXAMPLE_1234"),
     ] {
-        assert_eq!(cred_env_var_stem(key), expected, "for {key}");
+        assert_eq!(stem(key), expected, "for {key}");
     }
 }
 

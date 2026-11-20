@@ -214,12 +214,12 @@ mod windows {
 
     #[test]
     fn only_a_single_quote_char() {
-        assert_eq!(quote_for_shell("\""), "\"\\\"\"");
+        assert_eq!(quote_for_shell("\""), r#""\"""#);
     }
 
     #[test]
     fn multiple_quote_chars_with_no_backslashes() {
-        assert_eq!(quote_for_shell("\"\"\""), "\"\\\"\\\"\\\"\"");
+        assert_eq!(quote_for_shell(r#"""""#), r#""\"\"\"""#);
     }
 
     #[test]

@@ -62,9 +62,10 @@ pub enum DefaultIndexError {
 /// the consulted stage yields more than one distinct index, the target is
 /// ambiguous and an explicit URL is required.
 ///
-/// The variable is read here rather than through clap, as the `auth`
-/// commands have no `--default-index` option.
+/// The variable is read directly: the `auth` commands have no
+/// `--default-index` option.
 pub fn resolve_default_index(config: &Config) -> Result<IndexKey, DefaultIndexError> {
+    // ast-grep-ignore: dot-ok
     let env_candidates: Vec<IndexKey> = std::env::var(crate::env_vars::SYSAND_DEFAULT_INDEX)
         .ok()
         .map(|raw| {
@@ -83,6 +84,8 @@ pub fn resolve_default_index(config: &Config) -> Result<IndexKey, DefaultIndexEr
         config
             .default_index_locations()
             .into_iter()
+            // A filesystem index takes no credentials
+            .filter_map(|source| source.as_remote().cloned())
             .map(IndexKey::from)
             .collect()
     } else {
@@ -99,7 +102,11 @@ pub fn resolve_default_index(config: &Config) -> Result<IndexKey, DefaultIndexEr
     }
     match candidates.pop() {
         Some(key) => Ok(key),
-        None => Ok(default_index_location().into()),
+        None => Ok(default_index_location()
+            .as_remote()
+            .cloned()
+            .expect("BUG: the built-in default index is an HTTP(S) index")
+            .into()),
     }
 }
 
@@ -115,7 +122,7 @@ fn surface_name(surface: ProbeSurface) -> &'static str {
 /// (log output, suppressed under `--quiet`, like the `Stored`/`Covers`
 /// result lines); the rest are warnings. `index_key` names the login for
 /// the basic-auth hint.
-fn render_login_notice(notice: AuthLoginNotice, index_key: &str) {
+fn render_login_notice(notice: AuthLoginNotice, index_key: &IndexKey) {
     match notice {
         AuthLoginNotice::ReplacingExisting { key } => {
             let header = sysand_core::style::get_style_config().header;
@@ -161,9 +168,8 @@ fn render_login_notice(notice: AuthLoginNotice, index_key: &str) {
             );
             if schemes_include_basic(&challenge_schemes) {
                 let stem = cred_env_var_stem(index_key);
-                // Keep this basic-auth routing hint consistent with the
-                // refusal-path variant in core/src/commands/auth.rs
-                // (validation_rejected_message).
+                // Keep consistent with the basic-auth hint core gives when
+                // a login is refused.
                 log::warn!(
                     "this index uses username/password (HTTP basic) authentication;\n\
                          configure `SYSAND_CRED_{stem}_BASIC_USER` /\n\
@@ -210,17 +216,16 @@ pub fn command_auth_login(
 
     let secret = read_token(key.as_str(), token_stdin)?;
 
-    let mut store = open_cli_credential_store().context("could not open the credential store")?;
-    let index_key = key.to_string();
+    let store = open_cli_credential_store().context("could not open the credential store")?;
     let outcome = do_auth_login(
-        &mut store,
+        &store,
         &key,
         secret,
         client,
         http_options,
         &runtime,
         |notice| {
-            render_login_notice(notice, &index_key);
+            render_login_notice(notice, &key);
         },
     );
     match outcome {
@@ -229,8 +234,7 @@ pub fn command_auth_login(
             globs,
             validated,
         }) => {
-            // The claim is scoped to the surfaces that accepted; never a
-            // bare "validated".
+            // The claim is scoped to the surfaces that accepted.
             let claim = if validated.is_empty() {
                 "stored, not validated".to_owned()
             } else {
@@ -246,10 +250,14 @@ pub fn command_auth_login(
             log::info!("{header}{:>12}{header:#} {}", "Covers", globs.join(", "));
             Ok(())
         }
-        Ok(AuthLoginOutcome::BackendUnavailable { key, globs, reason }) => {
-            // No-keyring host: print the exact
-            // `SYSAND_CRED_*` lines to set instead. The secret is never
-            // echoed: stdout here typically lands in CI job logs.
+        Ok(AuthLoginOutcome::BackendUnavailable {
+            key: _,
+            globs,
+            reason,
+        }) => {
+            // No-keyring host: print the `SYSAND_CRED_*` lines to set instead.
+            // The secret is never echoed: stdout here typically lands in CI
+            // job logs.
             println!(
                 "No OS keyring backend is available ({reason}), so the credential\n\
                  was not stored."
@@ -288,8 +296,7 @@ pub fn command_auth_login(
 }
 
 /// Remediation message for the platform credential-store cap on
-/// `auth login` (Windows ~2.5 KB). Naming the `sysand auth` commands
-/// belongs in the CLI, not core. Lists already-expired logins as drop
+/// `auth login` (Windows ~2.5 KB). Lists already-expired logins as drop
 /// candidates; with no stored credentials there is nothing to remove.
 fn blob_full_message(stored: &[(&str, Option<Timestamp>)], now: Timestamp) -> String {
     let expired: Vec<&str> = stored
@@ -320,7 +327,7 @@ fn blob_full_message(stored: &[(&str, Option<Timestamp>)], now: Timestamp) -> St
 /// Read the login secret: from stdin when `--token-stdin` was given
 /// (trimming exactly one trailing newline), else from a hidden terminal
 /// prompt. Fails fast when stdin is not a terminal and `--token-stdin`
-/// was not given, instead of hanging or reading a pipe as a secret.
+/// was not given.
 fn read_token(key: &str, token_stdin: bool) -> Result<String> {
     let token = if token_stdin {
         let mut raw = String::new();
@@ -350,13 +357,10 @@ fn read_token(key: &str, token_stdin: bool) -> Result<String> {
 /// A stem whose `_`-mapped host text spells a reserved secret suffix or
 /// a bare role name (`_basic.pass`, `basic.user`) gets a `_0` tail so
 /// every suggested variable classifies back to the intended group.
-fn cred_env_var_stem(key: &str) -> String {
-    let url = url::Url::parse(key).ok();
-    let host = url
-        .as_ref()
-        .and_then(|url| url.host_str())
-        .unwrap_or("INDEX");
-    let mut stem: String = host
+fn cred_env_var_stem(key: &IndexKey) -> String {
+    let mut stem: String = key
+        .host()
+        .unwrap_or("INDEX")
         .chars()
         .map(|c| {
             if c.is_ascii_alphanumeric() {
@@ -366,9 +370,8 @@ fn cred_env_var_stem(key: &str) -> String {
             }
         })
         .collect();
-    // `url::Url` strips a scheme-default port during normalization, so
     // `port()` is `Some` exactly for non-default ports.
-    if let Some(port) = url.as_ref().and_then(url::Url::port) {
+    if let Some(port) = key.port() {
         stem.push('_');
         stem.push_str(&port.to_string());
     }
@@ -391,8 +394,8 @@ pub fn command_auth_logout(index_url: Option<IndexKey>, config: &Config) -> Resu
     // Print to ignore log levels
     println!("{header}{:>12}{header:#} from index `{key}`", "Logging out");
 
-    let mut store = open_cli_credential_store().context("could not open the credential store")?;
-    match do_auth_logout(&mut store, &key) {
+    let store = open_cli_credential_store().context("could not open the credential store")?;
+    match do_auth_logout(&store, &key) {
         Ok(key) => {
             log::info!(
                 "{header}{:>12}{header:#} stored credential for `{key}`",
@@ -692,8 +695,7 @@ pub fn command_auth_whoami(
         .publish_bearer_auth_map()
         .context("could not compile `SYSAND_CRED_*` URL patterns")?;
     // One store read serves both the discovery fetch and credential
-    // selection (at most one keychain touch per command); this is
-    // important to minimize, as each read may trigger a user prompt
+    // selection: each read may trigger a user prompt.
     let store = open_cli_credential_store().context("could not open the credential store")?;
     let records = match store.list() {
         Ok(records) => records,
