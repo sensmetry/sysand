@@ -4,11 +4,10 @@
 use super::highest_first;
 
 fn sorted(versions: &[Result<&str, &str>]) -> Vec<Result<String, String>> {
-    highest_first(
-        versions
-            .iter()
-            .map(|v| v.map(ToOwned::to_owned).map_err(ToOwned::to_owned)),
-    )
+    highest_first(versions.iter().map(|v| match *v {
+        Ok(v) => Ok(v.to_owned()),
+        Err(e) => Err(e.to_owned()),
+    }))
 }
 
 fn ok(versions: &[&str]) -> Vec<Result<String, String>> {

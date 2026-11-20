@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-// Resolve IRIs in an environment
+#[cfg(feature = "filesystem")]
+use crate::workspace::model_toml::Workspace;
 use crate::{
     env::{ReadEnvironment, ReadEnvironmentAsync},
     resolve::{ResolutionInfo, ResolutionOutcome, ResolveRead, ResolveReadAsync},
@@ -14,26 +15,32 @@ pub struct EnvResolver<Env> {
     pub env: Env,
 }
 
-/// `versions`, highest first by semver precedence, so that the solver, which
-/// takes the first candidate a source lists among those it may choose,
-/// chooses the highest. An environment need not list its versions in order
-/// (a local one lists them as installed); an index already does, and keeps
-/// its order. The sort is stable: versions of equal precedence (differing in
-/// build metadata only) keep their order. Versions that are not semver, and
-/// those that could not be read, come last, in their order.
+/// `versions`, highest first by semver precedence (the solver takes the
+/// first candidate a source lists). The sort is stable, so versions of equal
+/// precedence keep their order. Versions that are not semver, and those that
+/// could not be read, come last, in their order.
 // TODO: avoid reparsing: the solver parses each version again. Make
 // `ReadEnvironment::versions` return `semver::Version`, so that each
 // environment is responsible for its versions being valid
-fn highest_first<E>(
+fn highest_first<E: std::fmt::Display>(
     versions: impl IntoIterator<Item = Result<String, E>>,
 ) -> Vec<Result<String, E>> {
     let mut versions: Vec<_> = versions
         .into_iter()
         .map(|version| {
-            let parsed = version
-                .as_ref()
-                .ok()
-                .and_then(|v| semver::Version::parse(v).ok());
+            let parsed = match &version {
+                Ok(v) => match semver::Version::parse(v) {
+                    Ok(parsed) => Some(parsed),
+                    Err(err) => {
+                        log::debug!("version `{v}` is not semver: {err}");
+                        None
+                    }
+                },
+                Err(err) => {
+                    log::debug!("could not read a version: {err}");
+                    None
+                }
+            };
             (parsed, version)
         })
         .collect();
@@ -48,6 +55,12 @@ fn highest_first<E>(
 
 impl<Env: ReadEnvironment> ResolveRead for EnvResolver<Env> {
     type Error = Env::ReadError;
+
+    #[cfg(feature = "filesystem")]
+    fn within_workspace(self, _workspace: std::sync::Arc<Workspace>) -> Self {
+        // This resolver reads no local targets.
+        self
+    }
 
     type ProjectStorage = Env::InterchangeProjectRead;
 
@@ -80,6 +93,12 @@ impl<Env: ReadEnvironment> ResolveRead for EnvResolver<Env> {
 
 impl<Env: ReadEnvironmentAsync> ResolveReadAsync for EnvResolver<Env> {
     type Error = Env::ReadError;
+
+    #[cfg(feature = "filesystem")]
+    fn within_workspace(self, _workspace: std::sync::Arc<Workspace>) -> Self {
+        // This resolver reads no local targets.
+        self
+    }
 
     type ProjectStorage = Env::InterchangeProjectRead;
 
