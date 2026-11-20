@@ -173,7 +173,6 @@ SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
           <autoPublish>false</autoPublish>
         </configuration>
       </plugin>
-      <!--  -->
     </plugins>
   </build>
 </project>

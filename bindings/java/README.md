@@ -2,7 +2,7 @@
 
 The current iteration of bindings provides low-level API that exposes the
 Sysand commands as static Java methods. For example, currently there are no
-methods to programmatically modify `.project.json` or `.library.json` files,
+methods to programmatically modify a `model.toml` manifest,
 except in a few specific cases such as adding new dependencies. The proper
 high-level API is planned in the future once the internals of the Sysand
 reached sufficient maturity. Contributions towards the design of the high-level

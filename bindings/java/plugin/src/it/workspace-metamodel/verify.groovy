@@ -4,7 +4,7 @@
 import java.util.zip.ZipFile
 import groovy.json.JsonSlurper
 
-def kparFile = new File(basedir, "output/project1-0.0.1.kpar")
+def kparFile = new File(basedir, "output/sysand-it_project1_0.0.1.kpar")
 assert kparFile.exists() : "Expected kpar file not found: ${kparFile}"
 
 def zip = new ZipFile(kparFile)

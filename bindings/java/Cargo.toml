@@ -14,6 +14,8 @@ homepage.workspace = true
 [lib]
 name = "sysand"
 crate-type = ["cdylib"]
+# Otherwise conflicts with `sysand`
+doc = false
 
 [features]
 # `default` exists only to name the crypto provider this cdylib ships:
@@ -21,15 +23,16 @@ crate-type = ["cdylib"]
 # Java build would get `networking` with no provider and fail on the first
 # request. See `sysand-core`'s `tls-*` features.
 default = ["tls-aws-lc-rs"]
-tls-aws-lc-rs = ["sysand-core/tls-aws-lc-rs"]
-tls-ring = ["sysand-core/tls-ring"]
-kpar-bzip2 = ["sysand-core/kpar-bzip2"]
-kpar-zstd = ["sysand-core/kpar-zstd"]
-kpar-xz = ["sysand-core/kpar-xz"]
-kpar-ppmd = ["sysand-core/kpar-ppmd"]
+tls-aws-lc-rs = ["sysand-core/tls-aws-lc-rs", "sysand/tls-aws-lc-rs"]
+tls-ring = ["sysand-core/tls-ring", "sysand/tls-ring"]
+kpar-bzip2 = ["sysand-core/kpar-bzip2", "sysand/kpar-bzip2"]
+kpar-zstd = ["sysand-core/kpar-zstd", "sysand/kpar-zstd"]
+kpar-xz = ["sysand-core/kpar-xz", "sysand/kpar-xz"]
+kpar-ppmd = ["sysand-core/kpar-ppmd", "sysand/kpar-ppmd"]
 
 [dependencies]
 sysand-core = { workspace = true, features = ["filesystem", "networking"] }
+sysand = { path = "../../sysand", default-features = false }
 camino.workspace = true
 fluent-uri.workspace = true
 env_logger.workspace = true

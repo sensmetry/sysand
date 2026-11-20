@@ -25,7 +25,8 @@ def include(
     a file that is neither ``.sysml`` nor ``.kerml`` is refused.
 
     Args:
-        project_dir: The project directory, the one holding ``.meta.json``.
+        project_dir: The project directory, the one holding its manifest. A
+            directory inside a project is refused.
         src_path: The file to include, relative to ``project_dir``, with
             ``/`` as separator. It is not normalized.
         compute_checksum: Record the file's current SHA256 checksum.
