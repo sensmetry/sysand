@@ -3,7 +3,6 @@
 
 use std::sync::Arc;
 
-use camino::Utf8Path;
 use reqwest_middleware::ClientWithMiddleware;
 use thiserror::Error;
 use typed_path::Utf8UnixPath;
@@ -14,7 +13,6 @@ use crate::{
     context::ProjectContext,
     env::memory::MemoryStorageEnvironment,
     lock::Source,
-    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
     project::{
         AsSyncProjectTokio, ProjectRead, ProjectReadAsync as _,
         editable::EditableProject,
@@ -30,6 +28,7 @@ use crate::{
         utils::FsIoError,
     },
     resolve::memory::{AcceptResource, MemoryResolver},
+    workspace::model_toml,
 };
 
 use super::local_kpar::KparInnerPath;
@@ -47,8 +46,6 @@ pub enum AnyProject<Policy: HTTPAuthentication> {
 
 #[derive(Error, Debug)]
 pub enum TryFromSourceError {
-    #[error("unsupported source\n{0}")]
-    UnsupportedSource(String),
     #[error(transparent)]
     LocalKpar(Box<FsIoError>),
     #[error(transparent)]
@@ -59,23 +56,33 @@ pub enum TryFromSourceError {
     UrlParse(String, #[source] url::ParseError),
     #[error(transparent)]
     RemoteGit(GixDownloadedError),
+    /// An `[override]` naming a project under a workspace root that is
+    /// in neither `members` nor `exclude`.
+    #[error(transparent)]
+    Workspace(#[from] model_toml::DiscoverError),
 }
 
 // TODO: Find a better solution going from source to project.
 impl<Policy: HTTPAuthentication> AnyProject<Policy> {
-    pub fn try_from_override_source<P: AsRef<Utf8Path>>(
+    /// The project an override source names. A relative path is relative to
+    /// `ctx.config_root`, and a member of `ctx`'s workspace is read as loaded.
+    pub fn try_from_override_source(
         source: OverrideSource,
-        project_root: P,
+        ctx: &ProjectContext,
         auth_policy: Arc<Policy>,
         client: ClientWithMiddleware,
         runtime: Arc<tokio::runtime::Runtime>,
     ) -> Result<Self, TryFromSourceError> {
+        let project_root = &ctx.config_root;
+        let cancellation = ctx.cancellation.clone();
         match source {
             OverrideSource::Editable { editable } => {
-                let project = LocalSrcProject::new_access(
-                    project_root.as_ref().join(editable.as_str()),
+                // An `[override]` may name a workspace member, whose manifest
+                // resolves only against its table; this reads it as a member.
+                let project = ctx.project_at_path(
+                    project_root.join(editable.as_str()),
                     Some(editable.to_string().into()),
-                );
+                )?;
                 Ok(Self::Editable(EditableProject::<LocalSrcProject>::new(
                     editable.as_str().into(),
                     project,
@@ -83,17 +90,17 @@ impl<Policy: HTTPAuthentication> AnyProject<Policy> {
             }
             OverrideSource::LocalKpar { kpar_path } => {
                 Ok(Self::LocalKpar(LocalKParProject::new_access(
-                    project_root.as_ref().join(kpar_path.as_str()),
+                    project_root.join(kpar_path.as_str()),
                     KparInnerPath::Guess,
                     Some(kpar_path),
                 )))
             }
             OverrideSource::LocalSrc { src_path } => {
-                let project_path = project_root.as_ref().join(src_path.as_str());
-                Ok(Self::LocalSrc(LocalSrcProject::new_access(
-                    project_path,
-                    Some(src_path),
-                )))
+                // Read as a member, as for `Editable`.
+                let project_path = project_root.join(src_path.as_str());
+                Ok(Self::LocalSrc(
+                    ctx.project_at_path(project_path, Some(src_path))?,
+                ))
             }
             // TODO: use expected size
             OverrideSource::RemoteKpar { remote_kpar } => Ok(Self::RemoteKpar(
@@ -104,7 +111,7 @@ impl<Policy: HTTPAuthentication> AnyProject<Policy> {
                     None,
                 )
                 .map_err(TryFromSourceError::RemoteKpar)?
-                .to_tokio_sync(runtime),
+                .to_tokio_sync(runtime, cancellation),
             )),
             OverrideSource::RemoteSrc { remote_src } => Ok(Self::RemoteSrc(
                 ReqwestSrcProjectAsync::<Policy> {
@@ -114,7 +121,7 @@ impl<Policy: HTTPAuthentication> AnyProject<Policy> {
                     auth_policy,
                     expected_checksum: None,
                 }
-                .to_tokio_sync(runtime),
+                .to_tokio_sync(runtime, cancellation),
             )),
             OverrideSource::RemoteGit { remote_git } => Ok(Self::RemoteGit(
                 GixDownloadedProject::new(remote_git).map_err(TryFromSourceError::RemoteGit)?,

@@ -3,11 +3,12 @@
 
 use typed_path::Utf8UnixPathBuf;
 
+use crate::project::VersionAndUsage;
 use crate::{
     context::ProjectContext,
     lock::Source,
-    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
-    project::{ProjectFormat, ProjectRead},
+    manifest::edit::DocumentMut,
+    project::{ProjectDefinition, ProjectFormat, ProjectRead},
 };
 
 #[derive(Debug)]
@@ -40,31 +41,17 @@ impl<P: ProjectRead> EditableProject<P> {
 }
 
 impl<P: ProjectRead> ProjectRead for EditableProject<P> {
-    /// Forwarded, not defaulted: this type wraps another project, and
-    /// the default would claim json for a `model.toml` project it holds.
     fn format(&self) -> Result<ProjectFormat, Self::Error> {
         self.inner.format()
     }
 
-    /// Forwarded for the same reason as [`Self::format`].
-    fn manifest(
-        &self,
-    ) -> Result<crate::manifest::project::ResolvedProject, crate::project::ManifestError<Self::Error>>
-    {
-        self.inner.manifest()
+    fn manifest_document(&self) -> Result<DocumentMut, crate::project::ManifestError<Self::Error>> {
+        self.inner.manifest_document()
     }
 
     type Error = P::Error;
 
-    fn get_project(
-        &self,
-    ) -> Result<
-        (
-            Option<InterchangeProjectInfoRaw>,
-            Option<InterchangeProjectMetadataRaw>,
-        ),
-        Self::Error,
-    > {
+    fn get_project(&self) -> Result<Option<ProjectDefinition>, Self::Error> {
         self.inner.get_project()
     }
 
@@ -99,6 +86,10 @@ impl<P: ProjectRead> ProjectRead for EditableProject<P> {
 
     fn source_may_offer_multiple_versions(&self) -> bool {
         self.inner.source_may_offer_multiple_versions()
+    }
+
+    fn version_and_usage(&self) -> Result<Option<VersionAndUsage>, Self::Error> {
+        self.inner.version_and_usage()
     }
 
     fn checksum_canonical_variant(&self) -> Result<super::ProjectChecksum, Self::Error> {
