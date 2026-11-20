@@ -1,17 +1,23 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
+use thiserror::Error;
+
+use crate::project::VersionAndUsage;
 use crate::{
     context::ProjectContext,
     lock::Source,
-    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
-    project::{CanonicalizationError, ProjectFormat, ProjectRead, Utf8UnixPath},
+    manifest::edit::DocumentMut,
+    project::{
+        CanonicalizationError, ManifestError, ProjectDefinition, ProjectFormat, ProjectRead,
+        Utf8UnixPath,
+    },
 };
 
 /// Pair of project storages where `local` and `remote` contain the same project
-/// content, while `local` is easier and faster to access. The CachedProject is
-/// to be used in place of `remote` (in particular they return the same sources,
-/// unlike `local`) but faster access.
+/// content, while `local` is easier and faster to access. A `CachedProject`
+/// stands in for `remote`: it reports the same sources (unlike `local`) but
+/// reads faster.
 #[derive(Clone, Debug)]
 pub struct CachedProject<Local: ProjectRead, Remote: ProjectRead> {
     local: Local,
@@ -25,33 +31,31 @@ impl<Local: ProjectRead, Remote: ProjectRead> CachedProject<Local, Remote> {
     }
 }
 
+/// A read of the local copy failed, or a read of the remote, which only
+/// [`ProjectRead::sources`] does.
+#[derive(Error, Debug)]
+pub enum CachedProjectError<LocalError, RemoteError> {
+    #[error(transparent)]
+    Local(LocalError),
+    #[error(transparent)]
+    Remote(RemoteError),
+}
+
 impl<Local: ProjectRead, Remote: ProjectRead> ProjectRead for CachedProject<Local, Remote> {
-    /// Forwarded, not defaulted: this type wraps another project, and
-    /// the default would claim json for a `model.toml` project it holds.
     fn format(&self) -> Result<ProjectFormat, Self::Error> {
-        self.local.format()
+        self.local.format().map_err(CachedProjectError::Local)
     }
 
-    /// Forwarded for the same reason as [`Self::format`].
-    fn manifest(
-        &self,
-    ) -> Result<crate::manifest::project::ResolvedProject, crate::project::ManifestError<Self::Error>>
-    {
-        self.local.manifest()
+    fn manifest_document(&self) -> Result<DocumentMut, ManifestError<Self::Error>> {
+        self.local
+            .manifest_document()
+            .map_err(|error| error.map_project_read(CachedProjectError::Local))
     }
 
-    type Error = Local::Error;
+    type Error = CachedProjectError<Local::Error, Remote::Error>;
 
-    fn get_project(
-        &self,
-    ) -> Result<
-        (
-            Option<InterchangeProjectInfoRaw>,
-            Option<InterchangeProjectMetadataRaw>,
-        ),
-        Self::Error,
-    > {
-        self.local.get_project()
+    fn get_project(&self) -> Result<Option<ProjectDefinition>, Self::Error> {
+        self.local.get_project().map_err(CachedProjectError::Local)
     }
 
     type SourceReader<'a>
@@ -63,15 +67,13 @@ impl<Local: ProjectRead, Remote: ProjectRead> ProjectRead for CachedProject<Loca
         &self,
         path: P,
     ) -> Result<Self::SourceReader<'_>, Self::Error> {
-        self.local.read_source(path)
+        self.local
+            .read_source(path)
+            .map_err(CachedProjectError::Local)
     }
 
-    /// It is assumed here that `remote.sources()` is infallible
-    // Can't return error, since return type is local project error, but we call
-    // remote project sources
-    // TODO: more elegant solution
     fn sources(&self, ctx: &ProjectContext) -> Result<Vec<Source>, Self::Error> {
-        Ok(self.remote.sources(ctx).unwrap())
+        self.remote.sources(ctx).map_err(CachedProjectError::Remote)
     }
 
     fn source_may_offer_multiple_versions(&self) -> bool {
@@ -79,20 +81,10 @@ impl<Local: ProjectRead, Remote: ProjectRead> ProjectRead for CachedProject<Loca
         self.remote.source_may_offer_multiple_versions()
     }
 
-    fn get_info(&self) -> Result<Option<InterchangeProjectInfoRaw>, Self::Error> {
-        self.local.get_info()
-    }
-
-    fn get_meta(&self) -> Result<Option<InterchangeProjectMetadataRaw>, Self::Error> {
-        self.local.get_meta()
-    }
-
-    fn version(&self) -> Result<Option<String>, Self::Error> {
-        self.local.version()
-    }
-
-    fn usage(&self) -> Result<Option<Vec<crate::model::InterchangeProjectUsageRaw>>, Self::Error> {
-        self.local.usage()
+    fn version_and_usage(&self) -> Result<Option<VersionAndUsage>, Self::Error> {
+        self.local
+            .version_and_usage()
+            .map_err(CachedProjectError::Local)
     }
 
     fn is_definitely_invalid(&self) -> bool {
@@ -100,16 +92,17 @@ impl<Local: ProjectRead, Remote: ProjectRead> ProjectRead for CachedProject<Loca
     }
 
     fn checksum_canonical_hex(&self) -> Result<Option<String>, CanonicalizationError<Self::Error>> {
-        // Delegate to `local`: the cached project is the authoritative
-        // content and any checksum it produces matches the remote's.
-        // Delegating through the default would short-circuit back to
-        // `self.get_project` (also local) but without picking up any
-        // override a leaf might install.
-        self.local.checksum_canonical_hex()
+        // Delegate to `local`, whose checksum matches the remote's, so a
+        // leaf's own override is picked up.
+        self.local
+            .checksum_canonical_hex()
+            .map_err(|error| error.map_project_read(CachedProjectError::Local))
     }
 
     fn checksum_canonical_variant(&self) -> Result<super::ProjectChecksum, Self::Error> {
-        self.local.checksum_canonical_variant()
+        self.local
+            .checksum_canonical_variant()
+            .map_err(CachedProjectError::Local)
     }
 
     fn project_root(&self) -> Option<&camino::Utf8Path> {

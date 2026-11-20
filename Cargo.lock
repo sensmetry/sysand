@@ -3947,9 +3947,11 @@ dependencies = [
  "serde_json",
  "sha2",
  "spdx",
+ "sysand-core",
  "sysand-macros",
  "thiserror",
  "tokio",
+ "tokio-util",
  "toml",
  "toml_edit",
  "typed-path",
@@ -3966,6 +3968,7 @@ dependencies = [
  "fluent-uri",
  "indexmap",
  "jni",
+ "sysand",
  "sysand-core",
  "tokio",
 ]
@@ -4114,6 +4117,7 @@ dependencies = [
  "libc",
  "mio",
  "pin-project-lite",
+ "signal-hook-registry",
  "socket2",
  "windows-sys 0.61.2",
 ]

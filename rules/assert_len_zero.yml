@@ -1,0 +1,9 @@
+# `assert!(x.is_empty())` trips clippy::assert_is_empty, so there is no autofix.
+# `assert_eq!(x, [])` prints the contents on failure, but only compiles when
+# `x` compares with an empty array (e.g. `Vec<T: PartialEq + Debug>`).
+id: assert-len-zero
+severity: warning
+language: rust
+rule:
+  pattern: assert_eq!($EXPR.len(), 0)
+message: "use `assert_eq!(x, [])` to show the contents on failure"

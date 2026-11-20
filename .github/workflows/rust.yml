@@ -176,12 +176,35 @@ jobs:
           echo "CC_${target//-/_}=musl-gcc" >> "$GITHUB_ENV"
           echo "CARGO_BUILD_TARGET=$target" >> "$GITHUB_ENV"
 
+      # The stdlib equivalence test builds the standard-library workspace
+      # fixture and compares the archives with the release OMG
+      # published. The sources are deliberately not in this repository,
+      # so one entry checks the release out; everywhere else the test
+      # prints a skip notice.
+      - name: check out the SysML v2 release (for the stdlib equivalence test)
+        if: matrix.os == 'ubuntu-22.04' && matrix.libc == 'gnu'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          repository: Systems-Modeling/SysML-v2-Release
+          # Not `2025-02`, although that tag is named like this spec
+          # version: the library kept changing after February, so its
+          # sources do not reproduce `stdlib_assets/20250201`. `2025-09`
+          # does.
+          ref: 2025-09
+          path: sysml-v2-release
+
       - name: cargo test ... (Rust library & CLI)
+        env:
+          # Read by the stdlib tests of both packages, which is why both are
+          # tested in one step. Unset elsewhere, where those tests report
+          # the skip.
+          SYSAND_STDLIB_SOURCES: ${{ (matrix.os == 'ubuntu-22.04' && matrix.libc == 'gnu') && format('{0}/sysml-v2-release', github.workspace) || '' }}
         run: >-
           cargo test --locked
           --package sysand-core
           --package sysand
-          --features sysand-core/filesystem,sysand-core/networking,sysand-core/keyring,alltests,kpar-bzip2,kpar-zstd,kpar-xz,kpar-ppmd
+          --features sysand-core/filesystem,sysand-core/networking,sysand-core/keyring,alltests,syside-kpar,kpar-bzip2,kpar-zstd,kpar-xz,kpar-ppmd
 
   build:
     needs: [plan]

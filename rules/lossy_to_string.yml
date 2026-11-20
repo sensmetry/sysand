@@ -1,0 +1,9 @@
+# `Cow<str>::to_string` always copies through `Display`; `into_owned` reuses
+# the allocation when the lossy conversion already had to make one.
+id: lossy-to-string
+severity: info
+language: rust
+rule:
+  pattern: $EXPR.to_string_lossy().to_string()
+fix: $EXPR.to_string_lossy().into_owned()
+message: "use `.into_owned()` instead of `.to_string()` on the `Cow`"

@@ -5,10 +5,14 @@ use std::io::{self, Read};
 
 use thiserror::Error;
 
+use crate::project::VersionAndUsage;
+#[cfg(feature = "filesystem")]
+use crate::workspace::model_toml::Workspace;
 use crate::{
     context::ProjectContext,
     lock::Source,
-    project::{CanonicalizationError, ProjectRead},
+    manifest::edit::DocumentMut,
+    project::{CanonicalizationError, ProjectDefinition, ProjectRead},
     resolve::{ResolutionInfo, ResolveRead, null::NullResolver},
 };
 
@@ -72,15 +76,25 @@ impl<HTTPProject: ProjectRead, GitProject: ProjectRead> ProjectRead
 {
     type Error = RemoteProjectError<HTTPProject::Error, GitProject::Error>;
 
-    fn get_project(
-        &self,
-    ) -> Result<
-        (
-            Option<crate::model::InterchangeProjectInfoRaw>,
-            Option<crate::model::InterchangeProjectMetadataRaw>,
-        ),
-        Self::Error,
-    > {
+    fn format(&self) -> Result<crate::project::ProjectFormat, Self::Error> {
+        match self {
+            Self::HTTPProject(project) => project.format().map_err(RemoteProjectError::HTTPRead),
+            Self::GitProject(project) => project.format().map_err(RemoteProjectError::GitRead),
+        }
+    }
+
+    fn manifest_document(&self) -> Result<DocumentMut, crate::project::ManifestError<Self::Error>> {
+        match self {
+            Self::HTTPProject(project) => project
+                .manifest_document()
+                .map_err(|e| e.map_project_read(RemoteProjectError::HTTPRead)),
+            Self::GitProject(project) => project
+                .manifest_document()
+                .map_err(|e| e.map_project_read(RemoteProjectError::GitRead)),
+        }
+    }
+
+    fn get_project(&self) -> Result<Option<ProjectDefinition>, Self::Error> {
         match self {
             Self::HTTPProject(project) => {
                 project.get_project().map_err(RemoteProjectError::HTTPRead)
@@ -133,31 +147,14 @@ impl<HTTPProject: ProjectRead, GitProject: ProjectRead> ProjectRead
         }
     }
 
-    fn get_info(&self) -> Result<Option<crate::model::InterchangeProjectInfoRaw>, Self::Error> {
+    fn version_and_usage(&self) -> Result<Option<VersionAndUsage>, Self::Error> {
         match self {
-            Self::HTTPProject(project) => project.get_info().map_err(RemoteProjectError::HTTPRead),
-            Self::GitProject(project) => project.get_info().map_err(RemoteProjectError::GitRead),
-        }
-    }
-
-    fn get_meta(&self) -> Result<Option<crate::model::InterchangeProjectMetadataRaw>, Self::Error> {
-        match self {
-            Self::HTTPProject(project) => project.get_meta().map_err(RemoteProjectError::HTTPRead),
-            Self::GitProject(project) => project.get_meta().map_err(RemoteProjectError::GitRead),
-        }
-    }
-
-    fn version(&self) -> Result<Option<String>, Self::Error> {
-        match self {
-            Self::HTTPProject(project) => project.version().map_err(RemoteProjectError::HTTPRead),
-            Self::GitProject(project) => project.version().map_err(RemoteProjectError::GitRead),
-        }
-    }
-
-    fn usage(&self) -> Result<Option<Vec<crate::model::InterchangeProjectUsageRaw>>, Self::Error> {
-        match self {
-            Self::HTTPProject(project) => project.usage().map_err(RemoteProjectError::HTTPRead),
-            Self::GitProject(project) => project.usage().map_err(RemoteProjectError::GitRead),
+            Self::HTTPProject(project) => project
+                .version_and_usage()
+                .map_err(RemoteProjectError::HTTPRead),
+            Self::GitProject(project) => project
+                .version_and_usage()
+                .map_err(RemoteProjectError::GitRead),
         }
     }
 
@@ -274,6 +271,19 @@ impl<HTTPResolver: ResolveRead, GitResolver: ResolveRead> ResolveRead
     for RemoteResolver<HTTPResolver, GitResolver>
 {
     type Error = RemoteResolverError<HTTPResolver::Error, GitResolver::Error>;
+
+    #[cfg(feature = "filesystem")]
+    fn within_workspace(self, workspace: std::sync::Arc<Workspace>) -> Self {
+        Self {
+            http_resolver: self
+                .http_resolver
+                .map(|resolver| resolver.within_workspace(workspace.clone())),
+            git_resolver: self
+                .git_resolver
+                .map(|resolver| resolver.within_workspace(workspace)),
+            priority: self.priority,
+        }
+    }
 
     type ProjectStorage = RemoteProject<HTTPResolver::ProjectStorage, GitResolver::ProjectStorage>;
 

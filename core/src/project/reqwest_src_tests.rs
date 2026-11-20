@@ -8,6 +8,7 @@ use typed_path::Utf8UnixPath;
 
 use crate::{
     auth::Unauthenticated,
+    cancel::CancellationToken,
     context::ProjectContext,
     lock::Source,
     project::{ProjectRead as _, ProjectReadAsync as _, reqwest_src::ReqwestSrcProjectAsync},
@@ -28,11 +29,14 @@ fn empty_remote_definitely_invalid_http_src() -> Result<(), Box<dyn std::error::
         auth_policy: Arc::new(Unauthenticated {}),
         expected_checksum: None,
     }
-    .to_tokio_sync(Arc::new(
-        tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()?,
-    ));
+    .to_tokio_sync(
+        Arc::new(
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()?,
+        ),
+        CancellationToken::new(),
+    );
 
     assert!(project.is_definitely_invalid());
 
@@ -43,7 +47,6 @@ fn empty_remote_definitely_invalid_http_src() -> Result<(), Box<dyn std::error::
 fn basic_project_urls_http_src() -> Result<(), Box<dyn std::error::Error>> {
     let mut server = mockito::Server::new();
 
-    //let host = server.host_with_port();
     let url = reqwest::Url::parse(&server.url()).unwrap();
 
     let info_mock = server
@@ -83,13 +86,20 @@ fn basic_project_urls_http_src() -> Result<(), Box<dyn std::error::Error>> {
         auth_policy: Arc::new(Unauthenticated {}),
         expected_checksum: None,
     }
-    .to_tokio_sync(Arc::new(
-        tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()?,
-    ));
+    .to_tokio_sync(
+        Arc::new(
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()?,
+        ),
+        CancellationToken::new(),
+    );
 
-    let (Some(info), Some(meta)) = project.get_project()? else {
+    let (Some(info), Some(meta)) = project
+        .get_project()?
+        .and_then(crate::project::ProjectDefinition::into_json)
+        .unzip()
+    else {
         panic!()
     };
 
@@ -103,8 +113,9 @@ fn basic_project_urls_http_src() -> Result<(), Box<dyn std::error::Error>> {
 
     assert_eq!(src, src_buf);
 
-    let Err(super::ReqwestSrcError::BadStatus(..)) =
-        project.read_source(Utf8UnixPath::new("Mekanik/Kommandoh.sysml").to_path_buf())
+    let Err(crate::cancel::Cancellable::Inner(super::ReqwestSrcError::Http(
+        crate::redact::HttpFailure::BadHttpStatus { url: _, status: _ },
+    ))) = project.read_source(Utf8UnixPath::new("Mekanik/Kommandoh.sysml").to_path_buf())
     else {
         panic!();
     };
@@ -117,9 +128,8 @@ fn basic_project_urls_http_src() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 /// Userinfo in a remote src URL is kept verbatim in the lockfile source.
-/// Intended: the URL (password included) is exactly what the user wrote in
-/// `.project.json` or `sysand.toml`, which are not secret, and sysand's own
-/// credentials are sent as headers, never put into URLs.
+/// Intended: the URL (password included) is what the user wrote in
+/// `.project.json` or `sysand.toml`, which are not secret.
 #[test]
 fn sources_keep_userinfo_verbatim() -> Result<(), Box<dyn std::error::Error>> {
     let remote_src = "https://user:pass@example.com/project/";
@@ -175,11 +185,14 @@ fn remote_project_without_version_names_the_key() -> Result<(), Box<dyn std::err
         auth_policy: Arc::new(Unauthenticated {}),
         expected_checksum: None,
     }
-    .to_tokio_sync(Arc::new(
-        tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()?,
-    ));
+    .to_tokio_sync(
+        Arc::new(
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()?,
+        ),
+        CancellationToken::new(),
+    );
 
     let error = project
         .get_project()

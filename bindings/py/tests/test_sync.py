@@ -9,9 +9,12 @@ import json
 from pathlib import Path
 
 import pytest
+from conftest import write_json_project
 from mockindex import MockIndex, usage
 
 import sysand
+
+SYSML = "https://www.omg.org/spec/SysML/20250201"
 
 DEP = "pkg:sysand/mock/dep"
 OTHER = "pkg:sysand/mock/other"
@@ -24,7 +27,7 @@ def resolution(index: MockIndex) -> sysand.Resolution:
 def project_with(tmp_path: Path, usages: list[dict]) -> Path:
     root = tmp_path / "proj"
     root.mkdir()
-    sysand.init(project_dir=root, name="proj", publisher="acme", version="1.0.0")
+    write_json_project(root, "acme", "proj", "1.0.0")
     manifest = json.loads((root / ".project.json").read_text())
     manifest["usage"] = usages
     (root / ".project.json").write_text(json.dumps(manifest, indent=2) + "\n")
@@ -89,7 +92,8 @@ def test_sync_prunes_projects_not_in_lockfile(
 
     extra = tmp_path / "extra"
     extra.mkdir()
-    sysand.init(project_dir=extra, name="extra", publisher="acme", version="0.1.0")
+    Path(extra).mkdir(parents=True, exist_ok=True)
+    write_json_project(Path(extra), "acme", "extra", "0.1.0")
     sysand.env.install_path(env_path=env_dir, iri="urn:kpar:extra", location=extra)
 
     assert any(
@@ -131,8 +135,8 @@ def test_sync_without_a_lockfile_fails_to_lock(
         sysand.sync(path=root, resolution=res)
     assert excinfo.value.wrote is False
     assert not (root / "sysand-lock.toml").exists()
-    assert not (root / sysand.env.DEFAULT_ENV_NAME).exists(), (
-        "nothing is created when locking fails"
+    assert not (root / sysand.env.DEFAULT_ENV_NAME / "env.toml").exists(), (
+        "no environment is created when locking fails"
     )
 
 
@@ -230,3 +234,26 @@ def test_sync_auth(tmp_path: Path, mock_index: MockIndex) -> None:
 
     outcome = sysand.sync(path=root, resolution=res, auth=bearer)
     assert changed(outcome["installed"]) == {(DEP, "1.0.0")}
+
+
+def test_sync_in_a_member_locks_the_whole_workspace(tmp_path: Path) -> None:
+    (tmp_path / "model.toml").write_text(
+        'manifest-version = "1.0"\n\n[workspace]\nmembers = ["alpha", "beta"]\n'
+    )
+    for name in ["alpha", "beta"]:
+        (tmp_path / name).mkdir()
+        (tmp_path / name / "model.toml").write_text(
+            'manifest-version = "1.0"\n\n[project]\n'
+            f'publisher = "acme"\nname = "{name}"\nversion = "1.0.0"\n'
+            f'sources = []\nmetamodel = "{SYSML}"\n'
+        )
+
+    sysand.sync(
+        path=tmp_path / "alpha",
+        resolution=sysand.Resolution(use_index=False, use_config=False),
+    )
+
+    lockfile = (tmp_path / "sysand-lock.toml").read_text()
+    assert 'name = "alpha"' in lockfile
+    assert 'name = "beta"' in lockfile
+    assert not (tmp_path / "alpha" / "sysand-lock.toml").exists()

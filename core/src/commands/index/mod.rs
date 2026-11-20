@@ -24,6 +24,8 @@ use thiserror::Error;
 use crate::project::utils::FsIoError;
 
 pub const INDEX_FILE_NAME: &str = "index.json";
+/// The discovery document `sysand index init` writes.
+pub const INDEX_CONFIG_FILE_NAME: &str = "sysand-index-config.json";
 pub const VERSIONS_FILE_NAME: &str = "versions.json";
 pub const KPAR_FILE_NAME: &str = "project.kpar";
 pub const INFO_FILE_NAME: &str = ".project.json";
@@ -80,9 +82,9 @@ pub(crate) fn overwrite_file(
     contents: &str,
 ) -> Result<(), Box<FsIoError>> {
     let map_err = |e| Box::new(FsIoError::WriteFile(path.into(), e));
-    // Without this the new content would be appended to the end of the file if the file was read first
+    // The file was read first, so the cursor is at the end
     file.rewind().map_err(map_err)?;
-    // Without this if the file was longer previously, only the start of it would be overwritten
+    // Drop any longer old content
     file.set_len(0).map_err(map_err)?;
     file.write_all(contents.as_bytes()).map_err(map_err)
 }

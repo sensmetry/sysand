@@ -1,0 +1,35 @@
+# Clippy configuration. Lint levels are set in the workspace `Cargo.toml`;
+# this file only tunes the thresholds and exemptions those lints read.
+# Full key reference: https://doc.rust-lang.org/clippy/lint_configuration.html
+
+# Tests use `unwrap`/`expect` to fail fast on setup errors, and `panic!`
+# for assertions. The restriction lints for these are enabled workspace-wide.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true
+
+# Test helpers and failing tests print diagnostics with `println!`/`eprintln!`.
+allow-print-in-tests = true
+
+# Paths with up to three segments are allowed without a `use`.
+absolute-paths-max-segments = 3
+
+# The JNI bindings refer to `jni` items by absolute path throughout.
+absolute-paths-allowed-crates = ["jni"]
+
+# Lints suggest changes to exported items even when they would break downstream crates.
+avoid-breaking-exported-api = false
+
+# `exists`, `is_file`, `is_dir` and `is_symlink` turn every I/O error (e.g. permission
+# denied) into `false`, hiding the underlying error. Use `wrapfs::exists`,
+# `wrapfs::is_file` or `wrapfs::is_dir`, which report them.
+disallowed-methods = [
+  { path = "std::path::Path::exists", reason = "discards I/O errors; use `wrapfs::exists`" },
+  { path = "std::path::Path::is_file", reason = "discards I/O errors; use `wrapfs::is_file`" },
+  { path = "std::path::Path::is_dir", reason = "discards I/O errors; use `wrapfs::is_dir`" },
+  { path = "camino::Utf8Path::exists", reason = "discards I/O errors; use `wrapfs::exists`" },
+  { path = "camino::Utf8Path::is_file", reason = "discards I/O errors; use `wrapfs::is_file`" },
+  { path = "camino::Utf8Path::is_dir", reason = "discards I/O errors; use `wrapfs::is_dir`" },
+  { path = "std::path::Path::is_symlink", reason = "discards I/O errors; inspect `std::fs::symlink_metadata`" },
+  { path = "camino::Utf8Path::is_symlink", reason = "discards I/O errors; inspect `std::fs::symlink_metadata`" },
+]

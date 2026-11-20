@@ -19,7 +19,7 @@ fn resolve<R: ResolveRead>(
 
 #[test]
 fn basic_url_examples() -> Result<(), Box<dyn std::error::Error>> {
-    let res = GitResolver {};
+    let res = GitResolver::default();
 
     let ResolutionOutcome::Resolved(mut one_http_proj) =
         resolve(&res, "http://www.example.com/proj")?

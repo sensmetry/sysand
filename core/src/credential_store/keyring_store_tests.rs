@@ -39,7 +39,7 @@ fn store_at(
 fn read_modify_write_persists_records() {
     let dir = tempdir().unwrap();
     let backend = InMemoryBlobBackend::default();
-    let mut store = store_at(backend.clone(), &dir);
+    let store = store_at(backend.clone(), &dir);
 
     assert_eq!(store.list().unwrap(), []);
     store.upsert(record("https://a.example/", "tok-a")).unwrap();
@@ -54,7 +54,7 @@ fn read_modify_write_persists_records() {
     assert_eq!(records.len(), 2);
     assert_eq!(records[0].secret, "tok-a2");
 
-    let mut store = other;
+    let store = other;
     assert!(store.remove("https://a.example/").unwrap());
     assert!(!store.remove("https://a.example/").unwrap());
     assert_eq!(store.list().unwrap().len(), 1);
@@ -73,7 +73,7 @@ fn read_modify_write_persists_records() {
 fn corrupt_blob_fails_closed_and_is_not_clobbered() {
     let dir = tempdir().unwrap();
     let backend = InMemoryBlobBackend::with_contents("not json at all");
-    let mut store = store_at(backend.clone(), &dir);
+    let store = store_at(backend.clone(), &dir);
 
     assert_matches!(store.list().unwrap_err(), CredentialStoreError::Unreadable);
     assert_matches!(
@@ -97,7 +97,7 @@ fn corrupt_blob_fails_closed_and_is_not_clobbered() {
 fn lock_wait_is_bounded() {
     let dir = tempdir().unwrap();
     let lock_path: Utf8PathBuf = dir.path().join("credentials.lock");
-    let mut store = LockedBlobStore::new(InMemoryBlobBackend::default(), lock_path.clone())
+    let store = LockedBlobStore::new(InMemoryBlobBackend::default(), lock_path.clone())
         .with_lock_timing(Duration::from_millis(100), Duration::from_millis(10));
 
     // Hold the advisory lock on a separate file descriptor; flock and
@@ -152,7 +152,7 @@ fn lock_path_prefers_state_then_data_local_then_home() {
 fn shared_lock_lets_reads_through_but_blocks_writes() {
     let dir = tempdir().unwrap();
     let lock_path: Utf8PathBuf = dir.path().join("credentials.lock");
-    let mut store = LockedBlobStore::new(InMemoryBlobBackend::default(), lock_path.clone())
+    let store = LockedBlobStore::new(InMemoryBlobBackend::default(), lock_path.clone())
         .with_lock_timing(Duration::from_millis(100), Duration::from_millis(10));
     store.upsert(record("https://a.example/", "tok")).unwrap();
 
@@ -256,7 +256,7 @@ fn concurrent_writers_do_not_lose_records() {
             let backend = backend.clone();
             let lock_path = lock_path.clone();
             std::thread::spawn(move || {
-                let mut store = LockedBlobStore::new(backend, lock_path);
+                let store = LockedBlobStore::new(backend, lock_path);
                 for i in 0..2 {
                     store
                         .upsert(record(&format!("https://w{writer}.example/{i}/"), "tok"))

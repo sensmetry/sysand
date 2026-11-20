@@ -73,8 +73,7 @@ repos:
       - id: prettier
         exclude: |-
           (?x)(
-              stdlib_assets/|
-              \.lock
+              stdlib_assets/
           )
 
   # Autoformat: Ensure SPDX license and copyright headers

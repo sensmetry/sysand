@@ -15,6 +15,7 @@ use sysand_core::{
         local_directory::{LocalDirectoryEnvironment, METADATA_PATH},
     },
     lock::{Lockfile, Source},
+    workspace_lock::LOCK_FILE_NAME,
 };
 
 // pub due to https://github.com/rust-lang/rust/issues/46379
@@ -23,11 +24,10 @@ pub use common::*;
 
 #[test]
 fn sync_to_current() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("d", "sync_to_current", "1.2.3")?;
+    let (_temp_dir, cwd) =
+        cli_init_project_checked(None, "delta", "sync-to-current", "1.2.3", None)?;
 
     fs::write(cwd.join("test.sysml"), b"package P;\n")?;
-
-    out.assert().success();
 
     let out = run_sysand_in(&cwd, ["include", "test.sysml"], None)?;
 
@@ -51,8 +51,8 @@ fn sync_to_current() -> Result<(), Box<dyn std::error::Error>> {
 version = "0.2"
 
 [[project]]
-publisher = "d"
-name = "sync_to_current"
+publisher = "delta"
+name = "sync-to-current"
 version = "1.2.3"
 path = "."
 editable = true
@@ -63,24 +63,23 @@ editable = true
 
     let mut entry_names: Vec<_> = entries?
         .iter()
-        .map(|e| e.file_name().to_string_lossy().to_string())
+        .map(|e| e.file_name().to_string_lossy().into_owned())
         .collect();
 
     entry_names.sort();
 
-    assert_eq!(entry_names, [METADATA_PATH]);
+    assert_eq!(entry_names, [LOCK_FILE_NAME, METADATA_PATH]);
 
     Ok(())
 }
 
 #[test]
+/// The setup adds resource usages with `sysand add --iri`, which only a `.project.json` project can declare.
 fn repeated_sync_keeps_lockfile_and_env_toml_stable() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "lock_sync_stable", "1.2.3")?;
-    out.assert().success().stdout(predicate::str::is_empty());
+    let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "lock-sync-stable", "1.2.3", None)?;
 
-    let (_dep_temp_dir, dep_cwd, out) =
-        cli_init_project_basic("a", "lock_sync_stable_dep", "2.0.0")?;
-    out.assert().success().stdout(predicate::str::is_empty());
+    let (_dep_temp_dir, dep_cwd) =
+        cli_init_json_project(None, "acme", "lock-sync-stable-dep", "2.0.0", None)?;
 
     let config_path = cwd.join("sysand.toml");
     let cfg = Some(config_path.as_str());
@@ -211,6 +210,63 @@ src_cksum = "fd4566669f12f969e04aa970d27659057357d078d00530d442de21d517959f92"
     Ok(())
 }
 
+/// A `src_path` project edited after locking fails the sync: its checksum
+/// is computed from the directory and compared with the lockfile's
+#[test]
+fn sync_fails_on_an_edited_src_path_dependency() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+
+    let proj_dir = cwd.join("lib").join("edited");
+    fs::create_dir_all(&proj_dir)?;
+    fs::write(
+        proj_dir.join(".project.json"),
+        r#"{
+  "name": "edited",
+  "version": "1.2.3",
+  "description": "written after locking"
+}
+"#,
+    )?;
+    fs::write(
+        proj_dir.join(".meta.json"),
+        r#"{
+  "index": {},
+  "created": "2025-06-12T10:48:55.597880Z"
+}
+"#,
+    )?;
+    let locked = "fd4566669f12f969e04aa970d27659057357d078d00530d442de21d517959f92";
+    fs::write(
+        cwd.join(DEFAULT_LOCKFILE_NAME),
+        format!(
+            r#"lock_version = "0.6"
+
+[[project]]
+name = "edited"
+version = "1.2.3"
+identifiers = ["urn:kpar:edited"]
+sources = [
+    {{ src_path = "lib/edited", checksum = "{locked}" }},
+]
+"#
+        ),
+    )?;
+
+    run_sysand_in(&cwd, ["sync"], None)?
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "incorrect checksum for project with `urn:kpar:edited` in lockfile",
+        ))
+        .stderr(predicate::str::contains(format!("expected `src:{locked}`")));
+    assert!(
+        !exists(cwd.join(DEFAULT_ENV_NAME).join("lib/kpar.edited_1.2.3")),
+        "nothing is installed"
+    );
+
+    Ok(())
+}
+
 #[test]
 fn sync_to_remote() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
@@ -222,8 +278,7 @@ fn sync_to_remote() -> Result<(), Box<dyn std::error::Error>> {
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(r#"{"name":"sync_to_remote","version":"1.2.3"}"#)
-        // One more to check the project against the lockfile before installing
-        .expect(3) // TODO: Reduce this to 1 after caching
+        .expect(2) // TODO: Reduce this to 1 after caching
         .match_request(|r| r.has_header(header::USER_AGENT))
         .create();
 
@@ -313,8 +368,7 @@ fn sync_to_remote_auth() -> Result<(), Box<dyn std::error::Error>> {
         .with_status(404)
         .with_header("content-type", "application/json")
         .with_body(r#"{"name":"sync_to_remote","version":"1.2.3"}"#)
-        // One more to check the project against the lockfile before installing
-        .expect(3) // TODO: Reduce this to 1
+        .expect(2) // TODO: Reduce this to 1
         .create();
 
     let info_mock_auth = server
@@ -326,8 +380,7 @@ fn sync_to_remote_auth() -> Result<(), Box<dyn std::error::Error>> {
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(r#"{"name":"sync_to_remote","version":"1.2.3"}"#)
-        // One more to check the project against the lockfile before installing
-        .expect(3) // TODO: Reduce this to 1
+        .expect(2) // TODO: Reduce this to 1
         .create();
 
     let meta_mock = server
@@ -437,11 +490,12 @@ fn sync_to_remote_incorrect_auth() -> Result<(), Box<dyn std::error::Error>> {
         .expect(0)
         .create();
 
+    // Fetched alongside `.project.json`.
     let meta_mock = server
         .mock("GET", "/.meta.json")
         .match_header("authorization", Matcher::Missing)
         .with_status(404)
-        .expect(0)
+        .expect(1)
         .create();
 
     let meta_mock_auth = server
@@ -499,27 +553,25 @@ sources = [
 /// dep in env.toml without copying it, and also register the current project as
 /// editable. Re-running sync is idempotent.
 #[test]
+/// The setup adds resource usages with `sysand add --iri`, which only a `.project.json` project can declare.
 fn sync_env_toml_with_editable_and_non_editable() -> Result<(), Box<dyn std::error::Error>> {
     // Set up main project with .meta.json (required for sync to lock itself).
-    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "sync_mixed", "1.0.0")?;
-    out.assert().success();
+    let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "sync-mixed", "1.0.0", None)?;
     fs::write(cwd.join("P.sysml"), "package P;")?;
     run_sysand_in(&cwd, ["include", "P.sysml"], None)?
         .assert()
         .success();
 
     // Non-editable dep: needs .meta.json so sync can compute its checksum.
-    let (_tmp_src, cwd_src, out) = cli_init_project_basic("a", "sync_mixed_src", "2.0.0")?;
-    out.assert().success();
+    let (_tmp_src, cwd_src) = cli_init_json_project(None, "acme", "sync-mixed-src", "2.0.0", None)?;
     fs::write(cwd_src.join("Q.sysml"), "package Q;")?;
     run_sysand_in(&cwd_src, ["include", "Q.sysml"], None)?
         .assert()
         .success();
 
     // Editable dep: only .project.json is needed (no install, just reference).
-    let (_tmp_editable, cwd_editable, out) =
-        cli_init_project_basic("a", "sync_mixed_editable", "3.0.0")?;
-    out.assert().success();
+    let (_tmp_editable, cwd_editable) =
+        cli_init_json_project(None, "acme", "sync-mixed-editable", "3.0.0", None)?;
 
     let config_path = cwd.join("sysand.toml");
 
@@ -586,23 +638,21 @@ fn sync_env_toml_with_editable_and_non_editable() -> Result<(), Box<dyn std::err
 
     // Current project is registered as editable too.
     assert!(
-        env_toml.contains("sync_mixed"),
+        env_toml.contains("sync-mixed"),
         "current project missing from env.toml"
     );
 
     // Non-editable dep is physically present inside the env.
-    assert!(
+    assert!(is_dir(
         cwd.join(DEFAULT_ENV_NAME)
             .join("lib/kpar.sync-mixed-src_2.0.0")
-            .is_dir()
-    );
+    ));
 
     // Editable dep is NOT copied into the env lib directory.
-    assert!(
-        !cwd.join(DEFAULT_ENV_NAME)
+    assert!(!is_dir(
+        cwd.join(DEFAULT_ENV_NAME)
             .join("lib/kpar.sync-mixed-editable_3.0.0")
-            .is_dir()
-    );
+    ));
 
     // Second sync is idempotent.
     let out = run_sysand_in(&cwd, ["sync"], Some(config_path.as_str()))?;
@@ -619,8 +669,7 @@ fn sync_env_toml_with_editable_and_non_editable() -> Result<(), Box<dyn std::err
 /// synced
 #[test]
 fn sync_kpar_path_usage_transitive() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "app", "1.2.3")?;
-    out.assert().success().stdout(predicate::str::is_empty());
+    let (_temp_dir, cwd) = cli_init_project_checked(None, "acme", "app", "1.2.3", None)?;
 
     let deps_dir = cwd.join("deps");
     fs::create_dir_all(&deps_dir)?;
@@ -628,9 +677,7 @@ fn sync_kpar_path_usage_transitive() -> Result<(), Box<dyn std::error::Error>> {
     // `gadget`: a leaf KPAR, built elsewhere and placed at `deps/gadget.kpar`.
     let gadget_src = cwd.join("gadget_src");
     fs::create_dir_all(&gadget_src)?;
-    cli_init_project_in(&gadget_src, None, "c", Some("gadget"), Some("2.0.0"), None)?
-        .assert()
-        .success();
+    init_project_dir(&gadget_src, "charlie", "gadget", "2.0.0")?;
     run_sysand_in(&gadget_src, ["build", "../deps/gadget.kpar"], None)?
         .assert()
         .success();
@@ -639,9 +686,7 @@ fn sync_kpar_path_usage_transitive() -> Result<(), Box<dyn std::error::Error>> {
     // stored) relative to `widget`'s own directory.
     let widget_dir = deps_dir.join("widget");
     fs::create_dir_all(&widget_dir)?;
-    cli_init_project_in(&widget_dir, None, "b", Some("widget"), Some("1.0.0"), None)?
-        .assert()
-        .success();
+    init_project_dir(&widget_dir, "bravo", "widget", "1.0.0")?;
     run_sysand_in(
         &widget_dir,
         ["add", "--no-lock", "--kpar-path", "../gadget.kpar"],
@@ -673,16 +718,10 @@ fn sync_kpar_path_usage_transitive() -> Result<(), Box<dyn std::error::Error>> {
         .find(|p| p.name == "widget")
         .unwrap_or_else(|| panic!("`widget` missing from lockfile: {projects:#?}"));
     assert_eq!(widget.version, "1.0.0");
-    let [
-        Source::LocalSrc {
-            src_path,
-            checksum: _,
-        },
-    ] = widget.sources.as_slice()
-    else {
-        panic!("expected a single local src source for `widget`, got: {widget:#?}");
+    let [Source::Editable { editable }] = widget.sources.as_slice() else {
+        panic!("expected a single editable source for `widget`, got: {widget:#?}");
     };
-    assert_eq!(src_path.as_str(), "deps/widget");
+    assert_eq!(editable.as_str(), "deps/widget");
 
     let gadget = projects
         .iter()
@@ -723,23 +762,23 @@ fn sync_kpar_path_usage_transitive() -> Result<(), Box<dyn std::error::Error>> {
 /// `sync` must remove a project from `.sysand` once it is no longer present
 /// in the lockfile, while leaving dependencies that are still needed alone.
 #[test]
+/// The setup adds resource usages with `sysand add --iri`, which only a `.project.json` project can declare.
 fn sync_prunes_unneeded_dependency_by_default() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "prune_app", "1.0.0")?;
-    out.assert().success();
+    let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "prune-app", "1.0.0", None)?;
     fs::write(cwd.join("App.sysml"), "package App;")?;
     run_sysand_in(&cwd, ["include", "App.sysml"], None)?
         .assert()
         .success();
 
-    let (_tmp_keep, cwd_keep, out) = cli_init_project_basic("a", "prune_dep_keep", "1.0.0")?;
-    out.assert().success();
+    let (_tmp_keep, cwd_keep) =
+        cli_init_json_project(None, "acme", "prune-dep-keep", "1.0.0", None)?;
     fs::write(cwd_keep.join("Keep.sysml"), "package Keep;")?;
     run_sysand_in(&cwd_keep, ["include", "Keep.sysml"], None)?
         .assert()
         .success();
 
-    let (_tmp_drop, cwd_drop, out) = cli_init_project_basic("a", "prune_dep_drop", "1.0.0")?;
-    out.assert().success();
+    let (_tmp_drop, cwd_drop) =
+        cli_init_json_project(None, "acme", "prune-dep-drop", "1.0.0", None)?;
     fs::write(cwd_drop.join("Drop.sysml"), "package Drop;")?;
     run_sysand_in(&cwd_drop, ["include", "Drop.sysml"], None)?
         .assert()
@@ -782,8 +821,8 @@ fn sync_prunes_unneeded_dependency_by_default() -> Result<(), Box<dyn std::error
     run_sysand_in(&cwd, ["sync"], cfg)?.assert().success();
 
     let env_lib = cwd.join(DEFAULT_ENV_NAME).join("lib");
-    assert!(env_lib.join("kpar.prune-dep-keep_1.0.0").is_dir());
-    assert!(env_lib.join("kpar.prune-dep-drop_1.0.0").is_dir());
+    assert!(is_dir(env_lib.join("kpar.prune-dep-keep_1.0.0")));
+    assert!(is_dir(env_lib.join("kpar.prune-dep-drop_1.0.0")));
 
     // Drop the usage and regenerate the lockfile without touching the env:
     // `.sysand` still has `prune-dep-drop` installed, but the lockfile no
@@ -807,11 +846,11 @@ fn sync_prunes_unneeded_dependency_by_default() -> Result<(), Box<dyn std::error
     run_sysand_in(&cwd, ["sync"], cfg)?.assert().success();
 
     assert!(
-        env_lib.join("kpar.prune-dep-keep_1.0.0").is_dir(),
+        is_dir(env_lib.join("kpar.prune-dep-keep_1.0.0")),
         "still-needed dependency must not be pruned"
     );
     assert!(
-        !env_lib.join("kpar.prune-dep-drop_1.0.0").exists(),
+        !exists(env_lib.join("kpar.prune-dep-drop_1.0.0")),
         "unneeded dependency must be pruned from `.sysand` by default"
     );
 
@@ -831,23 +870,23 @@ fn sync_prunes_unneeded_dependency_by_default() -> Result<(), Box<dyn std::error
 /// `sync --no-prune` must leave a dependency that is no longer present in
 /// the lockfile installed in `.sysand`.
 #[test]
+/// The setup adds resource usages with `sysand add --iri`, which only a `.project.json` project can declare.
 fn sync_no_prune_keeps_unneeded_dependency() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "no_prune_app", "1.0.0")?;
-    out.assert().success();
+    let (_temp_dir, cwd) = cli_init_json_project(None, "acme", "no-prune-app", "1.0.0", None)?;
     fs::write(cwd.join("App.sysml"), "package App;")?;
     run_sysand_in(&cwd, ["include", "App.sysml"], None)?
         .assert()
         .success();
 
-    let (_tmp_keep, cwd_keep, out) = cli_init_project_basic("a", "no_prune_dep_keep", "1.0.0")?;
-    out.assert().success();
+    let (_tmp_keep, cwd_keep) =
+        cli_init_json_project(None, "acme", "no-prune-dep-keep", "1.0.0", None)?;
     fs::write(cwd_keep.join("Keep.sysml"), "package Keep;")?;
     run_sysand_in(&cwd_keep, ["include", "Keep.sysml"], None)?
         .assert()
         .success();
 
-    let (_tmp_drop, cwd_drop, out) = cli_init_project_basic("a", "no_prune_dep_drop", "1.0.0")?;
-    out.assert().success();
+    let (_tmp_drop, cwd_drop) =
+        cli_init_json_project(None, "acme", "no-prune-dep-drop", "1.0.0", None)?;
     fs::write(cwd_drop.join("Drop.sysml"), "package Drop;")?;
     run_sysand_in(&cwd_drop, ["include", "Drop.sysml"], None)?
         .assert()
@@ -890,8 +929,8 @@ fn sync_no_prune_keeps_unneeded_dependency() -> Result<(), Box<dyn std::error::E
     run_sysand_in(&cwd, ["sync"], cfg)?.assert().success();
 
     let env_lib = cwd.join(DEFAULT_ENV_NAME).join("lib");
-    assert!(env_lib.join("kpar.no-prune-dep-keep_1.0.0").is_dir());
-    assert!(env_lib.join("kpar.no-prune-dep-drop_1.0.0").is_dir());
+    assert!(is_dir(env_lib.join("kpar.no-prune-dep-keep_1.0.0")));
+    assert!(is_dir(env_lib.join("kpar.no-prune-dep-drop_1.0.0")));
 
     run_sysand_in(
         &cwd,
@@ -910,9 +949,9 @@ fn sync_no_prune_keeps_unneeded_dependency() -> Result<(), Box<dyn std::error::E
         .assert()
         .success();
 
-    assert!(env_lib.join("kpar.no-prune-dep-keep_1.0.0").is_dir());
+    assert!(is_dir(env_lib.join("kpar.no-prune-dep-keep_1.0.0")));
     assert!(
-        env_lib.join("kpar.no-prune-dep-drop_1.0.0").is_dir(),
+        is_dir(env_lib.join("kpar.no-prune-dep-drop_1.0.0")),
         "`--no-prune` must leave the unneeded dependency installed in `.sysand`"
     );
 
@@ -930,18 +969,9 @@ fn sync_no_prune_keeps_unneeded_dependency() -> Result<(), Box<dyn std::error::E
 /// records fails the sync, naming what differs
 #[test]
 fn sync_fails_on_a_renamed_directory_dependency() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "renamed_dir", "1.2.3")?;
-    out.assert().success();
-    cli_init_project_in(
-        &cwd,
-        Some("dep"),
-        "Acme Labs",
-        Some("My Lib"),
-        Some("1.0.0"),
-        None,
-    )?
-    .assert()
-    .success();
+    let (_temp_dir, cwd) = cli_init_project_checked(None, "acme", "renamed-dir", "1.2.3", None)?;
+    fs::create_dir_all(cwd.join("dep"))?;
+    init_project_dir(&cwd.join("dep"), "Acme Labs", "My Lib", "1.0.0")?;
     run_sysand_in(
         &cwd,
         ["add", "--no-index", "--no-sync", "--dir", "dep"],
@@ -950,14 +980,68 @@ fn sync_fails_on_a_renamed_directory_dependency() -> Result<(), Box<dyn std::err
     .assert()
     .success();
 
-    rename_project(&cwd.join("dep"), "My Lib", "My Library")?;
+    reinit_project_dir(&cwd.join("dep"), "Acme Labs", "My Library", "1.0.0")?;
 
     run_sysand_in(&cwd, ["sync", "--no-index"], None)?
         .assert()
         .failure()
         .stderr(predicate::str::contains(
-            "from src_path `dep` has name `My Library`,\nbut the lockfile records name `My Lib`",
-        ));
+            "from editable `dep` has name `My Library`,\nbut the lockfile records name `My Lib`",
+        ))
+        .stderr(predicate::str::contains("run `sysand lock`"));
+
+    Ok(())
+}
+
+/// `lock` records the standard-library entries with an empty source
+/// list, and a lockfile that pins a release Sysand does not know about
+/// is an error on `sync`.
+///
+/// The lockfile is written by hand, as `sync` does not re-lock when one is
+/// present: this is the state a repository reaches by locking with a newer
+/// Sysand and syncing with an older.
+#[test]
+fn sync_names_the_unknown_stdlib_release_the_lockfile_pins()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = run_sysand(
+        [
+            "init",
+            "--metamodel",
+            "https://www.omg.org/spec/KerML/20250201",
+            "--publisher",
+            "acme",
+            "--name",
+            "app",
+            "--version",
+            "1.0.0",
+        ],
+        None,
+    )?;
+    out.assert().success();
+
+    fs::write(
+        cwd.join(DEFAULT_LOCKFILE_NAME),
+        r#"lock_version = "0.5"
+
+[[project]]
+name = "Kernel Semantic Library"
+version = "9.9.9"
+identifiers = [
+    "https://www.omg.org/spec/KerML/20301231/Semantic-Library.kpar",
+]
+"#,
+    )?;
+
+    run_sysand_in(&cwd, ["sync"], None)?
+        .assert()
+        .failure()
+        // The core half: the library and the version it pins.
+        .stderr(predicate::str::contains(
+            "the lockfile pins standard library `Kernel Semantic Library` at `9.9.9`, \
+             which this Sysand does not know about",
+        ))
+        // And the CLI half, which is the CLI's to append.
+        .stderr(predicate::str::contains("--include-std"));
 
     Ok(())
 }
@@ -967,18 +1051,9 @@ fn sync_fails_on_a_renamed_directory_dependency() -> Result<(), Box<dyn std::err
 /// checked before anything in it is read
 #[test]
 fn sync_fails_on_a_rebuilt_kpar_dependency() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "renamed_kpar", "1.2.3")?;
-    out.assert().success();
-    cli_init_project_in(
-        &cwd,
-        Some("dep"),
-        "Acme Labs",
-        Some("My Lib"),
-        Some("1.0.0"),
-        None,
-    )?
-    .assert()
-    .success();
+    let (_temp_dir, cwd) = cli_init_project_checked(None, "acme", "renamed-kpar", "1.2.3", None)?;
+    fs::create_dir_all(cwd.join("dep"))?;
+    init_project_dir(&cwd.join("dep"), "Acme Labs", "My Lib", "1.0.0")?;
     let dep = cwd.join("dep");
     run_sysand_in(&dep, ["build", "../lib.kpar"], None)?
         .assert()
@@ -991,7 +1066,7 @@ fn sync_fails_on_a_rebuilt_kpar_dependency() -> Result<(), Box<dyn std::error::E
     .assert()
     .success();
 
-    rename_project(&dep, "My Lib", "My Library")?;
+    reinit_project_dir(&dep, "Acme Labs", "My Library", "1.0.0")?;
     run_sysand_in(&dep, ["build", "../lib.kpar"], None)?
         .assert()
         .success();
@@ -1009,7 +1084,7 @@ fn sync_fails_on_a_rebuilt_kpar_dependency() -> Result<(), Box<dyn std::error::E
 /// command line's own words
 #[test]
 fn sync_refuses_a_lockfile_a_newer_release_wrote() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "newer_lock", "1.2.3")?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("acme", "newer-lock", "1.2.3")?;
     out.assert().success();
     fs::write(cwd.join(DEFAULT_LOCKFILE_NAME), "lock_version = \"99.0\"\n")?;
 
@@ -1030,18 +1105,9 @@ fn sync_refuses_a_lockfile_a_newer_release_wrote() -> Result<(), Box<dyn std::er
 /// A lockfile whose recorded version is not the project's fails the sync
 #[test]
 fn sync_fails_on_a_lockfile_with_another_version() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "edited_lock", "1.2.3")?;
-    out.assert().success();
-    cli_init_project_in(
-        &cwd,
-        Some("dep"),
-        "Acme Labs",
-        Some("My Lib"),
-        Some("1.0.0"),
-        None,
-    )?
-    .assert()
-    .success();
+    let (_temp_dir, cwd) = cli_init_project_checked(None, "acme", "edited-lock", "1.2.3", None)?;
+    fs::create_dir_all(cwd.join("dep"))?;
+    init_project_dir(&cwd.join("dep"), "Acme Labs", "My Lib", "1.0.0")?;
     run_sysand_in(
         &cwd,
         ["add", "--no-index", "--no-sync", "--dir", "dep"],
@@ -1063,5 +1129,180 @@ fn sync_fails_on_a_lockfile_with_another_version() -> Result<(), Box<dyn std::er
             "has version `1.0.0`,\nbut the lockfile records version `1.0.1`",
         ));
 
+    Ok(())
+}
+
+/// The other half of the split: an entry with no sources that is *not* a
+/// standard library is a malformed lockfile, and its message carries no
+/// `--include-std` hint, which would not help it.
+#[test]
+fn a_non_stdlib_entry_without_sources_gets_no_include_std_hint()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = run_sysand(
+        [
+            "init",
+            "--metamodel",
+            "https://www.omg.org/spec/KerML/20250201",
+            "--publisher",
+            "acme",
+            "--name",
+            "app",
+            "--version",
+            "1.0.0",
+        ],
+        None,
+    )?;
+    out.assert().success();
+
+    fs::write(
+        cwd.join(DEFAULT_LOCKFILE_NAME),
+        r#"lock_version = "0.5"
+
+[[project]]
+publisher = "acme"
+name = "lib"
+version = "1.0.0"
+metamodel = "https://www.omg.org/spec/KerML/20250201"
+identifiers = ["pkg:sysand/acme/lib"]
+"#,
+    )?;
+
+    run_sysand_in(&cwd, ["sync"], None)?
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("has no known sources in lockfile"))
+        .stderr(predicate::str::contains("--include-std").not());
+
+    Ok(())
+}
+
+/// On the read side, a lockfile version that is not semver is a
+/// *warning*, and `sync` still runs.
+///
+/// The semver *error* is resolution-only, so it cannot fire from a
+/// lockfile read, but a warning is logged for every such version.
+#[test]
+fn sync_warns_on_a_non_semver_version() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    // A `.project.json` can carry a version that is not semver, which a
+    // `model.toml` refuses.
+    fs::write(
+        cwd.join(".project.json"),
+        r#"{"publisher":"acme","name":"app","version":"2023-11"}"#,
+    )?;
+    fs::write(
+        cwd.join(".meta.json"),
+        r#"{"index":{},"created":"1970-01-01T00:00:00Z","metamodel":"https://www.omg.org/spec/SysML/20250201"}"#,
+    )?;
+    fs::write(
+        cwd.join("sysand-lock.toml"),
+        r#"lock_version = "0.5"
+
+[[project]]
+publisher = "acme"
+name = "app"
+version = "2023-11"
+identifiers = ["urn:app"]
+sources = [{ editable = "." }]
+"#,
+    )?;
+
+    run_sysand_in(&cwd, ["sync"], None)?
+        .assert()
+        .success()
+        .stderr(predicate::str::contains(
+            "invalid semantic version `2023-11` for project `app`",
+        ));
+    Ok(())
+}
+
+/// A Syside project depending on an OMG project and a Syside archive
+/// locks and syncs in one pass, and the environment's layout is
+/// family-blind: a Syside archive installs where an OMG archive reached
+/// the same way would, with its whole checksummed file set.
+///
+/// The Syside projects are the extracted form of an archive: a Syside
+/// `model.toml` names `root` alone, and neither builds nor locks until
+/// the files it reaches can be found.
+#[cfg(feature = "syside-kpar")]
+#[test]
+fn a_syside_project_locks_and_syncs_a_syside_archive() -> Result<(), Box<dyn std::error::Error>> {
+    const OMG: &str = "https://www.omg.org/spec/SysML/20250201";
+    let (_temp_dir, root) = new_temp_cwd()?;
+    fs::create_dir_all(root.join("omg"))?;
+    write_toml_project(
+        root.join("omg"),
+        "omg",
+        "1.0.0",
+        &format!(
+            r#"sources = ["main.sysml"]
+metamodel = "{OMG}"
+"#
+        ),
+    )?;
+    fs::write(root.join("omg/main.sysml"), "package Omg;\n")?;
+    let cwd = root.join("app");
+    write_syside_json_project(
+        &cwd,
+        "app",
+        "1.0.0",
+        serde_json::json!([
+            {"dir": "../omg", "publisher": "acme", "name": "omg"},
+            {"kparPath": "../deps/gadget.kpar", "publisher": "acme", "name": "gadget"},
+        ]),
+        &["App"],
+        &[("main.sysml", b"package App;\n")],
+    )?;
+    // The archive: a Syside project with the conventional files, all
+    // checksummed.
+    let src = root.join("deps/gadget-src");
+    write_syside_json_project(
+        &src,
+        "gadget",
+        "1.0.0",
+        serde_json::json!([]),
+        &["Gadget"],
+        &[
+            ("lib.sysml", b"package Gadget;\n"),
+            ("README.md", b"# gadget\n"),
+            ("CHANGELOG.md", b"# changes\n"),
+        ],
+    )?;
+    run_sysand_in(&src, ["build", "../gadget.kpar"], None)?
+        .assert()
+        .success();
+
+    run_sysand_in(&cwd, ["lock", "--no-index"], None)?
+        .assert()
+        .success();
+    run_sysand_in(&cwd, ["sync"], None)?.assert().success();
+
+    let env_toml = fs::read_to_string(cwd.join(DEFAULT_ENV_NAME).join(METADATA_PATH))?;
+    assert!(
+        env_toml.contains("path = \"lib/acme-gadget_1.0.0\""),
+        "the PURL form of the layout, as for an OMG archive:\n{env_toml}"
+    );
+    let installed = cwd.join(DEFAULT_ENV_NAME).join("lib/acme-gadget_1.0.0");
+    let meta: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(installed.join(".meta.json"))?)?;
+    assert_eq!(meta["root"], "lib.sysml");
+    assert_eq!(meta["exports"], serde_json::json!(["Gadget"]));
+    assert!(meta.get("index").is_none(), "{meta}");
+    for file in ["lib.sysml", "README.md", "CHANGELOG.md"] {
+        assert!(is_file(installed.join(file)), "`{file}` is installed");
+    }
+
+    let out = run_sysand_in(&cwd, ["sources", "--no-own"], None)?;
+    let listed = String::from_utf8(out.assert().success().get_output().stdout.clone())?;
+    assert!(listed.contains("lib.sysml"), "{listed}");
+    assert!(
+        !listed.contains("README.md") && !listed.contains("CHANGELOG.md"),
+        "{listed}"
+    );
+
+    run_sysand_in(&cwd, ["sync"], None)?
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("env is already up to date"));
     Ok(())
 }

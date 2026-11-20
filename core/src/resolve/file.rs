@@ -3,9 +3,12 @@
 
 // Resolver for file:// URLs
 
+use crate::paths::{RelativizePathError, join_lexical, relativize_path};
+use crate::project::VersionAndUsage;
 use std::{
     io::{self, ErrorKind, Read},
     path::PathBuf,
+    sync::Arc,
 };
 
 use camino::{Utf8Path, Utf8PathBuf};
@@ -14,33 +17,153 @@ use thiserror::Error;
 use crate::{
     context::ProjectContext,
     lock::Source,
-    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw, InterchangeProjectUsage},
+    manifest::MODEL_TOML_FILE,
+    manifest::edit::DocumentMut,
+    model::InterchangeProjectUsage,
     project::{
-        self, ProjectFormat, ProjectRead,
+        self, ProjectDefinition, ProjectFormat, ProjectRead,
         local_kpar::{KparInnerPath, LocalKParError, LocalKParProject},
-        local_src::{LocalSrcError, LocalSrcProject},
-        utils::{FsIoError, ProjectDeserializationError, RelativizePathError, wrapfs},
+        local_src::{LocalSrcError, LocalSrcProject, detect_format},
+        utils::{FsIoError, ProjectDeserializationError, wrapfs},
     },
     resolve::{ResolutionInfo, ResolutionOutcome, ResolveRead},
     utils::scheme::SCHEME_FILE,
+    workspace::model_toml::{DiscoverError, PathRegion, Workspace, discover_table, project_region},
 };
 
 /// Resolver for resolving `file://` URIs.
-#[derive(Debug)]
+///
+/// `Default` is the plain one: no workspace.
+#[derive(Debug, Default)]
 pub struct FileResolver {
-    /// This field enables sandboxing the resolved path. If field is not `None`,
-    /// the resolved path must be inside at least one of these directories.
-    pub sandbox_roots: Option<Vec<Utf8PathBuf>>,
+    /// The workspace a resolved target may be a member of. A member is
+    /// read with the manifest the workspace resolved. Set by
+    /// [`crate::resolve::ResolveRead::within_workspace`].
+    pub workspace: Option<Arc<Workspace>>,
+}
+
+impl FileResolver {
+    /// The same project, read as a member when it sits inside the workspace
+    /// this resolver was given.
+    fn as_member(&self, project: LocalSrcProject) -> Result<LocalSrcProject, FileResolverError> {
+        let format = detect_format(project.path())?;
+        if let Some(workspace) = &self.workspace {
+            let root = workspace.root();
+            match project_region(root, workspace.config(), project.path(), format) {
+                // A loaded workspace has one member per `members` entry, in
+                // order.
+                PathRegion::Member(index, _) => {
+                    let manifest = workspace.members()[index].project.clone();
+                    return Ok(project.with_member(manifest));
+                }
+                // A project under the root that is neither a member nor in
+                // `exclude` is an error: it would be recorded in the lockfile
+                // like an excluded project, so nothing downstream could tell
+                // which workspace owned it.
+                PathRegion::Unlisted => {
+                    return Err(FileResolverError::Workspace(DiscoverError::Unlisted {
+                        project: project.path().to_owned(),
+                        root: root.to_owned(),
+                    }));
+                }
+                PathRegion::Excluded | PathRegion::Outside => {}
+            }
+        }
+        Self::as_foreign_member(project, format)
+    }
+
+    /// The same project, read as a member of the workspace it sits in when
+    /// that is not the workspace this resolver was given (or it was given
+    /// none).
+    fn as_foreign_member(
+        project: LocalSrcProject,
+        format: ProjectFormat,
+    ) -> Result<LocalSrcProject, FileResolverError> {
+        let Some((root, table)) =
+            discover_table(project.path()).map_err(FileResolverError::Workspace)?
+        else {
+            return Ok(project);
+        };
+        match project_region(&root, &table, project.path(), format) {
+            PathRegion::Member(..) if format == ProjectFormat::Json => {
+                Err(FileResolverError::ForeignMemberNotModelToml {
+                    project: project.path().to_owned(),
+                    root,
+                })
+            }
+            // Reading the project reports a directory with both manifests
+            // or neither.
+            PathRegion::Member(..) if format != ProjectFormat::Toml => Ok(project),
+            PathRegion::Member(index, _) => {
+                let text = wrapfs::read_to_string(project.path().join(MODEL_TOML_FILE))?;
+                let file = format!("{}/{MODEL_TOML_FILE}", table.members[index].path);
+                let manifest = table
+                    .resolve_member_text(index, &file, &text)
+                    .map_err(FileResolverError::ForeignMember)?;
+                Ok(project.with_member(manifest))
+            }
+            PathRegion::Excluded | PathRegion::Outside => Ok(project),
+            PathRegion::Unlisted => Err(FileResolverError::Workspace(DiscoverError::Unlisted {
+                project: project.path().to_owned(),
+                root,
+            })),
+        }
+    }
+
+    /// The same rule for the path a `file:` resource names.
+    ///
+    /// A `file:` resource is two candidates at once (an unpacked directory
+    /// and an archive), and only a directory is a project the rule is
+    /// about. An archive *file* under the root must keep resolving:
+    /// `output/<name>.kpar` is where this workspace's own builds land.
+    fn check_resource_listed(&self, path: &Utf8Path) -> Result<(), FileResolverError> {
+        let Some(workspace) = &self.workspace else {
+            return Ok(());
+        };
+        let root = workspace.root();
+        if !wrapfs::is_dir(path)? {
+            return Ok(());
+        }
+        // `region_of` compares against the canonical root, while a URL's
+        // path is as written (e.g. `/var` for `/private/var` on macOS)
+        let canonical = wrapfs::canonicalize(path)?;
+        let format = detect_format(&canonical)?;
+        match project_region(root, workspace.config(), &canonical, format) {
+            PathRegion::Unlisted => Err(FileResolverError::Workspace(DiscoverError::Unlisted {
+                project: path.to_owned(),
+                root: root.to_owned(),
+            })),
+            PathRegion::Member(..) | PathRegion::Excluded | PathRegion::Outside => Ok(()),
+        }
+    }
 }
 
 #[derive(Error, Debug)]
 pub enum FileResolverError {
+    /// A target that lies under the workspace root without being a
+    /// member. Carries [`DiscoverError`].
+    #[error(transparent)]
+    Workspace(DiscoverError),
+    /// The `model.toml` of a member of another workspace is not valid.
+    #[error(transparent)]
+    ForeignMember(ProjectDeserializationError),
+    /// A directory another workspace lists in `members` is not a
+    /// `model.toml` project.
+    #[error(
+        "`{project}` is a member of the workspace at `{root}` but is not a `model.toml` project"
+    )]
+    ForeignMemberNotModelToml {
+        project: Utf8PathBuf,
+        root: Utf8PathBuf,
+    },
     #[error("failed to encode path `{0}` in UTF-8")]
     InvalidPath(PathBuf),
     #[error("IRI `{0}` is not a valid URL")]
     IriNotValidUrl(String, #[source] url::ParseError),
     #[error("failed to extract path from file URL")]
     FailedPathExtract,
+    #[error("path `{path}` climbs above the filesystem root from `{base}`")]
+    PathAboveRoot { base: Utf8PathBuf, path: String },
     #[error(transparent)]
     Io(#[from] Box<FsIoError>),
 }
@@ -74,60 +197,35 @@ fn try_file_uri_to_path(
     }
 }
 
-impl FileResolver {
-    fn check_sandbox(
-        &self,
-        path: Utf8PathBuf,
-    ) -> Result<ResolutionOutcome<Utf8PathBuf>, FileResolverError> {
-        // Use canonicalised paths to check that the tentative project path is within the "jail"
-        if let Some(sandboxed_roots) = &self.sandbox_roots {
-            let mut found = false;
-            let mut sandbox_roots_canonical = Vec::new();
-            for sandbox_root in sandboxed_roots {
-                let sandbox_root_canonical = wrapfs::canonicalize(sandbox_root)?;
-                let project_path_canonical = wrapfs::canonicalize(&path)?;
-
-                if project_path_canonical.starts_with(&sandbox_root_canonical) {
-                    found = true;
-                    break;
-                }
-                sandbox_roots_canonical.push(sandbox_root_canonical.to_string());
-            }
-            if !found {
-                return Ok(ResolutionOutcome::Unresolvable {
-                    reason: format!(
-                        "refusing to resolve path `{path}`, is not inside in any of the allowed directories\n{}",
-                        sandbox_roots_canonical.join("; "),
-                    ),
-                });
-            }
+/// Resolve `relative` against `base` and canonicalize it.
+///
+/// `base` must be canonical. Each `..` of `relative` cancels the
+/// component before it as text, a symlink included, and one that climbs
+/// above the root is refused.
+fn resolve_relative_path(
+    base: &Utf8Path,
+    relative: &str,
+) -> Result<ResolutionOutcome<Utf8PathBuf>, FileResolverError> {
+    let Some(abs_path) = join_lexical(base, Utf8Path::new(relative)) else {
+        return Err(FileResolverError::PathAboveRoot {
+            base: base.to_owned(),
+            path: relative.to_owned(),
+        });
+    };
+    let canonical = match wrapfs::canonicalize_raw(&abs_path) {
+        Ok(p) => p,
+        Err(e) if e.kind() == ErrorKind::NotFound => {
+            return Ok(ResolutionOutcome::NotFound {
+                reason: format!("path `{abs_path}` does not exist"),
+            });
         }
-        Ok(ResolutionOutcome::Resolved(path))
-    }
-
-    /// Resolve `relative` against `base`, canonicalize it, and check it
-    /// against the sandbox roots.
-    fn resolve_relative_path(
-        &self,
-        base: &Utf8Path,
-        relative: &str,
-    ) -> Result<ResolutionOutcome<Utf8PathBuf>, FileResolverError> {
-        let abs_path = base.join(relative);
-        let canonical = match wrapfs::canonicalize_raw(&abs_path) {
-            Ok(p) => p,
-            Err(e) if e.kind() == ErrorKind::NotFound => {
-                return Ok(ResolutionOutcome::NotFound {
-                    reason: format!("path `{abs_path}` does not exist"),
-                });
-            }
-            Err(e) => {
-                return Err(FileResolverError::Io(
-                    FsIoError::Canonicalize(abs_path, e).into(),
-                ));
-            }
-        };
-        self.check_sandbox(canonical)
-    }
+        Err(e) => {
+            return Err(FileResolverError::Io(
+                FsIoError::Canonicalize(abs_path, e).into(),
+            ));
+        }
+    };
+    Ok(ResolutionOutcome::Resolved(canonical))
 }
 
 #[derive(Debug)]
@@ -222,6 +320,10 @@ impl From<LocalKParError> for FileResolverProjectError {
                 actual,
             },
             LocalKParError::EmptyKpar { path } => Self::EmptyKpar { path },
+            error @ LocalKParError::Format {
+                path: _,
+                problem: _,
+            } => Self::Other(error.to_string()),
         }
     }
 }
@@ -240,8 +342,6 @@ impl From<LocalSrcError> for FileResolverProjectError {
 }
 
 impl ProjectRead for FileResolverProject {
-    /// Forwarded, not defaulted: a `dir` usage resolves through here, so
-    /// the default would claim json for every `model.toml` target.
     fn format(&self) -> Result<ProjectFormat, Self::Error> {
         match self {
             Self::LocalSrcProject(project) => Ok(project.format()?),
@@ -250,31 +350,20 @@ impl ProjectRead for FileResolverProject {
     }
 
     /// Forwarded for the same reason as [`Self::format`].
-    fn manifest(
-        &self,
-    ) -> Result<sysand_core::manifest::project::ResolvedProject, project::ManifestError<Self::Error>>
-    {
+    fn manifest_document(&self) -> Result<DocumentMut, project::ManifestError<Self::Error>> {
         match self {
             Self::LocalSrcProject(project) => project
-                .manifest()
+                .manifest_document()
                 .map_err(|e| e.map_project_read(Into::into)),
             Self::LocalKParProject(project) => project
-                .manifest()
+                .manifest_document()
                 .map_err(|e| e.map_project_read(Into::into)),
         }
     }
 
     type Error = FileResolverProjectError;
 
-    fn get_project(
-        &self,
-    ) -> Result<
-        (
-            Option<InterchangeProjectInfoRaw>,
-            Option<InterchangeProjectMetadataRaw>,
-        ),
-        Self::Error,
-    > {
+    fn get_project(&self) -> Result<Option<ProjectDefinition>, Self::Error> {
         match self {
             Self::LocalSrcProject(local_src_project) => Ok(local_src_project.get_project()?),
             Self::LocalKParProject(local_kpar_project) => Ok(local_kpar_project.get_project()?),
@@ -307,12 +396,28 @@ impl ProjectRead for FileResolverProject {
         }
     }
 
+    /// A local directory is locked as an editable project, whatever its
+    /// manifest; a KPAR by its path and digest.
     fn sources(&self, ctx: &ProjectContext) -> Result<Vec<Source>, Self::Error> {
         match self {
-            Self::LocalSrcProject(proj) => proj
-                .sources(ctx)
-                .map_err(FileResolverProjectError::LocalSrc),
+            Self::LocalSrcProject(proj) => {
+                let editable = if let Some(nominal) = proj.nominal_path() {
+                    nominal.as_str().into()
+                } else if let Some(root) = ctx.sources_root() {
+                    relativize_path(proj.path(), &root)?.into_string().into()
+                } else {
+                    panic!("a directory without `nominal_path` has no lockfile source");
+                };
+                Ok(vec![Source::Editable { editable }])
+            }
             Self::LocalKParProject(proj) => Ok(proj.sources(ctx)?),
+        }
+    }
+
+    fn version_and_usage(&self) -> Result<Option<VersionAndUsage>, Self::Error> {
+        match self {
+            Self::LocalSrcProject(proj) => Ok(proj.version_and_usage()?),
+            Self::LocalKParProject(proj) => Ok(proj.version_and_usage()?),
         }
     }
 
@@ -341,6 +446,11 @@ impl ProjectRead for FileResolverProject {
 }
 
 impl ResolveRead for FileResolver {
+    fn within_workspace(mut self, workspace: Arc<Workspace>) -> Self {
+        self.workspace = Some(workspace);
+        self
+    }
+
     type Error = FileResolverError;
 
     type ProjectStorage = FileResolverProject;
@@ -358,17 +468,15 @@ impl ResolveRead for FileResolver {
                 version_constraint: _,
             } => match try_file_uri_to_path(url)? {
                 Some(path) => {
-                    let res = self.check_sandbox(path)?;
-                    Ok(res.map(|path| {
-                        vec![
-                            Ok(FileResolverProject::LocalSrcProject(
-                                LocalSrcProject::new_access(path.clone(), None),
-                            )),
-                            Ok(FileResolverProject::LocalKParProject(
-                                LocalKParProject::new_access(path, KparInnerPath::Guess, None),
-                            )),
-                        ]
-                    }))
+                    self.check_resource_listed(&path)?;
+                    Ok(ResolutionOutcome::Resolved(vec![
+                        Ok(FileResolverProject::LocalSrcProject(
+                            LocalSrcProject::new_access(path.clone(), None),
+                        )),
+                        Ok(FileResolverProject::LocalKParProject(
+                            LocalKParProject::new_access(path, KparInnerPath::Guess, None),
+                        )),
+                    ]))
                 }
                 None => Ok(ResolutionOutcome::UnsupportedUsageType {
                     reason: String::from("resource is not a file URL"),
@@ -381,20 +489,19 @@ impl ResolveRead for FileResolver {
             } => {
                 // TODO: should absolute paths be supported here? Cargo does.
                 if let Some(base) = resolve.base_path() {
-                    let res = self.resolve_relative_path(base, dir.as_str())?;
-                    Ok(res.map(|path| {
-                        vec![Ok(FileResolverProject::LocalSrcProject(
-                            // The lock checks that the project is
-                            // `publisher`/`name`, as for every typed usage
-                            LocalSrcProject::new_access(
-                                path,
-                                // Can't use `dir` here, since `FileResolver` is used for env projects,
-                                // and in that case using `dir` would resolve relative to the project
-                                // inside `.sysand`, and the dependency would not be found
-                                None,
-                            ),
-                        ))]
-                    }))
+                    let res = resolve_relative_path(base, dir.as_str())?;
+                    res.try_map(|path| {
+                        // The lock checks that the project is
+                        // `publisher`/`name`, as for every typed usage
+                        let project = self.as_member(LocalSrcProject::new_access(
+                            path,
+                            // Can't use `dir` here, since `FileResolver` is used for env projects,
+                            // and in that case using `dir` would resolve relative to the project
+                            // inside `.sysand`, and the dependency would not be found
+                            None,
+                        ))?;
+                        Ok(vec![Ok(FileResolverProject::LocalSrcProject(project))])
+                    })
                 } else {
                     // TODO: return Err?
                     Ok(ResolutionOutcome::Unresolvable {
@@ -410,7 +517,7 @@ impl ResolveRead for FileResolver {
                 name: _,
             } => {
                 if let Some(base) = resolve.base_path() {
-                    let res = self.resolve_relative_path(base, kpar_path.as_str())?;
+                    let res = resolve_relative_path(base, kpar_path.as_str())?;
                     Ok(res.map(|path| {
                         vec![Ok(FileResolverProject::LocalKParProject(
                             // The lock checks that the project is
@@ -427,7 +534,12 @@ impl ResolveRead for FileResolver {
                     })
                 }
             }
-            InterchangeProjectUsage::Index {
+            InterchangeProjectUsage::RemoteKpar {
+                kpar_url: _,
+                publisher: _,
+                name: _,
+            }
+            | InterchangeProjectUsage::Index {
                 publisher: _,
                 name: _,
                 version_constraint: _,

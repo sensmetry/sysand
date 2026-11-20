@@ -2,13 +2,17 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
 use std::io::Read;
+use sysand_core::project::VersionAndUsage;
 
 use thiserror::Error;
 
 use sysand_core::{
     context::ProjectContext,
     lock::Source,
-    project::{ProjectChecksum, ProjectMut, ProjectRead, memory::InMemoryProject},
+    manifest::edit::DocumentMut,
+    project::{
+        ProjectChecksum, ProjectDefinition, ProjectMut, ProjectRead, memory::InMemoryProject,
+    },
 };
 
 #[derive(Debug)]
@@ -28,11 +32,11 @@ where
 // One deliberate exception: `ProjectMut::put_manifest_document` is not
 // forwarded here, where the derive forwards it. The method has a
 // refusing default, and leaving it unwritten is what proves that an
-// implementation outside this crate compiles without it -- which is the
+// implementation outside this crate compiles without it, which is the
 // reason the default exists. The cost is that
 // `Variant3`, an `InMemoryProject` that *can* store a manifest, refuses
 // one through this wrapper; `a_hand_written_project_refuses_a_manifest`
-// pins exactly that, so the divergence is visible rather than latent.
+// pins exactly that.
 
 #[derive(Debug, Error)]
 pub enum GenericProjectError<Variant1, Variant2, Variant3> {
@@ -74,15 +78,31 @@ where
         <InMemoryProject as ProjectRead>::Error,
     >;
 
-    fn get_project(
+    fn format(&self) -> Result<sysand_core::project::ProjectFormat, Self::Error> {
+        match self {
+            Self::Variant1(project) => project.format().map_err(GenericProjectError::Variant1),
+            Self::Variant2(project) => project.format().map_err(GenericProjectError::Variant2),
+            Self::Variant3(project) => project.format().map_err(GenericProjectError::Variant3),
+        }
+    }
+
+    fn manifest_document(
         &self,
-    ) -> Result<
-        (
-            Option<sysand_core::model::InterchangeProjectInfoRaw>,
-            Option<sysand_core::model::InterchangeProjectMetadataRaw>,
-        ),
-        Self::Error,
-    > {
+    ) -> Result<DocumentMut, sysand_core::project::ManifestError<Self::Error>> {
+        match self {
+            Self::Variant1(project) => project
+                .manifest_document()
+                .map_err(|e| e.map_project_read(GenericProjectError::Variant1)),
+            Self::Variant2(project) => project
+                .manifest_document()
+                .map_err(|e| e.map_project_read(GenericProjectError::Variant2)),
+            Self::Variant3(project) => project
+                .manifest_document()
+                .map_err(|e| e.map_project_read(GenericProjectError::Variant3)),
+        }
+    }
+
+    fn get_project(&self) -> Result<Option<ProjectDefinition>, Self::Error> {
         match self {
             Self::Variant1(project) => project.get_project().map_err(GenericProjectError::Variant1),
             Self::Variant2(project) => project.get_project().map_err(GenericProjectError::Variant2),
@@ -135,6 +155,20 @@ where
         }
     }
 
+    fn version_and_usage(&self) -> Result<Option<VersionAndUsage>, Self::Error> {
+        match self {
+            Self::Variant1(project) => project
+                .version_and_usage()
+                .map_err(GenericProjectError::Variant1),
+            Self::Variant2(project) => project
+                .version_and_usage()
+                .map_err(GenericProjectError::Variant2),
+            Self::Variant3(project) => project
+                .version_and_usage()
+                .map_err(GenericProjectError::Variant3),
+        }
+    }
+
     fn checksum_canonical_variant(&self) -> Result<ProjectChecksum, Self::Error> {
         match self {
             Self::Variant1(project) => project
@@ -163,6 +197,24 @@ where
     A: ProjectMut,
     B: ProjectMut,
 {
+    fn put_manifest_document(
+        &mut self,
+        document: &DocumentMut,
+        overwrite: bool,
+    ) -> Result<(), sysand_core::project::ManifestWriteError<Self::Error>> {
+        match self {
+            Self::Variant1(project) => project
+                .put_manifest_document(document, overwrite)
+                .map_err(|e| e.map_project_write(GenericProjectError::Variant1)),
+            Self::Variant2(project) => project
+                .put_manifest_document(document, overwrite)
+                .map_err(|e| e.map_project_write(GenericProjectError::Variant2)),
+            Self::Variant3(project) => project
+                .put_manifest_document(document, overwrite)
+                .map_err(|e| e.map_project_write(GenericProjectError::Variant3)),
+        }
+    }
+
     fn put_info(
         &mut self,
         info: &sysand_core::model::InterchangeProjectInfoRaw,
@@ -225,28 +277,5 @@ fn generic_project_create() {
         GenericProject::<InMemoryProject, InMemoryProject>::Variant2(InMemoryProject::new());
     let _project3 = GenericProject::<InMemoryProject, InMemoryProject>::Variant3(Box::new(
         InMemoryProject::new(),
-    ));
-}
-
-#[test]
-fn a_hand_written_project_refuses_a_manifest() {
-    use sysand_core::manifest::edit::DocumentMut;
-    use sysand_core::project::ManifestWriteError;
-
-    let document: DocumentMut =
-        "manifest-version = 1\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\nversion = \"1.0.0\"\nsources = []\n"
-            .parse()
-            .expect("a valid manifest document");
-
-    // The inner project could store one; this wrapper does not forward
-    // the method, so the trait's default answers. That an
-    // implementation which omits the method compiles is the property
-    // under test.
-    let mut project: GenericProject<InMemoryProject, InMemoryProject> =
-        GenericProject::Variant3(Box::new(InMemoryProject::new()));
-
-    assert!(matches!(
-        project.put_manifest_document(&document, false),
-        Err(ManifestWriteError::Unsupported)
     ));
 }

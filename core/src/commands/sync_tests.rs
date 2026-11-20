@@ -40,7 +40,9 @@ fn storage_example() -> InMemoryProject {
             }
             .into(),
             &InterchangeProjectMetadata {
-                index: IndexMap::new(),
+                index: Some(IndexMap::new()),
+                root: None,
+                exports: None,
                 created: jiff::Timestamp::new(1, 2).unwrap(),
                 metamodel: None,
                 includes_derived: None,
@@ -102,7 +104,11 @@ fn try_install_installs_project() {
     let checksum = storage.checksum_canonical_variant().unwrap();
     let mut env = new_env();
 
-    try_install::<_, InMemoryProject, !, !, _>(uri, "1.2.3", &checksum, storage, &mut env).unwrap();
+    let definition = storage.get_project().unwrap().unwrap();
+    try_install::<_, InMemoryProject, !, !, _>(
+        uri, "1.2.3", &checksum, storage, definition, &mut env,
+    )
+    .unwrap();
 
     let uris = env.uris().unwrap();
 
@@ -127,7 +133,15 @@ fn try_install_fails_to_install_wrong_checksum() {
         id: iri,
         expected,
         actual,
-    } = try_install::<_, _, !, !, _>(&uri, "1.2.3", &checksum, &storage, &mut env).unwrap_err()
+    } = try_install::<_, _, !, !, _>(
+        &uri,
+        "1.2.3",
+        &checksum,
+        &storage,
+        storage.get_project().unwrap().unwrap(),
+        &mut env,
+    )
+    .unwrap_err()
     else {
         panic!()
     };
@@ -141,9 +155,14 @@ fn try_install_fails_to_install_wrong_checksum() {
         )
     );
 
-    let uris = env.uris().unwrap();
+    let uris: Vec<String> = env
+        .uris()
+        .unwrap()
+        .into_iter()
+        .collect::<Result<_, _>>()
+        .unwrap();
 
-    assert_eq!(uris.len(), 0);
+    assert_eq!(uris, Vec::<String>::new());
 }
 
 #[test]
@@ -194,6 +213,7 @@ type NoRemoteSrc = fn(String, String) -> Result<InMemoryProject, !>;
 type NoKparPath = fn(Utf8UnixPathBuf, NonZeroU64, String) -> InMemoryProject;
 type NoRemoteKpar = fn(String, NonZeroU64, String) -> Result<InMemoryProject, !>;
 type NoGit = fn(String) -> Result<InMemoryProject, !>;
+type NoEditable = fn(Utf8UnixPathBuf) -> Result<InMemoryProject, !>;
 
 const URI: &str = "urn:kpar:install_test";
 
@@ -237,7 +257,8 @@ fn run_sync(
     let result = do_sync(
         lock,
         env,
-        Some(|_src_path: Utf8UnixPathBuf, _checksum: String| storage_example()),
+        None::<NoEditable>,
+        Some(|_src_path: Utf8UnixPathBuf| storage_example()),
         None::<NoRemoteSrc>,
         None::<NoKparPath>,
         None::<NoRemoteKpar>,
@@ -325,7 +346,8 @@ fn run_sync_git(
     do_sync(
         lock,
         env,
-        None::<fn(Utf8UnixPathBuf, String) -> InMemoryProject>,
+        None::<NoEditable>,
+        None::<fn(Utf8UnixPathBuf) -> InMemoryProject>,
         None::<NoRemoteSrc>,
         None::<NoKparPath>,
         None::<NoRemoteKpar>,

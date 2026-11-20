@@ -40,8 +40,8 @@ def test_no_logger_warning_on_stderr(
     capfd: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
     # A command, not a flag: this has to get past argument parsing and into
-    # `run_cli`, which is where the logger is installed. It fails -- there is
-    # no project in `tmp_path` -- and that is fine, the failure happens after.
+    # `run_cli`, which is where the logger is installed. It fails because there
+    # is no project in `tmp_path`, after the logger is installed.
     assert run_cli_in(tmp_path, "info", "--no-config") == 1
 
     assert WARNING not in capfd.readouterr().err
@@ -90,10 +90,8 @@ sys.exit(0 if any(r.levelno == logging.DEBUG for r in records) else 3)
 
 
 def test_verbosity_still_reaches_the_host_logger(tmp_path: Path) -> None:
-    # What the warning was warning about, and the reason it can be dropped
-    # rather than merely hidden: `--verbose` still applies, through whatever
-    # logger the host installed. The records arrive as Python logging records,
-    # because the bridge is what is installed.
+    # `--verbose` still applies, through whatever logger the host installed.
+    # The records arrive as Python logging records.
     (tmp_path / "claim").mkdir()
     result = subprocess.run(
         [sys.executable, "-c", _VERBOSITY_DRIVER, str(tmp_path)],

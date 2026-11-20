@@ -14,11 +14,12 @@ mod filesystem_tests {
     use camino_tempfile::tempdir;
     use fluent_uri::Iri;
     use indexmap::IndexMap;
+    use sysand_core::test_fs::{exists, is_dir, is_file};
     use sysand_core::{
         commands::env::do_env_local_dir,
         env::{
             DEFAULT_ENV_NAME, ReadEnvironment as _, WriteEnvironment as _,
-            local_directory::{LocalDirectoryEnvironment, LocalWriteError},
+            local_directory::{LocalDirectoryEnvironment, LocalReadError, LocalWriteError},
             utils::clone_project,
         },
         info::do_info,
@@ -42,14 +43,14 @@ version = \"0.2\"
             .map(|entry| {
                 let inner_path = entry.unwrap().path();
 
-                assert!(inner_path.is_dir() || inner_path.is_file());
+                assert!(is_dir(&inner_path) || is_file(&inner_path));
 
                 inner_path
                     .strip_prefix(&path)
                     .unwrap()
                     .as_os_str()
                     .to_string_lossy()
-                    .to_string()
+                    .into_owned()
             })
             .collect();
 
@@ -67,9 +68,9 @@ version = \"0.2\"
         for entry in std::fs::read_dir(cwd.path())? {
             let path = entry?.path();
 
-            assert!(path.is_dir() || path.is_file());
+            assert!(is_dir(&path) || is_file(&path));
 
-            if path.is_dir() {
+            if is_dir(&path) {
                 assert_eq!(path.strip_prefix(&cwd)?, env_path);
             } else {
                 assert_eq!(path.strip_prefix(&cwd)?, env_path.join("env.toml"));
@@ -83,11 +84,11 @@ version = \"0.2\"
             DEFAULT_ENV_FILE_CONTENTS.len() as u64
         );
 
-        let installed: Result<Vec<String>, sysand_core::env::local_directory::LocalReadError> =
+        let installed: Result<Vec<String>, LocalReadError> =
             directory_environment.uris()?.into_iter().collect();
         let installed = installed?;
 
-        assert_eq!(installed.len(), 0);
+        assert_eq!(installed, Vec::<String>::new());
 
         Ok(())
     }
@@ -115,7 +116,9 @@ version = \"0.2\"
             index.insert("Pkg".to_owned(), String::from("Pkg.sysml"));
 
             let meta = InterchangeProjectMetadataRaw {
-                index,
+                index: Some(index),
+                root: None,
+                exports: None,
                 created: format_created_now(),
                 metamodel: None,
                 includes_derived: None,
@@ -166,7 +169,7 @@ version = \"0.2\"
 
         // v1 project dir is fully removed
         let v1_dir = cwd.path().join(".sysand/lib/sysand_test.multi_1.0.0");
-        assert!(!v1_dir.exists());
+        assert!(!exists(&v1_dir));
 
         // v2 project dir still has its files
         let v2_dir = cwd.path().join(".sysand/lib/sysand_test.multi_2.0.0");
@@ -203,7 +206,9 @@ version = \"0.2\"
             let mut index = IndexMap::new();
             index.insert("Other".to_owned(), String::from("Other.sysml"));
             let meta = InterchangeProjectMetadataRaw {
-                index,
+                index: Some(index),
+                root: None,
+                exports: None,
                 created: format_created_now(),
                 metamodel: None,
                 includes_derived: None,
@@ -240,8 +245,8 @@ version = \"0.2\"
         // Both project dirs are fully removed
         let v1_dir = cwd.path().join(".sysand/lib/sysand_test.multi_1.0.0");
         let v2_dir = cwd.path().join(".sysand/lib/sysand_test.multi_2.0.0");
-        assert!(!v1_dir.exists());
-        assert!(!v2_dir.exists());
+        assert!(!exists(&v1_dir));
+        assert!(!exists(&v2_dir));
 
         // Persisted to disk: re-reading gives same result
         let env2 = LocalDirectoryEnvironment::read(cwd.path().join(".sysand"))?;
@@ -312,7 +317,9 @@ version = \"0.2\"
         index.insert("SomePackage".to_owned(), String::from("SomePackage.sysml"));
 
         let meta = InterchangeProjectMetadataRaw {
-            index,
+            index: Some(index),
+            root: None,
+            exports: None,
             created: format_created_now(),
             metamodel: None,
             includes_derived: None,
@@ -335,7 +342,10 @@ version = \"0.2\"
         })?;
 
         let target_project = directory_environment.get_project(iri.as_str(), "1.2.3")?;
-        let (read_info, read_meta) = target_project.get_project()?;
+        let (read_info, read_meta) = target_project
+            .get_project()?
+            .and_then(sysand_core::project::ProjectDefinition::into_json)
+            .unzip();
 
         assert_eq!(read_info, Some(info.clone()));
         assert_eq!(read_meta, Some(meta.clone()));
@@ -376,7 +386,7 @@ version = \"0.2\"
 
         let resolved_project = do_info(&iri, &resolver)?;
 
-        assert_eq!(resolved_project, (info, meta));
+        assert_eq!(resolved_project.into_json(), Some((info, meta)));
 
         Ok(())
     }

@@ -20,7 +20,6 @@ use crate::{
 pub struct LocalBrowserStorageEnvironment {
     pub root_path: Utf8UnixPathBuf,
     pub vfs: LocalStorageVFS,
-    //pub crypto: Crypto,
 }
 
 pub fn empty_environment_local_storage<S: AsRef<str>, P: AsRef<Utf8UnixPath>>(
@@ -59,7 +58,7 @@ const ENTRIES_PATH: &str = "entries.txt";
 const VERSIONS_PATH: &str = "versions.txt";
 
 impl LocalBrowserStorageEnvironment {
-    pub fn segment_uri<S: AsRef<str>>(&self, uri: S) -> String {
+    pub fn segment_uri<S: AsRef<str>>(uri: S) -> String {
         sha256_lowercase_hex(uri.as_ref())
     }
 
@@ -68,7 +67,7 @@ impl LocalBrowserStorageEnvironment {
     }
 
     pub fn uri_path<S: AsRef<str>>(&self, uri: S) -> Utf8UnixPathBuf {
-        self.root_path.join(self.segment_uri(uri))
+        self.root_path.join(Self::segment_uri(uri))
     }
 
     pub fn versions_path<S: AsRef<str>>(&self, uri: S) -> Utf8UnixPathBuf {
@@ -123,16 +122,6 @@ impl ReadEnvironment for LocalBrowserStorageEnvironment {
             root_path: self.project_path(&uri, &version),
             expected_checksum: None,
         })
-    }
-
-    // TODO: fix this when this env contains sufficient info
-    fn has_version_verified<S: AsRef<str>, V: AsRef<str>>(
-        &self,
-        _uri: S,
-        _version: V,
-        _checksum: &ProjectChecksum,
-    ) -> Result<ProjectChecksumResult, Self::ReadError> {
-        Ok(ProjectChecksumResult::ChecksumNotPresent)
     }
 }
 
@@ -220,5 +209,24 @@ impl WriteEnvironment for LocalBrowserStorageEnvironment {
 
     fn del_uri<S: AsRef<str>>(&mut self, uri: S) -> Result<(), Self::WriteError> {
         Ok(self.vfs.delete(self.versions_path(&uri))?)
+    }
+
+    /// Every project here is a copy.
+    fn is_installed<S: AsRef<str>, T: AsRef<str>>(
+        &self,
+        uri: S,
+        version: T,
+    ) -> Result<bool, Self::WriteError> {
+        self.has_version(uri, version)
+    }
+
+    // TODO: fix this when this env contains sufficient info
+    fn has_version_verified<S: AsRef<str>, V: AsRef<str>>(
+        &self,
+        _uri: S,
+        _version: V,
+        _checksum: &ProjectChecksum,
+    ) -> Result<ProjectChecksumResult, Self::ReadError> {
+        Ok(ProjectChecksumResult::ChecksumNotPresent)
     }
 }

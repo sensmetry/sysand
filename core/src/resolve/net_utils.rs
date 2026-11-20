@@ -3,8 +3,11 @@
 
 use std::{error::Error, hash::BuildHasher as _, time::Duration};
 
+use jiff::fmt::rfc2822;
 use reqwest::header;
 use reqwest_middleware::{ClientWithMiddleware, RequestBuilder};
+#[cfg(any(feature = "tls-aws-lc-rs", feature = "tls-ring"))]
+use rustls::crypto;
 use url::Url;
 
 use crate::redact::RedactedUrl;
@@ -184,10 +187,14 @@ impl reqwest_middleware::Middleware for Retry {
                 return result;
             };
             attempt += 1;
-            let wait = result
-                .as_ref()
-                .ok()
-                .and_then(retry_after)
+            let retry_hint = match &result {
+                Ok(response) => retry_after(response),
+                Err(err) => {
+                    log::debug!("no response to read `Retry-After` from: {err}");
+                    None
+                }
+            };
+            let wait = retry_hint
                 .unwrap_or_else(|| jittered(delay))
                 .min(MAX_RETRY_DELAY);
             log::warn!(
@@ -264,18 +271,37 @@ fn retry_after(response: &reqwest::Response) -> Option<Duration> {
     ) {
         return None;
     }
-    let value = response.headers().get(header::RETRY_AFTER)?.to_str().ok()?;
+    let value = match response.headers().get(header::RETRY_AFTER)?.to_str() {
+        Ok(value) => value,
+        Err(err) => {
+            log::debug!("ignoring non-ASCII `Retry-After` header: {err}");
+            return None;
+        }
+    };
     parse_retry_after(value, jiff::Timestamp::now())
 }
 
 /// Parse a `Retry-After` value, either seconds or an HTTP date. A date
 /// that is not in the future is `None`.
 fn parse_retry_after(value: &str, now: jiff::Timestamp) -> Option<Duration> {
+    // ast-grep-ignore: if-let-ok
     if let Ok(seconds) = value.parse::<u64>() {
         return Some(Duration::from_secs(seconds));
     }
-    let at = jiff::fmt::rfc2822::parse(value).ok()?.timestamp();
-    Duration::try_from(now.duration_until(at)).ok()
+    let at = match rfc2822::parse(value) {
+        Ok(at) => at.timestamp(),
+        Err(err) => {
+            log::debug!("ignoring `Retry-After` value `{value}`: {err}");
+            return None;
+        }
+    };
+    match Duration::try_from(now.duration_until(at)) {
+        Ok(wait) => Some(wait),
+        Err(err) => {
+            log::debug!("ignoring `Retry-After` date `{value}` in the past: {err}");
+            None
+        }
+    }
 }
 
 /// A client builder with Sysand's user agent, the base of every client.
@@ -292,9 +318,8 @@ pub(crate) fn client_builder() -> reqwest::ClientBuilder {
 /// Install the crypto provider selected by this crate's `tls-*` features as
 /// the process-wide rustls default.
 ///
-/// `reqwest` is taken with `rustls-no-provider` so that no consumer is forced
-/// onto a particular provider. Every path that can reach a TLS handshake
-/// must therefore call this first.
+/// `reqwest` is taken with `rustls-no-provider`, so every path that can
+/// reach a TLS handshake must call this first.
 ///
 /// Only the first call installs the provider, subsequent ones are a no-op.
 ///
@@ -303,13 +328,12 @@ pub(crate) fn client_builder() -> reqwest::ClientBuilder {
 pub fn install_default_crypto_provider() {
     #[cfg(feature = "tls-aws-lc-rs")]
     {
-        drop(rustls::crypto::aws_lc_rs::default_provider().install_default());
+        drop(crypto::aws_lc_rs::default_provider().install_default());
     }
-    // `not(tls-aws-lc-rs)` because the two features are additive and
-    // `--all-features` enables both; aws-lc-rs wins as the shipped default.
+    // aws-lc-rs wins when both features are enabled.
     #[cfg(all(feature = "tls-ring", not(feature = "tls-aws-lc-rs")))]
     {
-        drop(rustls::crypto::ring::default_provider().install_default());
+        drop(crypto::ring::default_provider().install_default());
     }
     #[cfg(not(any(feature = "tls-aws-lc-rs", feature = "tls-ring")))]
     {
@@ -321,9 +345,7 @@ pub fn install_default_crypto_provider() {
     }
 }
 
-// Both tests assert that a provider is installed, so they only make sense
-// when a `tls-*` feature selected one. Gating on `networking` alone would
-// assert it in `--features networking`, which deliberately has none.
+// The tests assert that a provider is installed, so they need a `tls-*` feature.
 #[cfg(all(test, any(feature = "tls-aws-lc-rs", feature = "tls-ring")))]
 #[path = "./net_utils_tests.rs"]
 mod tests;

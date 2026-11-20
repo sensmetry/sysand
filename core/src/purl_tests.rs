@@ -15,8 +15,7 @@ fn publisher_field_validation() {
         "abcdefghijklmnopqrstuvxyzabcdefghijklmnopqrstuvxyz"
     ));
     // Digits are alphanumeric: leading, trailing, and all-digit segments
-    // are valid (only `.` and the separator-position rules constrain
-    // characters; `is_ascii_alphanumeric` covers `0-9`).
+    // are valid.
     assert!(is_valid_unnormalized_publisher("42-acme"));
     assert!(is_valid_unnormalized_publisher("acme-42"));
     assert!(is_valid_unnormalized_publisher("4cme"));
@@ -41,8 +40,7 @@ fn name_field_validation() {
     assert!(is_valid_unnormalized_name("My.Project Alpha"));
     assert!(is_valid_unnormalized_name("Alpha-2"));
     // Digits are alphanumeric: leading, trailing, and all-digit names are
-    // accepted, including digits adjacent to the dot separator that names
-    // additionally allow.
+    // accepted, including digits adjacent to the dot separator.
     assert!(is_valid_unnormalized_name("3d-printer"));
     assert!(is_valid_unnormalized_name("v1.0"));
     assert!(is_valid_unnormalized_name("2project"));
@@ -98,7 +96,7 @@ fn parse_sysand_purl_rejects_wrong_segment_count() {
         })
     );
     // Trailing-slash form parses to two segments (`["a", ""]`); the publisher
-    // is too short, so we reject on InvalidPublisher rather than WrongShape.
+    // is too short, so it is rejected as InvalidPublisher.
     assert_matches!(
         parse_sysand_purl("pkg:sysand/a/"),
         Err(SysandPurlError::InvalidPublisher {

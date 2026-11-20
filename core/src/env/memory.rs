@@ -3,7 +3,7 @@
 
 use crate::{
     env::{PutProjectError, ReadEnvironment, WriteEnvironment, utils::ErrorBound},
-    project::{ProjectChecksum, ProjectMut, ProjectRead},
+    project::{ProjectChecksum, ProjectMut, ProjectRead, VersionAndUsage},
 };
 use std::{
     collections::{HashMap, hash_map::Entry},
@@ -37,7 +37,9 @@ impl<Project: ProjectRead + Clone> MemoryStorageEnvironment<Project> {
     ) -> Result<Self, TryFromError<Project>> {
         let mut map = HashMap::<String, HashMap<String, Project>>::new();
         for (iri, project) in iter {
-            if let Some(version) = project.version().map_err(TryFromError::Read)? {
+            if let Some(VersionAndUsage { version, usage: _ }) =
+                project.version_and_usage().map_err(TryFromError::Read)?
+            {
                 map.entry(iri).or_default().insert(version, project);
             } else {
                 return Err(TryFromError::MissingVersion(iri));
@@ -75,8 +77,9 @@ pub enum TryFromError<Project: ProjectRead> {
 /// # use sysand_core::env::memory::MemoryStorageEnvironment;
 /// # use sysand_core::env::ReadEnvironment;
 /// # use sysand_core::project::memory::InMemoryProject;
-/// let project1 = do_init_memory("First", "a", "0.0.1", None).unwrap();
-/// let project2 = do_init_memory("First", "b", "0.1.0", None).unwrap();
+/// # let sysml = || "https://www.omg.org/spec/SysML/20250201".to_owned();
+/// let project1 = do_init_memory("First", "acme", "0.0.1", None, sysml()).unwrap();
+/// let project2 = do_init_memory("First", "bravo", "0.1.0", None, sysml()).unwrap();
 /// let env = MemoryStorageEnvironment::<InMemoryProject>::try_from([
 ///     ("urn:kpar:first".into(), project1.clone()),
 ///     ("urn:kpar:first".into(), project2.clone()),
@@ -122,8 +125,9 @@ impl<Project: ProjectRead + Clone, const N: usize> TryFrom<[(String, Project); N
 /// # use sysand_core::env::memory::MemoryStorageEnvironment;
 /// # use sysand_core::env::ReadEnvironment;
 /// # use sysand_core::project::memory::InMemoryProject;
-/// let project1 = do_init_memory("First", "a", "0.0.1", None).unwrap();
-/// let project2 = do_init_memory("First", "b", "0.1.0", None).unwrap();
+/// # let sysml = || "https://www.omg.org/spec/SysML/20250201".to_owned();
+/// let project1 = do_init_memory("First", "acme", "0.0.1", None, sysml()).unwrap();
+/// let project2 = do_init_memory("First", "bravo", "0.1.0", None, sysml()).unwrap();
 /// let env = MemoryStorageEnvironment::<InMemoryProject>::try_from(vec![
 ///     ("urn:kpar:first".into(), project1.clone()),
 ///     ("urn:kpar:first".into(), project2.clone()),
@@ -179,8 +183,9 @@ impl<Project: ProjectRead + Clone> FromIterator<(String, String, Project)>
 /// # use sysand_core::project::memory::InMemoryProject;
 /// let version1 = "0.0.1".to_string();
 /// let version2 = "0.1.0".to_string();
-/// let project1 = do_init_memory("First", "a", &version1, None).unwrap();
-/// let project2 = do_init_memory("First", "b", &version2, None).unwrap();
+/// # let sysml = || "https://www.omg.org/spec/SysML/20250201".to_owned();
+/// let project1 = do_init_memory("First", "acme", &version1, None, sysml()).unwrap();
+/// let project2 = do_init_memory("First", "bravo", &version2, None, sysml()).unwrap();
 /// let env = MemoryStorageEnvironment::<InMemoryProject>::from([
 ///     ("urn:kpar:first".into(), version1.clone(), project1.clone()),
 ///     ("urn:kpar:first".into(), version2.clone(), project2.clone()),
@@ -221,8 +226,9 @@ impl<Project: ProjectRead + Clone, const N: usize> From<[(String, String, Projec
 /// # use sysand_core::project::memory::InMemoryProject;
 /// let version1 = "0.0.1".to_string();
 /// let version2 = "0.1.0".to_string();
-/// let project1 = do_init_memory("First", "a", &version1, None).unwrap();
-/// let project2 = do_init_memory("First", "b", &version2, None).unwrap();
+/// # let sysml = || "https://www.omg.org/spec/SysML/20250201".to_owned();
+/// let project1 = do_init_memory("First", "acme", &version1, None, sysml()).unwrap();
+/// let project2 = do_init_memory("First", "bravo", &version2, None, sysml()).unwrap();
 /// let env = MemoryStorageEnvironment::<InMemoryProject>::from(vec![
 ///     ("urn:kpar:first".into(), version1.clone(), project1.clone()),
 ///     ("urn:kpar:first".into(), version2.clone(), project2.clone()),
@@ -245,7 +251,9 @@ impl<Project: ProjectRead + Clone> From<Vec<(String, String, Project)>>
     }
 }
 
-impl<Project: ProjectMut + Clone + Default> WriteEnvironment for MemoryStorageEnvironment<Project> {
+impl<Project: ProjectMut + Clone + Default + Debug> WriteEnvironment
+    for MemoryStorageEnvironment<Project>
+{
     type WriteError = !;
 
     type InterchangeProjectMut = Project;
@@ -274,6 +282,18 @@ impl<Project: ProjectMut + Clone + Default> WriteEnvironment for MemoryStorageEn
         Ok(tentative_project)
     }
 
+    /// Every project here is a copy.
+    fn is_installed<S: AsRef<str>, T: AsRef<str>>(
+        &self,
+        uri: S,
+        version: T,
+    ) -> Result<bool, Self::WriteError> {
+        Ok(self
+            .projects
+            .get(uri.as_ref())
+            .is_some_and(|versions| versions.contains_key(version.as_ref())))
+    }
+
     fn del_project_version<S: AsRef<str>, T: AsRef<str>>(
         &mut self,
         uri: S,
@@ -294,6 +314,42 @@ impl<Project: ProjectMut + Clone + Default> WriteEnvironment for MemoryStorageEn
     fn del_uri<S: AsRef<str>>(&mut self, uri: S) -> Result<(), Self::WriteError> {
         self.projects.remove(uri.as_ref());
         Ok(())
+    }
+
+    /// Never returns `Ok(ProjectChecksumResult::ChecksumNotPresent)`.
+    fn has_version_verified<S: AsRef<str>, V: AsRef<str>>(
+        &self,
+        uri: S,
+        version: V,
+        checksum: &ProjectChecksum,
+    ) -> Result<ProjectChecksumResult, Self::ReadError> {
+        let version = version.as_ref();
+        let Some(versions) = self.projects.get(uri.as_ref()) else {
+            return Ok(ProjectChecksumResult::VersionNotFound);
+        };
+
+        match versions.iter().find(|p| p.0 == version) {
+            Some((_, p)) => {
+                let pc = p
+                    .checksum_canonical_variant()
+                    .map_err(|e| MemoryReadError::Checksum(uri.as_ref().to_owned(), e))?;
+                match (checksum, &pc) {
+                    (ProjectChecksum::Project(c1), ProjectChecksum::Project(c2))
+                    | (ProjectChecksum::Kpar(c1), ProjectChecksum::Kpar(c2)) => {
+                        if c1 == c2 {
+                            Ok(ProjectChecksumResult::Match)
+                        } else {
+                            Ok(ProjectChecksumResult::Mismatch)
+                        }
+                    }
+                    (ProjectChecksum::Project(_), ProjectChecksum::Kpar(_))
+                    | (ProjectChecksum::Kpar(_), ProjectChecksum::Project(_)) => {
+                        Ok(ProjectChecksumResult::DifferentChecksumKinds)
+                    }
+                }
+            }
+            None => Ok(ProjectChecksumResult::VersionNotFound),
+        }
     }
 }
 
@@ -352,43 +408,6 @@ impl<Project: ProjectRead + Clone + Debug> ReadEnvironment for MemoryStorageEnvi
                 )
             })?
             .clone())
-    }
-
-    /// Will never return `Ok(ProjectChecksumResult::ChecksumNotPresent)`
-    /// because the hashing is cheap (at least for `InMemoryProject`)
-    fn has_version_verified<S: AsRef<str>, V: AsRef<str>>(
-        &self,
-        uri: S,
-        version: V,
-        checksum: &ProjectChecksum,
-    ) -> Result<ProjectChecksumResult, Self::ReadError> {
-        let version = version.as_ref();
-        let Some(versions) = self.projects.get(uri.as_ref()) else {
-            return Ok(ProjectChecksumResult::VersionNotFound);
-        };
-
-        match versions.iter().find(|p| p.0 == version) {
-            Some((_, p)) => {
-                let pc = p
-                    .checksum_canonical_variant()
-                    .map_err(|e| MemoryReadError::Checksum(uri.as_ref().to_owned(), e))?;
-                match (checksum, &pc) {
-                    (ProjectChecksum::Project(c1), ProjectChecksum::Project(c2))
-                    | (ProjectChecksum::Kpar(c1), ProjectChecksum::Kpar(c2)) => {
-                        if c1 == c2 {
-                            Ok(ProjectChecksumResult::Match)
-                        } else {
-                            Ok(ProjectChecksumResult::Mismatch)
-                        }
-                    }
-                    (ProjectChecksum::Project(_), ProjectChecksum::Kpar(_))
-                    | (ProjectChecksum::Kpar(_), ProjectChecksum::Project(_)) => {
-                        Ok(ProjectChecksumResult::DifferentChecksumKinds)
-                    }
-                }
-            }
-            None => Ok(ProjectChecksumResult::VersionNotFound),
-        }
     }
 }
 

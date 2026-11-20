@@ -1,0 +1,13 @@
+manifest-version = "1.0"
+
+[project]
+publisher = "sysand-it"
+name = "project3"
+version = "0.0.1"
+sources = ["c.sysml"]
+metamodel = "https://www.omg.org/spec/SysML/20250201"
+
+[[inline-usages]]
+publisher = "sysand-it"
+name = "project2"
+dir = "../projectGroup1/project2"

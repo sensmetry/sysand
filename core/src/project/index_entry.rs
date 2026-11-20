@@ -5,9 +5,7 @@
 //!
 //! `IndexEntryProject` is the `ProjectRead`/`ProjectReadAsync` leaf returned
 //! by [`crate::env::index::IndexEnvironmentAsync`] once a concrete version
-//! has been selected. The protocol rules are documented in
-//! `design/index-protocol.md`; this module only calls out the
-//! implementation split:
+//! has been selected. Reads fall into three tiers:
 //!
 //! - Advertised-tier reads ([`ProjectReadAsync::version_async`],
 //!   [`ProjectReadAsync::usage_async`]) returning fields from
@@ -15,15 +13,17 @@
 //!   `checksum_canonical_hex_async` is *not* among them: it is the canonical
 //!   project digest, computed from the fetched info and metadata, so it goes
 //!   through the lazy fetch below.
-//! - Lazily-fetched reads
-//!   ([`ProjectReadAsync::get_project_async`]/`get_info_async`/`get_meta_async`)
+//! - Lazily-fetched reads ([`ProjectReadAsync::get_project_async`])
 //!   guarded by `fetched_info_meta`'s `OnceCell`.
 //! - [`ProjectReadAsync::read_source_async`] delegating to
 //!   [`crate::project::reqwest_kpar_download::ReqwestIndexKparDownloadedProject`],
 //!   which verifies the archive against the advertised `kpar_digest` before
 //!   exposing source bytes.
 
-#![expect(clippy::field_scoped_visibility_modifiers)]
+#![expect(
+    clippy::field_scoped_visibility_modifiers,
+    reason = "fields use scoped visibility within the module tree"
+)]
 
 use std::sync::Arc;
 
@@ -31,24 +31,26 @@ use fluent_uri::Iri;
 use thiserror::Error;
 use tokio::sync::OnceCell;
 
+use crate::project::VersionAndUsage;
 use crate::{
     auth::HTTPAuthentication,
     context::ProjectContext,
     env::index::{AdvertisedVersion, HttpFetchError, MissingPolicy, fetch_json},
     lock::Source,
-    manifest::diagnostics::Report,
+    manifest::{
+        diagnostics::{Report, take_logged},
+        edit::DocumentMut,
+    },
     model::{
         InterchangeProjectInfoPartial, InterchangeProjectInfoRaw,
-        InterchangeProjectMetadataPartial, InterchangeProjectMetadataRaw,
-        InterchangeProjectUsageRaw, PartialManifest,
+        InterchangeProjectMetadataPartial, InterchangeProjectMetadataRaw, PartialManifest,
     },
     project::{
-        ProjectReadAsync,
+        ProjectDefinition, ProjectReadAsync,
         reqwest_kpar_download::{
             ReqwestIndexKparDownloadedProject, ReqwestKparDownloadedError,
             ReqwestRemoteKparDownloadedProject,
         },
-        utils::{ExpectedIdentity, IdentityMismatch},
     },
     redact::RedactedUrl,
 };
@@ -57,21 +59,15 @@ use super::ProjectChecksum;
 
 #[derive(Debug)]
 pub struct IndexEntryProject<Policy> {
-    /// The kpar archive backend — field name tracks its role in this struct,
-    /// type name tracks the transport.
+    /// The kpar archive backend.
     pub(crate) archive: ReqwestIndexKparDownloadedProject<Policy>,
-    /// Single source of truth for protocol-advertised per-version metadata.
-    /// `version_async` and `usage_async` return these fields without I/O.
+    /// Single source of truth for protocol-advertised per-version metadata,
+    /// served without I/O.
     pub(crate) advertised: AdvertisedVersion,
     pub(crate) project_json_url: reqwest::Url,
     pub(crate) meta_json_url: reqwest::Url,
     pub(crate) fetched_info_meta:
         OnceCell<(InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw)>,
-    /// The identity the IRI that found this entry names, when it is a
-    /// `pkg:sysand` PURL. An index usage's identity *is* its PURL, so
-    /// nothing has to be threaded in for the entry to be checked
-    /// against what the usage asked for.
-    pub(crate) expected: Option<ExpectedIdentity>,
 }
 
 #[derive(Error, Debug)]
@@ -80,19 +76,8 @@ pub enum IndexEntryProjectError {
     Fetch(#[from] HttpFetchError),
     #[error(transparent)]
     Downloaded(#[from] ReqwestKparDownloadedError),
-    #[error("`{0}` is not a valid manifest:\n{1}")]
-    InvalidManifest(String, Report),
-    #[error(
-        "project publisher `{}` does not match expected `{}`",
-        if let Some(a) = actual { a.as_str() } else { "<none>" },
-        if let Some(p) = expected { p.as_str() } else { "<none>" }
-    )]
-    PublisherMismatch {
-        expected: Option<String>,
-        actual: Option<String>,
-    },
-    #[error("project name `{actual}` does not match expected `{expected}`")]
-    NameMismatch { expected: String, actual: String },
+    #[error("`{}` is not a valid manifest:\n{report}", .report.file())]
+    InvalidManifest { report: Report },
 }
 
 impl<Policy: HTTPAuthentication> IndexEntryProject<Policy> {
@@ -106,7 +91,6 @@ impl<Policy: HTTPAuthentication> IndexEntryProject<Policy> {
         advertised: AdvertisedVersion,
         client: reqwest_middleware::ClientWithMiddleware,
         auth_policy: Arc<Policy>,
-        expected: Option<ExpectedIdentity>,
     ) -> Result<Self, IndexEntryProjectError> {
         Ok(Self {
             archive: ReqwestIndexKparDownloadedProject::new(
@@ -120,7 +104,6 @@ impl<Policy: HTTPAuthentication> IndexEntryProject<Policy> {
             project_json_url,
             meta_json_url,
             fetched_info_meta: OnceCell::new(),
-            expected,
         })
     }
 
@@ -128,10 +111,7 @@ impl<Policy: HTTPAuthentication> IndexEntryProject<Policy> {
         &self,
         url: reqwest::Url,
     ) -> Result<T, IndexEntryProjectError> {
-        // RequirePresent — once a version is selected, a per-version
-        // 404 is a hard error. The `.expect` is valid because
-        // RequirePresent only returns `Ok(None)` under
-        // `AllowNotFound`, which we're not using here.
+        // Once a version is selected, a per-version 404 is a hard error.
         Ok(fetch_json(
             &self.archive.client,
             &*self.archive.auth_policy,
@@ -163,33 +143,6 @@ impl<Policy: HTTPAuthentication> IndexEntryProject<Policy> {
                 let info =
                     validate_fetched(&self.project_json_url, info, meta.metamodel.as_deref())?;
 
-                // The entry has to be the project the identity that found
-                // it names. The advertised tier carries no publisher or
-                // name, so a `versions.json` that
-                // points at another project's files is accepted until the
-                // `.project.json` is read, which is here.
-                if let Some(expected) = &self.expected {
-                    expected
-                        .check(info.publisher.as_deref(), &info.name)
-                        .map_err(|mismatch| match mismatch {
-                            // No origin reaches an index resolver, so a
-                            // publisher-less entry is a plain publisher
-                            // mismatch rather than `NoPublisher`
-                            IdentityMismatch::NoPublisher { name: _ } => {
-                                IndexEntryProjectError::PublisherMismatch {
-                                    expected: expected.publisher().map(ToOwned::to_owned),
-                                    actual: None,
-                                }
-                            }
-                            IdentityMismatch::Publisher { expected, actual } => {
-                                IndexEntryProjectError::PublisherMismatch { expected, actual }
-                            }
-                            IdentityMismatch::Name { expected, actual } => {
-                                IndexEntryProjectError::NameMismatch { expected, actual }
-                            }
-                        })?;
-                }
-
                 Ok((info, meta))
             })
             .await
@@ -199,17 +152,20 @@ impl<Policy: HTTPAuthentication> IndexEntryProject<Policy> {
 impl<Policy: HTTPAuthentication> ProjectReadAsync for IndexEntryProject<Policy> {
     type Error = IndexEntryProjectError;
 
-    async fn get_project_async(
-        &self,
-    ) -> Result<
-        (
-            Option<InterchangeProjectInfoRaw>,
-            Option<InterchangeProjectMetadataRaw>,
-        ),
-        Self::Error,
-    > {
+    fn format(&self) -> Result<crate::project::ProjectFormat, Self::Error> {
+        Ok(crate::project::ProjectFormat::Json)
+    }
+
+    fn manifest_document(&self) -> Result<DocumentMut, crate::project::ManifestError<Self::Error>> {
+        Err(crate::project::ManifestError::NoTomlManifest)
+    }
+
+    async fn get_project_async(&self) -> Result<Option<ProjectDefinition>, Self::Error> {
         let (info, meta) = self.ensure_downloaded().await?;
-        Ok((Some(info.clone()), Some(meta.clone())))
+        Ok(Some(ProjectDefinition::Json {
+            info: info.clone(),
+            meta: meta.clone(),
+        }))
     }
 
     type SourceReader<'a>
@@ -229,8 +185,7 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for IndexEntryProject<Policy> 
 
     async fn sources_async(&self, _ctx: &ProjectContext) -> Result<Vec<Source>, Self::Error> {
         Ok(vec![Source::IndexKpar {
-            // Panic here should be impossible, as the URL should have
-            // been created from IRI
+            // Cannot panic: the URL was created from an IRI
             index_kpar: Iri::parse(self.archive.url().to_string()).unwrap(),
             kpar_size: self.advertised.kpar_size,
             kpar_digest: self.advertised.kpar_digest.as_hex().to_owned(),
@@ -242,20 +197,11 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for IndexEntryProject<Policy> 
         true
     }
 
-    async fn get_info_async(&self) -> Result<Option<InterchangeProjectInfoRaw>, Self::Error> {
-        Ok(Some(self.ensure_downloaded().await?.0.clone()))
-    }
-
-    async fn get_meta_async(&self) -> Result<Option<InterchangeProjectMetadataRaw>, Self::Error> {
-        Ok(Some(self.ensure_downloaded().await?.1.clone()))
-    }
-
-    async fn version_async(&self) -> Result<Option<String>, Self::Error> {
-        Ok(Some(self.advertised.version.to_string()))
-    }
-
-    async fn usage_async(&self) -> Result<Option<Vec<InterchangeProjectUsageRaw>>, Self::Error> {
-        Ok(Some(self.advertised.usage.clone()))
+    async fn version_and_usage_async(&self) -> Result<Option<VersionAndUsage>, Self::Error> {
+        Ok(Some(VersionAndUsage {
+            version: self.advertised.version.to_string(),
+            usage: self.advertised.usage.clone(),
+        }))
     }
 
     // TODO: decide the security requirements here and maybe have separate methods
@@ -273,25 +219,18 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for IndexEntryProject<Policy> 
     }
 }
 
-/// One fetched manifest document, validated; its warnings are logged
-/// against the URL they came from.
+/// One fetched manifest document, validated; its warnings and errors
+/// name the URL it came from, redacted.
 fn validate_fetched<T: PartialManifest>(
     url: &reqwest::Url,
     partial: T,
     metamodel: Option<&str>,
 ) -> Result<T::Validated, IndexEntryProjectError> {
-    match partial.validate_manifest(metamodel) {
-        Ok(validated) => {
-            for warning in &validated.warnings {
-                log::warn!("`{}`: {warning}", RedactedUrl::from(url));
-            }
-            Ok(validated.value)
-        }
-        Err(report) => Err(IndexEntryProjectError::InvalidManifest(
-            url.to_string(),
-            report,
-        )),
-    }
+    take_logged(
+        partial.validate_manifest(metamodel),
+        &RedactedUrl::from(url).to_string(),
+    )
+    .map_err(|report| IndexEntryProjectError::InvalidManifest { report })
 }
 
 #[cfg(test)]
