@@ -2,12 +2,11 @@
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
 //! The credential store: [`LockedBlobStore`], a persistent store of
-//! credential records over a [`BlobBackend`]; the storage design is in
-//! design/credential-storage.md.
+//! credential records over a [`BlobBackend`].
 //!
 //! All persisted credentials live in one backend entry holding the
 //! versioned JSON blob from the parent module. Read-modify-write is
-//! guarded by an exclusive cross-process advisory OS file lock (never an
+//! guarded by an exclusive cross-process advisory OS file lock (not an
 //! existence-based lock file) and reads by its shared counterpart, both
 //! with a bounded wait.
 //!
@@ -24,10 +23,10 @@ use std::fs;
 use std::path::PathBuf;
 
 use camino::{Utf8Path, Utf8PathBuf};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use super::{CredentialBlob, CredentialRecord, CredentialStoreError, parse_blob, serialize_blob};
-use crate::project::utils::FsIoError;
+use crate::project::utils::{FsIoError, LockMode, LockPollError};
 
 /// Keyring service name of the single sysand credential entry.
 #[cfg(all(
@@ -158,7 +157,7 @@ fn musl_backend_absent() -> CredentialStoreError {
 /// Linux: `XDG_STATE_HOME` (via `dirs`, defaulting to `~/.local/state`),
 /// then the local data dir. macOS and Windows: the local data dir (the
 /// state dir is unset there). Both fall back to a dotdir in the home
-/// directory. Never a world-writable shared path, and deliberately never
+/// directory. The path is never world-writable, and deliberately not
 /// the session-scoped `XDG_RUNTIME_DIR`: it is often unset for cron,
 /// systemd, and container processes, so two same-user processes with
 /// different environments could lock different files while
@@ -179,7 +178,13 @@ fn lock_path_from_dirs(
 ) -> Result<Utf8PathBuf, CredentialStoreError> {
     // A non-UTF-8 candidate directory is exceedingly unlikely (these come
     // from the `dirs` crate); treat one like an unset candidate.
-    let utf8 = |dir: Option<PathBuf>| Utf8PathBuf::from_path_buf(dir?).ok();
+    let utf8 = |dir: Option<PathBuf>| match Utf8PathBuf::from_path_buf(dir?) {
+        Ok(dir) => Some(dir),
+        Err(err) => {
+            log::debug!("ignoring non-UTF-8 directory `{}`", err.as_path().display());
+            None
+        }
+    };
     if let Some(base) = utf8(state_dir).or_else(|| utf8(data_local_dir)) {
         return Ok(base.join("sysand").join("credentials.lock"));
     }
@@ -200,18 +205,6 @@ pub struct LockedBlobStore<B> {
     lock_path: Utf8PathBuf,
     lock_timeout: Duration,
     lock_poll_interval: Duration,
-}
-
-/// The OS-keyring-backed credential store.
-#[cfg(feature = "keyring")]
-pub type KeyringCredentialStore = LockedBlobStore<OsKeyringBackend>;
-
-#[cfg(feature = "keyring")]
-impl KeyringCredentialStore {
-    /// The OS keyring store with the default per-user lock path.
-    pub fn open_default() -> Result<Self, CredentialStoreError> {
-        Ok(Self::new(OsKeyringBackend, default_lock_path()?))
-    }
 }
 
 impl<B: BlobBackend> LockedBlobStore<B> {
@@ -258,43 +251,25 @@ impl<B: BlobBackend> LockedBlobStore<B> {
         body: impl FnOnce(&B) -> Result<T, CredentialStoreError>,
     ) -> Result<T, CredentialStoreError> {
         let file = self.open_lock_file()?;
-        let deadline = Instant::now() + self.lock_timeout;
-        loop {
-            let attempt = match mode {
-                LockMode::Shared => file.try_lock_shared(),
-                LockMode::Exclusive => file.try_lock(),
-            };
-            match attempt {
-                Ok(()) => {
-                    let result = body(&self.backend);
-                    // Release explicitly (it would also unlock on `file` drop)
-                    if let Err(e) = file.unlock() {
-                        log::debug!("failed to unlock lock file `{}`: {e}", self.lock_path);
-                    }
-                    return result;
-                }
-                Err(fs::TryLockError::WouldBlock) => {
-                    if Instant::now() >= deadline {
-                        return Err(CredentialStoreError::LockTimeout {
-                            path: self.lock_path.to_string(),
-                        });
-                    }
-                    std::thread::sleep(self.lock_poll_interval);
-                }
-                Err(fs::TryLockError::Error(err)) => {
-                    return Err(FsIoError::LockFile(self.lock_path.clone(), err).into());
-                }
-            }
+        mode.lock_polling(
+            &file,
+            Some(self.lock_timeout),
+            self.lock_poll_interval,
+            || {},
+        )
+        .map_err(|err| match err {
+            LockPollError::Blocked => CredentialStoreError::LockTimeout {
+                path: self.lock_path.to_string(),
+            },
+            LockPollError::Io(err) => FsIoError::LockFile(self.lock_path.clone(), err).into(),
+        })?;
+        let result = body(&self.backend);
+        // Release explicitly (it would also unlock on `file` drop)
+        if let Err(e) = file.unlock() {
+            log::debug!("failed to unlock lock file `{}`: {e}", self.lock_path);
         }
+        result
     }
-}
-
-/// Which cross-process lock [`LockedBlobStore::with_lock`] takes: shared
-/// for read-only operations, exclusive for read-modify-write.
-#[derive(Clone, Copy)]
-enum LockMode {
-    Shared,
-    Exclusive,
 }
 
 /// Create a directory chain, with the final directory private (0700) on
@@ -346,7 +321,7 @@ impl<B: BlobBackend> LockedBlobStore<B> {
     }
 
     /// Insert a record, replacing any existing record with the same `key`.
-    pub fn upsert(&mut self, record: CredentialRecord) -> Result<(), CredentialStoreError> {
+    pub fn upsert(&self, record: CredentialRecord) -> Result<(), CredentialStoreError> {
         self.with_lock(LockMode::Exclusive, |backend| {
             let mut blob = load_blob(backend)?;
             match blob
@@ -363,7 +338,7 @@ impl<B: BlobBackend> LockedBlobStore<B> {
 
     /// Remove the record with the given `key`. Returns whether a record
     /// was removed.
-    pub fn remove(&mut self, key: &str) -> Result<bool, CredentialStoreError> {
+    pub fn remove(&self, key: &str) -> Result<bool, CredentialStoreError> {
         self.with_lock(LockMode::Exclusive, |backend| {
             let mut blob = load_blob(backend)?;
             let before = blob.credentials.len();
@@ -376,8 +351,6 @@ impl<B: BlobBackend> LockedBlobStore<B> {
         })
     }
 }
-
-// Private tests
 
 #[cfg(test)]
 #[path = "./keyring_store_tests.rs"]

@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-//! Core types for interchange projects. Originally matched KerML 1.0 spec,
-//! but now includes various changes.
+//! Core types for interchange projects, based on the KerML 1.0 spec with
+//! extensions.
 //!
 //! IMPORTANT: when updating any of these types, update the corresponding
 //! bindings' types (in `_model.py` for Python and various Java classes)
 
+use crate::paths::{PathKind, UnixPathError, parse_unix_path};
 use std::{clone::Clone, collections::HashSet, fmt::Display, hash::Hash};
 
 use digest::array::{Array, typenum};
@@ -19,30 +20,28 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use typed_path::{Utf8UnixPath, Utf8UnixPathBuf};
 
-use crate::manifest::diagnostics::{
-    Diagnostic, KeyLocation, ReadWarning, Report, UnknownKeys, Validated, missing_key,
+use crate::manifest::{
+    common,
+    diagnostics::{
+        Diagnostic, Diagnostics, KeyLocation, ReadWarning, UnknownKeys, Validated, missing_key,
+    },
 };
-use crate::project::utils::Identifier;
+use crate::project::utils::{self, Identifier};
 use crate::purl::parse_sysand_purl;
+use crate::symbols::Language;
 use crate::utils::{
     CASE_MAPPER, GENERAL_CATEGORY, IGNORABLE, NFKC_NORMALIZER, NFKD_NORMALIZER,
-    PROJECT_FIELD_ASCII_PUNCTUATION, PURL_NAME_SEPARATOR, PURL_SEPARATOR, RelativePathKind,
-    RelativeUnixPathError, UNNORMALIZED_PURL_SEPARATOR, XID_CONTINUE, lowercase_hex,
-    parse_relative_unix_path,
+    PROJECT_FIELD_ASCII_PUNCTUATION, PURL_NAME_SEPARATOR, PURL_SEPARATOR,
+    UNNORMALIZED_PURL_SEPARATOR, XID_CONTINUE, lowercase_hex,
 };
-
-// pub struct RawIri(String);
-// pub struct ParsedIri(fluent_uri::Iri<String>);
-// pub struct NormalisedIri(fluent_uri::Iri<String>);
 
 /// The two families of `metamodel` values Sysand recognizes: the OMG
 /// specifications, and the Syside metamodels that extend them and mirror
 /// the OMG value they extend.
 ///
 /// A manifest key may belong to the schema of one family only (`root` is
-/// Syside's), which is what the family is needed for while reading a
-/// manifest; the full parse of a metamodel value (specification kind and
-/// release date) is a separate concern.
+/// Syside's). The full parse of a metamodel value (specification kind and
+/// release date) is [`Metamodel`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum MetamodelFamily {
     /// `https://www.omg.org/spec/<spec-kind>/<date>`
@@ -58,6 +57,14 @@ impl MetamodelFamily {
         match self {
             Self::Omg => "https://www.omg.org/spec/",
             Self::Syside => "https://www.sysand.com/spec/",
+        }
+    }
+
+    /// The host of [`Self::prefix`], without its `www.`.
+    pub fn host(self) -> &'static str {
+        match self {
+            Self::Omg => "omg.org",
+            Self::Syside => "sysand.com",
         }
     }
 }
@@ -96,11 +103,17 @@ impl SpecKind {
         }
     }
 
-    /// The language its source files are written in, as messages name it.
-    pub fn lang(self) -> &'static str {
-        match self {
-            Self::SysMl => "SysMLv2",
-            Self::KerMl => "KerML",
+    /// Whether a source file of this language belongs to a project with
+    /// this specification.
+    ///
+    /// A `KerML` project admits `.kerml` files only; a `SysML` project
+    /// admits `.sysml` and `.kerml`, SysML being layered on KerML. Both
+    /// families answer this the same way.
+    pub fn admits(self, language: Language) -> bool {
+        match (self, language) {
+            (Self::KerMl, Language::KerML) => true,
+            (Self::KerMl, Language::SysML) => false,
+            (Self::SysMl, _) => true,
         }
     }
 
@@ -140,9 +153,9 @@ pub enum MetamodelParseError {
 ///
 /// A value of the form `<family prefix><spec-kind>/<release>` is `Known`.
 /// A value with a recognized `<family prefix><spec-kind>/` but anything
-/// other than a release after it does not parse, so that a typo in a
-/// recognized metamodel is not mistaken for some other metamodel. Every
-/// other IRI is `Other`.
+/// other than a release after it does not parse. Every other IRI is
+/// `Other`, including a misspelled prefix or spec kind; the warning for an
+/// unrecognized value on a family's host lists the recognized ones.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Metamodel {
     Known(KnownMetamodel),
@@ -155,9 +168,10 @@ impl Metamodel {
     /// returns the value it was parsed from.
     pub fn parse(metamodel: &str) -> Result<Self, MetamodelParseError> {
         let Some((family, spec, release)) = Self::split_known(metamodel) else {
-            return Iri::parse(metamodel.to_owned())
-                .map(Self::Other)
-                .map_err(|(error, value)| MetamodelParseError::NotUrl { value, error });
+            return match Iri::parse(metamodel.to_owned()) {
+                Ok(iri) => Ok(Self::Other(iri)),
+                Err((error, value)) => Err(MetamodelParseError::NotUrl { value, error }),
+            };
         };
         let Some(release) = MetamodelRelease::parse(release) else {
             return Err(MetamodelParseError::InvalidRelease {
@@ -191,9 +205,9 @@ impl Metamodel {
     /// The schema a project's manifest is validated against: the OMG one
     /// unless the project declares a recognized Syside metamodel.
     ///
-    /// model-toml.md: "A project without a `metamodel` is treated as an
-    /// OMG-metamodel project"; an unrecognized value is validated against
-    /// the OMG schema too (rule (a)).
+    /// A project without a `metamodel` is treated as an OMG-metamodel
+    /// project; an unrecognized value is validated against the OMG schema
+    /// too.
     pub fn schema_family(metamodel: Option<&Self>) -> MetamodelFamily {
         metamodel
             .and_then(Self::known)
@@ -202,11 +216,10 @@ impl Metamodel {
 
     /// How a message names a project's metamodel: "the OMG metamodel
     /// `<url>`", "no declared metamodel (OMG assumed)" or "the unrecognized
-    /// metamodel `<url>`". Written to follow "uses" in a sentence, so the
-    /// article belongs here rather than in the sentence.
+    /// metamodel `<url>`". Written to follow "uses" in a sentence.
     pub fn describe(metamodel: Option<&Self>) -> String {
         match metamodel {
-            Some(Self::Known(known)) => format!("the {} metamodel `{known}`", known.family),
+            Some(Self::Known(known)) => known.describe(),
             Some(Self::Other(iri)) => format!("the unrecognized metamodel `{iri}`"),
             None => "no declared metamodel (OMG assumed)".to_owned(),
         }
@@ -241,10 +254,31 @@ pub struct KnownMetamodel {
 }
 
 impl KnownMetamodel {
+    /// The values a `model.toml` recognizes, as a message lists them.
+    pub const RECOGNIZED: &'static str = "`https://www.omg.org/spec/KerML/<date>`, \
+         `https://www.omg.org/spec/SysML/<date>`, \
+         `https://www.sysand.com/spec/KerML/<date>` or \
+         `https://www.sysand.com/spec/SysML/<date>`";
+
+    /// The OMG metamodel of `spec` at `release`.
+    pub fn omg(spec: SpecKind, release: MetamodelRelease) -> Self {
+        Self {
+            family: MetamodelFamily::Omg,
+            spec,
+            release,
+        }
+    }
+
+    /// How a message names this metamodel: "the OMG metamodel `<url>`".
+    pub fn describe(&self) -> String {
+        format!("the {} metamodel `{self}`", self.family)
+    }
+
     /// The recognized metamodel a raw `metamodel` value names: `None` when
     /// the value is not an IRI, names some other metamodel, or has a
     /// malformed release.
     pub fn recognize(value: &str) -> Option<Self> {
+        // ast-grep-ignore: dot-ok
         match Metamodel::parse(value).ok()? {
             Metamodel::Known(known) => Some(known),
             Metamodel::Other(_) => None,
@@ -328,6 +362,41 @@ pub const LICENSE_EXPRESSION_HELP: &str = "\
     for the syntax and https://spdx.org/licenses/ for the list of license identifiers;\n\
     for custom licenses, use `LicenseRef-My-custom-license`";
 
+/// Whether an IRI is an OMG standard-library KPAR IRI.
+///
+/// The standard libraries are published at
+/// `https://www.omg.org/spec/<KerML|SysML>/<date>/<stem>.kpar`.
+/// A usage naming one of those IRIs may omit its `publisher`, and no
+/// other usage may, so the shape is pinned:
+/// exactly one eight-digit date segment, exactly one non-empty stem
+/// ending in `.kpar`, and nothing after it. A query or a fragment lands
+/// in the stem and so fails the suffix: the exemption is granted to the
+/// IRI as written.
+///
+/// The `sysand.com` spec family is not matched: those IRIs name a
+/// *metamodel*, never a library.
+///
+/// This is a shape rule: it does not tell whether this Sysand embeds a
+/// release at the IRI.
+pub fn is_omg_stdlib_iri(iri: &str) -> bool {
+    omg_stdlib_stem(iri).is_some()
+}
+
+/// The `<stem>` of an OMG standard-library KPAR IRI, or `None` if the
+/// IRI is not one. See [`is_omg_stdlib_iri`] for the shape.
+///
+/// The stem is not always the library's declared name; for the name see
+/// [`crate::stdlib::std_lib_name`].
+pub fn omg_stdlib_stem(iri: &str) -> Option<&str> {
+    let rest = iri
+        .strip_prefix(KERML_SPEC_PREFIX)
+        .or_else(|| iri.strip_prefix(SYSML_SPEC_PREFIX))?;
+    let (date, file) = rest.split_once('/')?;
+    (date.len() == 8 && date.bytes().all(|b| b.is_ascii_digit())).then_some(())?;
+    let stem = file.strip_suffix(".kpar")?;
+    (!stem.is_empty() && !stem.contains('/')).then_some(stem)
+}
+
 /// A dependency on another interchange project. In the dependency solver,
 /// usages are treated as referring to the same project iff they derive the
 /// same `Identifier`. A project declares each dependency once: two of its
@@ -359,6 +428,7 @@ pub enum InterchangeProjectUsageG<Iri, VersionReq, Path, Publisher, Name, IdxPub
     /// the project's identity (i.e. directly used as its `Identifier`), and,
     /// depending on its scheme, possibly also a location to fetch from (e.g.
     /// `pkg:sysand` vs `https`).
+    /// `model.toml` has no such kind.
     /// Resolution is not defined, so it's implementation-specific.
     /// We generally treat the same project referenced via different IRIs as
     /// different projects. Typed usages (all other shapes) separate the two roles:
@@ -375,10 +445,9 @@ pub enum InterchangeProjectUsageG<Iri, VersionReq, Path, Publisher, Name, IdxPub
     /// The project in the directory `dir`, relative to the root
     /// of the project declaring the usage. `publisher` and `name` are
     /// *written* as the values found at `dir` are written, without any
-    /// normalization -- that is what a KPAR carries. Resolving the usage
-    /// is a different matter: model-toml.md "Normalization" makes
-    /// resolution the one place that normalizes, so the identity check
-    /// at the target compares the normalized pair.
+    /// normalization, as a KPAR carries them. Resolving the usage
+    /// normalizes: the identity check at the target compares the
+    /// normalized pair.
     /// No version constraint, as the directory contains a single version
     // TODO: should absolute paths also be supported (like Cargo)?
     #[cfg_attr(feature = "python", pyo3(from_item_all))]
@@ -397,6 +466,20 @@ pub enum InterchangeProjectUsageG<Iri, VersionReq, Path, Publisher, Name, IdxPub
         publisher: Publisher,
         name: Name,
     },
+    /// The project KPAR at the `http(s)` URL `kpar_url`. No version
+    /// constraint, as the URL names a single KPAR. Its identifier is
+    /// `kpar_url`.
+    ///
+    /// `publisher` is absent exactly for an OMG standard-library IRI (see
+    /// [`is_omg_stdlib_iri`]), whose KPARs declare no publisher.
+    #[serde(rename_all = "camelCase")]
+    #[cfg_attr(feature = "python", pyo3(from_item_all))]
+    RemoteKpar {
+        kpar_url: Iri,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        publisher: Option<Publisher>,
+        name: Name,
+    },
     /// The project `publisher`/`name` from the configured indexes, or from
     /// any other source that resolves by identity (the local environment,
     /// workspace members).
@@ -407,6 +490,13 @@ pub enum InterchangeProjectUsageG<Iri, VersionReq, Path, Publisher, Name, IdxPub
         name: IdxName,
         version_constraint: VersionReq,
     },
+}
+
+/// Whether `url` has the `http` or `https` scheme, the schemes a remote
+/// KPAR usage accepts.
+pub fn is_http_url(url: &Iri<String>) -> bool {
+    let scheme = url.scheme().as_str();
+    scheme.eq_ignore_ascii_case("http") || scheme.eq_ignore_ascii_case("https")
 }
 
 /// Parse how a directory or KPAR usage spells its project, as
@@ -460,22 +550,18 @@ pub fn parse_index_usage_spelling(
 ///
 /// Every typed kind rejects a key it does not know (`deny_unknown_fields`,
 /// which serde only offers per struct, hence the structs here). Without a
-/// kind key, an unknown key could otherwise change what an entry means
-/// unnoticed: a future kind that adds a source key (say, `git`) to an index
-/// usage's keys would be read as an index usage, and a future
-/// `versionConstraint` on a directory usage would be dropped. Such an entry
-/// matches no kind and fails to parse instead.
+/// kind key, an unknown key could change what an entry means unnoticed
+/// (a future `git` key on an index usage would be read as an index usage);
+/// such an entry matches no kind and fails to parse.
 ///
-/// A resource usage, the shape KerML specifies, keeps ignoring unknown keys,
-/// as manifests written for sysand before typed usages rely on it. Its
-/// `resource` key names its source, so a key it ignores cannot turn it into
-/// another kind.
+/// A resource usage, the shape KerML specifies, ignores unknown keys.
 #[derive(Deserialize)]
 #[serde(untagged)]
 enum Usage<Iri, VersionReq, Path, Publisher, Name, IdxPublisher, IdxName> {
     Resource(ResourceUsage<Iri, VersionReq>),
     Directory(DirectoryUsage<Path, Publisher, Name>),
     KparPath(KparPathUsage<Path, Publisher, Name>),
+    RemoteKpar(RemoteKparUsage<Iri, Publisher, Name>),
     Index(IndexUsage<VersionReq, IdxPublisher, IdxName>),
 }
 
@@ -499,6 +585,14 @@ struct DirectoryUsage<Path, Publisher, Name> {
 struct KparPathUsage<Path, Publisher, Name> {
     kpar_path: Path,
     publisher: Publisher,
+    name: Name,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RemoteKparUsage<Iri, Publisher, Name> {
+    kpar_url: Iri,
+    publisher: Option<Publisher>,
     name: Name,
 }
 
@@ -541,6 +635,15 @@ impl<Iri, VersionReq, Path, Publisher, Name, IdxPublisher, IdxName>
                 publisher,
                 name,
             },
+            Usage::RemoteKpar(RemoteKparUsage {
+                kpar_url,
+                publisher,
+                name,
+            }) => Self::RemoteKpar {
+                kpar_url,
+                publisher,
+                name,
+            },
             Usage::Index(IndexUsage {
                 publisher,
                 name,
@@ -574,12 +677,9 @@ impl InterchangeProjectUsageRaw {
                 resource,
                 version_constraint,
             } => {
-                // `pkg:sysand/<publisher>/<name>` is the canonical sysand project
-                // identifier; the index protocol routes it directly under
-                // `<publisher>/<name>/`. Reject malformed or non-normalized
-                // `pkg:sysand` IRIs at validation time so users get an actionable
-                // error (with a suggested normalized form) instead of a downstream
-                // "not found" — see `crate::purl::parse_sysand_purl`.
+                // Reject malformed or non-normalized `pkg:sysand` IRIs here, so
+                // users get an actionable error with a suggested normalized form
+                // before a downstream "not found".
                 parse_sysand_purl(resource).map_err(|e| {
                     InterchangeProjectValidationError::MalformedUsageSysandPurl {
                         iri: resource.clone(),
@@ -587,8 +687,8 @@ impl InterchangeProjectUsageRaw {
                     }
                 })?;
                 // `urn:sysand` identifiers are internal to Sysand; a project
-                // is used by its publisher and name instead
-                if crate::project::utils::is_urn_sysand(resource) {
+                // is used by its publisher and name
+                if utils::is_urn_sysand(resource) {
                     return Err(InterchangeProjectValidationError::UrnSysandUsage(
                         resource.clone(),
                     ));
@@ -617,7 +717,7 @@ impl InterchangeProjectUsageRaw {
                 dir: path,
                 publisher,
                 name,
-            } => match parse_relative_unix_path(path, RelativePathKind::Directory) {
+            } => match parse_unix_path(path, PathKind::Directory) {
                 Ok(p) => {
                     let (publisher, name) = parse_project_usage_spelling(publisher, name)?;
                     Ok(InterchangeProjectUsage::Directory {
@@ -636,7 +736,7 @@ impl InterchangeProjectUsageRaw {
                 kpar_path,
                 publisher,
                 name,
-            } => match parse_relative_unix_path(kpar_path, RelativePathKind::File) {
+            } => match parse_unix_path(kpar_path, PathKind::File) {
                 Ok(p) => {
                     let (publisher, name) = parse_project_usage_spelling(publisher, name)?;
                     Ok(InterchangeProjectUsage::KparPath {
@@ -651,6 +751,49 @@ impl InterchangeProjectUsageRaw {
                     source: e,
                 }),
             },
+            Self::RemoteKpar {
+                kpar_url,
+                publisher,
+                name,
+            } => {
+                let url = Iri::parse(kpar_url.clone()).map_err(|(e, val)| {
+                    InterchangeProjectValidationError::InvalidUsageResource(val, e)
+                })?;
+                if !is_http_url(&url) {
+                    return Err(InterchangeProjectValidationError::RemoteKparUsageNotHttp(
+                        kpar_url.clone(),
+                    ));
+                }
+                let (publisher, name) = match publisher {
+                    Some(publisher) => {
+                        let (publisher, name) = parse_project_usage_spelling(publisher, name)?;
+                        (Some(publisher), name)
+                    }
+                    None if is_omg_stdlib_iri(kpar_url) => (
+                        None,
+                        ProjectName::parse(name.clone()).map_err(|(name, source)| {
+                            InterchangeProjectValidationError::InvalidRemoteKparUsageName {
+                                kpar_url: kpar_url.clone(),
+                                name,
+                                source,
+                            }
+                        })?,
+                    ),
+                    None => {
+                        return Err(
+                            InterchangeProjectValidationError::RemoteKparUsageNoPublisher {
+                                kpar_url: kpar_url.clone(),
+                                name: name.clone(),
+                            },
+                        );
+                    }
+                };
+                Ok(InterchangeProjectUsage::RemoteKpar {
+                    kpar_url: url,
+                    publisher,
+                    name,
+                })
+            }
             Self::Index {
                 publisher,
                 name,
@@ -692,7 +835,8 @@ impl<Iri, VersionReq, Path, Publisher, Name, IdxPublisher, IdxName>
     }
 
     /// The `publisher` and `name` of a typed usage; `None` for a resource
-    /// usage
+    /// usage and a standard-library `kpar_url` usage, which declares no
+    /// publisher
     pub fn typed_publisher_name(&self) -> Option<(&str, &str)>
     where
         Publisher: AsRef<str>,
@@ -715,6 +859,11 @@ impl<Iri, VersionReq, Path, Publisher, Name, IdxPublisher, IdxName>
                 name,
                 kpar_path: _,
             } => Some((publisher.as_ref(), name.as_ref())),
+            Self::RemoteKpar {
+                publisher,
+                name,
+                kpar_url: _,
+            } => publisher.as_ref().map(|p| (p.as_ref(), name.as_ref())),
             Self::Index {
                 publisher,
                 name,
@@ -741,11 +890,47 @@ impl<Iri, VersionReq, Path, Publisher, Name, IdxPublisher, IdxName>
                 publisher: _,
                 name: _,
             } => "a KPAR path",
+            Self::RemoteKpar {
+                kpar_url: _,
+                publisher: _,
+                name: _,
+            } => "a remote KPAR",
             Self::Index {
                 publisher: _,
                 name: _,
                 version_constraint: _,
             } => "an index",
+        }
+    }
+
+    /// The version constraint, if this usage's kind carries one and it
+    /// is given
+    pub fn version_constraint(&self) -> Option<&VersionReq> {
+        match self {
+            Self::Resource {
+                resource: _,
+                version_constraint,
+            } => version_constraint.as_ref(),
+            Self::Index {
+                publisher: _,
+                name: _,
+                version_constraint,
+            } => Some(version_constraint),
+            Self::Directory {
+                dir: _,
+                publisher: _,
+                name: _,
+            }
+            | Self::KparPath {
+                kpar_path: _,
+                publisher: _,
+                name: _,
+            }
+            | Self::RemoteKpar {
+                kpar_url: _,
+                publisher: _,
+                name: _,
+            } => None,
         }
     }
 }
@@ -778,6 +963,15 @@ impl From<InterchangeProjectUsage> for InterchangeProjectUsageRaw {
                 publisher: publisher.into_string(),
                 name: name.into_string(),
             },
+            InterchangeProjectUsage::RemoteKpar {
+                kpar_url,
+                publisher,
+                name,
+            } => Self::RemoteKpar {
+                kpar_url: kpar_url.into_string(),
+                publisher: publisher.map(ProjectPublisher::into_string),
+                name: name.into_string(),
+            },
             InterchangeProjectUsage::Index {
                 publisher,
                 name,
@@ -786,57 +980,6 @@ impl From<InterchangeProjectUsage> for InterchangeProjectUsageRaw {
                 publisher: publisher.into_string(),
                 name: name.into_string(),
                 version_constraint: version_constraint.to_string(),
-            },
-        }
-    }
-}
-
-impl From<InterchangeProjectUsage>
-    for InterchangeProjectUsageG<
-        String,
-        semver::VersionReq,
-        Utf8UnixPathBuf,
-        ProjectPublisher,
-        ProjectName,
-        IndexPublisher,
-        IndexName,
-    >
-{
-    fn from(value: InterchangeProjectUsage) -> Self {
-        match value {
-            InterchangeProjectUsageG::Resource {
-                resource,
-                version_constraint,
-            } => Self::Resource {
-                resource: resource.into_string(),
-                version_constraint,
-            },
-            InterchangeProjectUsage::Directory {
-                dir,
-                publisher,
-                name,
-            } => Self::Directory {
-                dir,
-                publisher,
-                name,
-            },
-            InterchangeProjectUsageG::KparPath {
-                kpar_path,
-                publisher,
-                name,
-            } => Self::KparPath {
-                kpar_path,
-                publisher,
-                name,
-            },
-            InterchangeProjectUsageG::Index {
-                publisher,
-                name,
-                version_constraint,
-            } => Self::Index {
-                publisher,
-                name,
-                version_constraint,
             },
         }
     }
@@ -878,6 +1021,14 @@ impl<
             } => {
                 write!(f, "`{publisher}/{name}` in `{kpar_path}`")?;
             }
+            Self::RemoteKpar {
+                kpar_url,
+                publisher,
+                name,
+            } => match publisher {
+                Some(publisher) => write!(f, "`{publisher}/{name}` at `{kpar_url}`")?,
+                None => write!(f, "`{name}` at `{kpar_url}`")?,
+            },
             Self::Index {
                 publisher,
                 name,
@@ -941,12 +1092,10 @@ pub struct InterchangeProjectInfoG<
 
 /// A `.project.json` as read, before Sysand validates it.
 ///
-/// Every key is optional here, and unrecognized ones are kept, so that
-/// validation is Sysand's rather than serde's: a document missing several
-/// keys is reported in one message that names them all, and one carrying
-/// a key this version does not know about is a warning rather than a
-/// silent omission. A value of the *wrong type* is still serde's to
-/// report, since it knows where the value is.
+/// Every key is optional here, and unrecognized ones are kept: a document
+/// missing several keys is reported in one message that names them all,
+/// and one carrying an unknown key is a warning. A value of the *wrong
+/// type* is serde's to report.
 #[derive(Eq, Clone, PartialEq, Deserialize, Debug, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct InterchangeProjectInfoPartial {
@@ -974,10 +1123,10 @@ impl InterchangeProjectInfoPartial {
         self,
         file: &str,
         metamodel: Option<&str>,
-    ) -> Result<Validated<InterchangeProjectInfoRaw>, Report> {
+    ) -> Result<Validated<InterchangeProjectInfoRaw>, Diagnostics> {
         let location = KeyLocation::File(file.to_owned());
         let unsupported = unsupported_metamodel(metamodel);
-        let mut report = Report::new();
+        let mut report = Diagnostics::new();
 
         let name = require(&mut report, self.name, "name", &location, unsupported);
         let version = require(&mut report, self.version, "version", &location, unsupported);
@@ -1045,15 +1194,14 @@ pub enum UsageRef<'a> {
     /// The project identified by this IRI
     Resource(Iri<&'a str>),
     /// The project with this `publisher` and `name`
-    Typed(&'a str, &'a str),
+    Typed(&'a ProjectPublisher, &'a ProjectName),
 }
 
 impl UsageRef<'_> {
     /// Whether `usage` refers to this project. A `Resource` matches a
-    /// resource usage of exactly this IRI. `Typed` matches a typed usage
+    /// resource or remote KPAR usage of exactly this IRI. `Typed` matches a typed usage
     /// whose publisher and name are each given either exactly as declared,
-    /// or normalized (see [`normalize_typed_publisher`] and
-    /// [`normalize_typed_name`]); it also matches a `pkg:sysand` resource
+    /// or normalized (see [`normalize_typed`]); it also matches a `pkg:sysand` resource
     /// usage in any spelling that normalizes to it, as the PURL only holds
     /// the normalized form
     pub fn matches<
@@ -1079,7 +1227,9 @@ impl UsageRef<'_> {
         match self {
             Self::Resource(iri) => matches!(
                 usage,
-                InterchangeProjectUsageG::Resource { resource, version_constraint: _ } if resource.as_ref() == iri.as_str()
+                InterchangeProjectUsageG::Resource { resource, version_constraint: _ }
+                | InterchangeProjectUsageG::RemoteKpar { kpar_url: resource, publisher: _, name: _ }
+                    if resource.as_ref() == iri.as_str()
             ),
             Self::Typed(publisher, name) => {
                 if let InterchangeProjectUsageG::Resource {
@@ -1090,16 +1240,18 @@ impl UsageRef<'_> {
                     // A `pkg:sysand` IRI only holds the normalized form
                     return parse_sysand_purl(resource.as_ref()).is_ok_and(|parsed| {
                         parsed.is_some_and(|(p, n)| {
-                            p == normalize_typed_publisher(publisher)
-                                && n == normalize_typed_name(name)
+                            p == publisher.normalized() && n == name.normalized()
                         })
                     });
                 }
-                let (p, n) = usage
-                    .typed_publisher_name()
-                    .expect("a non-resource usage is typed");
-                (*publisher == p || *publisher == normalize_typed_publisher(p))
-                    && (*name == n || *name == normalize_typed_name(n))
+                // A standard-library remote KPAR usage declares no publisher
+                let Some((p, n)) = usage.typed_publisher_name() else {
+                    return false;
+                };
+                (publisher.as_str() == p
+                    || publisher.as_str() == normalize_typed(p, IdentifierKind::Publisher))
+                    && (name.as_str() == n
+                        || name.as_str() == normalize_typed(n, IdentifierKind::Name))
             }
         }
     }
@@ -1358,7 +1510,7 @@ impl Display for KerMlChecksumAlg {
 impl KerMlChecksumAlg {
     /// How long the hex-encoded checksum is for a given algorithm
     /// Formula: `checksum_len_bits / 4`, since each hex char is 4 bits
-    pub fn expected_hex_len(&self) -> Option<u8> {
+    pub fn expected_hex_len(self) -> Option<u8> {
         use KerMlChecksumAlg::*;
         let len = match self {
             None => return Option::None,
@@ -1411,7 +1563,27 @@ pub struct InterchangeProjectChecksumRaw {
 )]
 #[serde(rename_all = "camelCase")]
 pub struct InterchangeProjectMetadataG<MM, Path: Eq + Hash, DateTime, IPC> {
-    pub index: IndexMap<String, Path>,
+    /// The OMG shape's symbol map: every top-level symbol mapped to the
+    /// file declaring it. `None` for the Syside shape, which carries
+    /// [`root`](Self::root) and [`exports`](Self::exports) instead. Which shape a
+    /// document may have is the family's rule, enforced where the
+    /// document is read ([`InterchangeProjectMetadataPartial::validate`]),
+    /// not by this type.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "python", pyo3(default))]
+    pub index: Option<IndexMap<String, Path>>,
+
+    /// The Syside shape's entry point: one of the `checksum` keys, as
+    /// the manifest wrote it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "python", pyo3(default))]
+    pub root: Option<Path>,
+
+    /// The Syside shape's exported names, a flat array computed at build
+    /// time from every model file, each name once, sorted.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "python", pyo3(default))]
+    pub exports: Option<Vec<String>>,
 
     pub created: DateTime,
 
@@ -1430,10 +1602,6 @@ pub struct InterchangeProjectMetadataG<MM, Path: Eq + Hash, DateTime, IPC> {
 
 /// The partial form of a json manifest document: what a reader parses
 /// into before Sysand validates it.
-///
-/// The two documents are read by the same generic code in more than one
-/// reader (a KPAR archive holds both), so the step from partial to
-/// validated is a trait rather than two inherent methods.
 pub trait PartialManifest: serde::de::DeserializeOwned {
     /// The document this one validates into.
     type Validated;
@@ -1444,7 +1612,7 @@ pub trait PartialManifest: serde::de::DeserializeOwned {
     fn validate_manifest(
         self,
         metamodel: Option<&str>,
-    ) -> Result<Validated<Self::Validated>, Report>;
+    ) -> Result<Validated<Self::Validated>, Diagnostics>;
 }
 
 impl PartialManifest for InterchangeProjectInfoPartial {
@@ -1455,7 +1623,7 @@ impl PartialManifest for InterchangeProjectInfoPartial {
     fn validate_manifest(
         self,
         metamodel: Option<&str>,
-    ) -> Result<Validated<Self::Validated>, Report> {
+    ) -> Result<Validated<Self::Validated>, Diagnostics> {
         self.validate(Self::FILE, metamodel)
     }
 }
@@ -1468,7 +1636,7 @@ impl PartialManifest for InterchangeProjectMetadataPartial {
     fn validate_manifest(
         self,
         metamodel: Option<&str>,
-    ) -> Result<Validated<Self::Validated>, Report> {
+    ) -> Result<Validated<Self::Validated>, Diagnostics> {
         self.validate(Self::FILE, metamodel)
     }
 }
@@ -1479,6 +1647,8 @@ impl PartialManifest for InterchangeProjectMetadataPartial {
 #[serde(rename_all = "camelCase")]
 pub struct InterchangeProjectMetadataPartial {
     pub index: Option<IndexMap<String, String>>,
+    pub root: Option<String>,
+    pub exports: Option<Vec<String>>,
     pub created: Option<String>,
     pub metamodel: Option<String>,
     pub includes_derived: Option<bool>,
@@ -1493,17 +1663,105 @@ impl InterchangeProjectMetadataPartial {
     ///
     /// The metamodel of the suffix is this document's own; `metamodel`
     /// overrides it where a caller knows better.
+    ///
+    /// The Syside shape is refused unless the `syside-kpar` feature is
+    /// enabled: its format is not final.
     pub fn validate(
         self,
         file: &str,
         metamodel: Option<&str>,
-    ) -> Result<Validated<InterchangeProjectMetadataRaw>, Report> {
+    ) -> Result<Validated<InterchangeProjectMetadataRaw>, Diagnostics> {
+        self.validate_with(file, metamodel, cfg!(feature = "syside-kpar"))
+    }
+
+    /// [`Self::validate`], with whether the Syside shape is accepted given.
+    pub(crate) fn validate_with(
+        self,
+        file: &str,
+        metamodel: Option<&str>,
+        accept_syside: bool,
+    ) -> Result<Validated<InterchangeProjectMetadataRaw>, Diagnostics> {
         let location = KeyLocation::File(file.to_owned());
         let declared = metamodel.or(self.metamodel.as_deref());
         let unsupported = unsupported_metamodel(declared);
-        let mut report = Report::new();
+        let mut report = Diagnostics::new();
 
-        let index = require(&mut report, self.index, "index", &location, unsupported);
+        // The family decides the shape. An absent or unrecognized
+        // metamodel is the OMG family.
+        let family = Metamodel::schema_family(
+            declared
+                // ast-grep-ignore: dot-ok
+                .and_then(|value| Metamodel::parse(value).ok())
+                .as_ref(),
+        );
+        let foreign = |key: &str| {
+            Diagnostic::from(ReadWarning::ForeignSchemaKey {
+                location: location.clone(),
+                key: key.to_owned(),
+                supported_by: MetamodelFamily::Syside,
+            })
+        };
+        let (index, root, exports, shape_ok) = match family {
+            MetamodelFamily::Omg => {
+                // A key of the other family's schema is warned about and
+                // dropped, whatever its value.
+                let index = require(&mut report, self.index, "index", &location, unsupported);
+                if self.root.is_some() {
+                    report.push(foreign("root"));
+                }
+                if self.exports.is_some() {
+                    report.push(foreign("exports"));
+                }
+                let ok = index.is_some();
+                (index, None, None, ok)
+            }
+            MetamodelFamily::Syside => {
+                // The Syside `.meta.json` format is not final; unless it is
+                // accepted, the document is refused, and the shape is still
+                // judged and its problems reported beside the refusal.
+                if !accept_syside {
+                    report.push(Diagnostic::error(format!(
+                        "{location} declares the Syside metamodel `{}`, whose `.meta.json` \
+                         format is not final;\nSyside json projects and KPARs are not accepted \
+                         yet",
+                        declared.unwrap_or_default()
+                    )));
+                }
+                // An `index` does not stand in for the two keys the shape
+                // requires.
+                if self.index.is_some() {
+                    report.push(Diagnostic::warning(format!(
+                        "`index` in {location} is not used by the Syside metamodel and is \
+                         ignored; a Syside KPAR carries `root` and `exports`"
+                    )));
+                }
+                // `root` is required, and held to the checks a `sources`
+                // entry is held to.
+                let root = match self.root {
+                    None => {
+                        report.push(Diagnostic::error(format!(
+                            "missing key `root` in {location}; the Syside metamodel requires it"
+                        )));
+                        None
+                    }
+                    Some(raw) => match common::root_path(&raw) {
+                        Ok(path) => Some(path.into_string()),
+                        Err(problem) => {
+                            report.push(Diagnostic::error(problem.to_string()));
+                            None
+                        }
+                    },
+                };
+                // `exports` is required.
+                if self.exports.is_none() {
+                    report.push(Diagnostic::error(format!(
+                        "missing key `exports` in {location}; the Syside metamodel requires it"
+                    )));
+                }
+                let ok = accept_syside && root.is_some() && self.exports.is_some();
+                (None, root, self.exports, ok)
+            }
+        };
         let created = require(&mut report, self.created, "created", &location, unsupported);
         report.extend(
             self.unknown
@@ -1512,11 +1770,13 @@ impl InterchangeProjectMetadataPartial {
                 .map(Diagnostic::from),
         );
 
-        let (Some(index), Some(created)) = (index, created) else {
+        let (true, Some(created)) = (shape_ok, created) else {
             return Err(report);
         };
         report.into_result(InterchangeProjectMetadataRaw {
             index,
+            root,
+            exports,
             created,
             metamodel: self.metamodel,
             includes_derived: self.includes_derived,
@@ -1535,17 +1795,14 @@ pub type InterchangeProjectMetadata = InterchangeProjectMetadataG<
     InterchangeProjectChecksum,
 >;
 
-/// Canonical RFC 3339 serialization of the `created` timestamp. All code
-/// that writes `InterchangeProjectMetadataRaw::created` goes through this
-/// helper so the format stays consistent across producers (default
-/// constructors, conversions, test fixtures) — two documents with the
-/// same instant serialize byte-for-byte the same.
+/// Canonical RFC 3339 serialization of the `created` timestamp. All writers
+/// of `created` go through this so two documents with the same instant
+/// serialize byte-for-byte the same.
 pub fn format_created(value: &jiff::Timestamp) -> String {
     format!("{value:.0}")
 }
 
-/// Shorthand for `format_created(&jiff::Timestamp::now())`, the most common
-/// call site (default constructors and test fixtures all want "now").
+/// Shorthand for `format_created(&jiff::Timestamp::now())`.
 pub fn format_created_now() -> String {
     format_created(&jiff::Timestamp::now())
 }
@@ -1553,11 +1810,14 @@ pub fn format_created_now() -> String {
 impl From<InterchangeProjectMetadata> for InterchangeProjectMetadataRaw {
     fn from(value: InterchangeProjectMetadata) -> Self {
         InterchangeProjectMetadataRaw {
-            index: value
-                .index
-                .into_iter()
-                .map(|(k, v)| (k, v.into_string()))
-                .collect(),
+            index: value.index.map(|index| {
+                index
+                    .into_iter()
+                    .map(|(k, v)| (k, v.into_string()))
+                    .collect()
+            }),
+            root: value.root.map(Utf8UnixPathBuf::into_string),
+            exports: value.exports,
             created: format_created(&value.created),
             metamodel: value.metamodel.map(String::from),
             includes_derived: value.includes_derived,
@@ -1591,6 +1851,10 @@ pub enum InterchangeProjectValidationError {
     DuplicateUsage(String),
     #[error("invalid metamodel (`metamodel` field in `.meta.json`)")]
     InvalidMetamodel(#[source] MetamodelParseError),
+    /// The typed form's only check on `root`: a binding that constructs
+    /// the raw document directly bypasses the reader's texts.
+    #[error("invalid path in `root` (field in `.meta.json`)")]
+    InvalidPathInRoot(#[source] UnixPathError),
     #[error("project has an invalid Semantic Version `{0}`")]
     InvalidProjectVersion(Box<str>, #[source] semver::Error),
     #[error("project has an invalid name `{0}`")]
@@ -1616,14 +1880,14 @@ pub enum InterchangeProjectValidationError {
         source: semver::Error,
     },
     #[error("exported symbol index (`index` field in `.meta.json`) references an invalid path")]
-    InvalidPathInIndex(#[source] RelativeUnixPathError),
+    InvalidPathInIndex(#[source] UnixPathError),
     #[error("source file checksum (`checksum` field in `.meta.json`) references an invalid path")]
-    InvalidPathInChecksum(#[source] RelativeUnixPathError),
+    InvalidPathInChecksum(#[source] UnixPathError),
     #[error("path usage for `{publisher}`/`{name}` references an invalid path")]
     InvalidUsagePath {
         publisher: String,
         name: String,
-        source: RelativeUnixPathError,
+        source: UnixPathError,
     },
     #[error("path usage for `{publisher}`/`{name}` has an invalid publisher")]
     InvalidUsagePublisher {
@@ -1634,6 +1898,19 @@ pub enum InterchangeProjectValidationError {
     #[error("path usage for `{publisher}`/`{name}` has an invalid name")]
     InvalidUsageName {
         publisher: String,
+        name: String,
+        source: ProjectFieldError,
+    },
+    #[error(
+        "remote KPAR usage `{name}` at `{kpar_url}` has no `publisher`; only a usage of an \
+         OMG standard-library IRI may omit it"
+    )]
+    RemoteKparUsageNoPublisher { kpar_url: String, name: String },
+    #[error("remote KPAR usage `{0}` is not an `http` or `https` URL")]
+    RemoteKparUsageNotHttp(String),
+    #[error("remote KPAR usage `{name}` at `{kpar_url}` has an invalid name")]
+    InvalidRemoteKparUsageName {
+        kpar_url: String,
         name: String,
         source: ProjectFieldError,
     },
@@ -1692,7 +1969,9 @@ pub enum InterchangeProjectValidationError {
 impl Default for InterchangeProjectMetadataRaw {
     fn default() -> Self {
         InterchangeProjectMetadataRaw {
-            index: IndexMap::default(),
+            index: Some(IndexMap::default()),
+            root: None,
+            exports: None,
             created: format_created_now(),
             metamodel: None,
             includes_derived: None,
@@ -1709,18 +1988,32 @@ impl InterchangeProjectMetadataRaw {
     pub fn validate(
         &self,
     ) -> Result<InterchangeProjectMetadata, InterchangeProjectValidationError> {
-        let mut index = IndexMap::with_capacity(self.index.len());
         // Spec does not require any specific relationship between `index`
         // and `checksum` files
-        for (symbol, path) in &self.index {
-            let path = parse_relative_unix_path(path, RelativePathKind::SubFile)
-                .map_err(InterchangeProjectValidationError::InvalidPathInIndex)?;
-            index.insert(symbol.to_owned(), path.to_owned());
-        }
+        let index = match &self.index {
+            Some(raw) => {
+                let mut index = IndexMap::with_capacity(raw.len());
+                for (symbol, path) in raw {
+                    let path = parse_unix_path(path, PathKind::SubFile)
+                        .map_err(InterchangeProjectValidationError::InvalidPathInIndex)?;
+                    index.insert(symbol.to_owned(), path.to_owned());
+                }
+                Some(index)
+            }
+            None => None,
+        };
+        let root = match &self.root {
+            Some(raw) => Some(
+                parse_unix_path(raw, PathKind::SubFile)
+                    .map_err(InterchangeProjectValidationError::InvalidPathInRoot)?
+                    .to_path_buf(),
+            ),
+            None => None,
+        };
         let checksum = if let Some(checksum) = &self.checksum {
             let mut res = IndexMap::with_capacity(checksum.len());
             for (k, v) in checksum {
-                let k = parse_relative_unix_path(k, RelativePathKind::SubFile)
+                let k = parse_unix_path(k, PathKind::SubFile)
                     .map_err(InterchangeProjectValidationError::InvalidPathInChecksum)?
                     .to_path_buf();
                 let algorithm: KerMlChecksumAlg =
@@ -1773,6 +2066,8 @@ impl InterchangeProjectMetadataRaw {
 
         Ok(InterchangeProjectMetadata {
             index,
+            root,
+            exports: self.exports.clone(),
             // TODO: this is not strictly correct, as RFC3339 only partially overlaps with ISO8601
             created: self.created.parse::<jiff::Timestamp>().map_err(|e| {
                 InterchangeProjectValidationError::InvalidCreatedTime(
@@ -1787,10 +2082,12 @@ impl InterchangeProjectMetadataRaw {
         })
     }
 
-    /// Get symbols recorded in `index` for file at `path`
+    /// Get symbols recorded in `index` for file at `path`. Empty for the
+    /// Syside shape, which has no per-file map.
     pub fn file_index_symbols<P: AsRef<str>>(&self, path: P) -> HashSet<String> {
         self.index
             .iter()
+            .flatten()
             .filter_map(|(k, v)| {
                 if v == path.as_ref() {
                     Some(k.clone())
@@ -1850,10 +2147,13 @@ impl InterchangeProjectMetadataRaw {
     pub fn remove_index<P: AsRef<Utf8UnixPath>>(&mut self, path: &P) -> Vec<String> {
         let remove_path = path.as_ref().as_str();
 
-        self.index
-            .extract_if(.., |_, v| v == remove_path)
-            .map(|x| x.0)
-            .collect()
+        match self.index.as_mut() {
+            Some(index) => index
+                .extract_if(.., |_, v| v == remove_path)
+                .map(|x| x.0)
+                .collect(),
+            None => Vec::new(),
+        }
     }
 }
 
@@ -1862,7 +2162,9 @@ impl<Iri, Path: Eq + Hash + Clone, DateTime, IPC>
 {
     pub fn minimal(created: DateTime) -> Self {
         Self {
-            index: IndexMap::default(),
+            index: Some(IndexMap::default()),
+            root: None,
+            exports: None,
             created,
             metamodel: None,
             includes_derived: None,
@@ -1871,23 +2173,61 @@ impl<Iri, Path: Eq + Hash + Clone, DateTime, IPC>
         }
     }
 
-    pub fn source_paths(&self, include_index: bool) -> HashSet<Path> {
+    /// The project's model files: what a build packages as sources, what
+    /// `sysand sources` lists, what an environment copies.
+    ///
+    /// For the OMG shape every `checksum` key is a source (plus the
+    /// `index` values when asked). For the Syside shape `checksum`
+    /// covers the whole archive (the readme, the changelog, the license
+    /// files), so the sources are the `checksum` keys that are
+    /// model files, which equals the manifest's `sources` by construction.
+    pub fn source_paths(&self, include_index: bool) -> HashSet<Path>
+    where
+        Path: AsRef<str>,
+    {
         let mut result: HashSet<Path> = HashSet::new();
 
         // TODO: Should these be normalised?
         if let Some(checksum) = &self.checksum {
+            let root_shape = self.root.is_some();
             result.extend(
-                checksum.keys().cloned(), //.map(|s| Utf8UnixPath::new(&s).to_path_buf()),
+                checksum
+                    .keys()
+                    .filter(|key| {
+                        !root_shape
+                            || Language::guess_from_path(Utf8UnixPath::new(key.as_ref())).is_some()
+                    })
+                    .cloned(), //.map(|s| Utf8UnixPath::new(&s).to_path_buf()),
             );
         }
 
         if include_index {
             result.extend(
-                self.index.values().cloned(), //.map(|s| Utf8UnixPath::new(&s).to_path_buf()),
+                self.index.iter().flat_map(IndexMap::values).cloned(), //.map(|s| Utf8UnixPath::new(&s).to_path_buf()),
             );
+            // A Syside document's entry point is one of its `checksum`
+            // keys by the specification's rule; listed here so that a
+            // document that breaks the rule still packages its root.
+            result.extend(self.root.iter().cloned());
         }
 
         result
+    }
+
+    /// What the project exports, whichever shape the document has: the
+    /// `exports` array of the Syside shape, else the keys of the OMG
+    /// shape's `index`.
+    ///
+    /// A document with both (only constructible programmatically, since
+    /// the reader drops the `index` of a Syside document) answers with
+    /// `exports`.
+    pub fn exported_symbols(&self) -> impl Iterator<Item = &String> {
+        let from_exports = self.exports.iter().flatten();
+        let from_index = match &self.exports {
+            Some(_) => None,
+            None => self.index.as_ref(),
+        };
+        from_exports.chain(from_index.into_iter().flat_map(IndexMap::keys))
     }
 }
 
@@ -1926,10 +2266,9 @@ pub fn project_hash_hex(
 
 /// Reason a project publisher or name is invalid
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
-#[error("{kind} {reason}")]
+#[error("{} {reason}", kind.field())]
 pub struct ProjectFieldError {
-    /// `publisher` or `name`
-    kind: &'static str,
+    kind: IdentifierKind,
     reason: ProjectFieldErrorReason,
 }
 
@@ -2010,7 +2349,7 @@ fn is_project_field_char(c: char) -> bool {
 /// Validate a publisher or name (`kind`). Allowed characters are those of
 /// Unicode identifiers (UAX #31 `XID_Continue`), except default ignorable
 /// ones (invisible), plus punctuation (see [`is_project_field_char`])
-fn validate_project_field(s: &str, kind: &'static str) -> Result<(), ProjectFieldError> {
+fn validate_project_field(s: &str, kind: IdentifierKind) -> Result<(), ProjectFieldError> {
     use ProjectFieldErrorReason as R;
     let err = |reason| Err(ProjectFieldError { kind, reason });
     let Some(first) = s.chars().next() else {
@@ -2023,6 +2362,8 @@ fn validate_project_field(s: &str, kind: &'static str) -> Result<(), ProjectFiel
     let mut has_alphanumeric = false;
     for c in s.chars() {
         has_alphanumeric |= c.is_alphanumeric();
+        // clippy::equatable_if_let requires `matches!` for literal patterns
+        // ast-grep-ignore: if-matches
         if matches!(c, '/' | ':' | '<' | '>') {
             // Never allowed, regardless of the rules below:
             // `/`: allows unambiguously using `publisher/name` notation
@@ -2051,14 +2392,11 @@ fn validate_project_field(s: &str, kind: &'static str) -> Result<(), ProjectFiel
 
 /// Validate a publisher or name (`kind`), and its normalized form, which
 /// must be valid too. Returns the normalized form
-fn parse_project_field(s: &str, kind: &'static str) -> Result<String, ProjectFieldError> {
+fn parse_project_field(s: &str, kind: IdentifierKind) -> Result<String, ProjectFieldError> {
     validate_project_field(s, kind)?;
     // TODO: add a fast path for index-compliant spellings (the common case):
     // normalize them with `normalize_index_field`, which is equivalent for
     // them, and skip re-validating the result, which is then always valid.
-    // Then `normalize_typed_publisher`/`normalize_typed_name` and
-    // `Identifier::make_identifier_iri` would no longer need to try the
-    // index types first to avoid the full Unicode normalization
     let normalized = normalize(s);
     validate_project_field(&normalized, kind).map_err(|e| ProjectFieldError {
         kind,
@@ -2070,81 +2408,85 @@ fn parse_project_field(s: &str, kind: &'static str) -> Result<String, ProjectFie
     Ok(normalized)
 }
 
-/// The publisher of a project, as spelled and normalized
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(try_from = "String", into = "String")]
-pub struct ProjectPublisher {
-    spelling: String,
-    normalized: String,
-}
-
-impl ProjectPublisher {
-    pub fn parse(publisher: String) -> Result<Self, (String, ProjectFieldError)> {
-        match parse_project_field(&publisher, "publisher") {
-            Ok(normalized) => Ok(Self {
-                spelling: publisher,
-                normalized,
-            }),
-            Err(e) => Err((publisher, e)),
+/// A project field as spelled and normalized: `$kind` names it in errors.
+macro_rules! project_field {
+    ($(#[$doc:meta])* $ty:ident, $kind:expr) => {
+        $(#[$doc])*
+        #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+        #[serde(try_from = "String", into = "String")]
+        pub struct $ty {
+            spelling: String,
+            normalized: String,
         }
-    }
 
-    /// The normalized publisher
-    pub fn normalized(&self) -> &str {
-        &self.normalized
-    }
+        impl $ty {
+            pub fn parse(value: String) -> Result<Self, (String, ProjectFieldError)> {
+                match parse_project_field(&value, $kind) {
+                    Ok(normalized) => Ok(Self {
+                        spelling: value,
+                        normalized,
+                    }),
+                    Err(e) => Err((value, e)),
+                }
+            }
 
-    /// The normalized publisher
-    pub fn into_normalized(self) -> String {
-        self.normalized
-    }
+            /// The normalized spelling
+            pub fn normalized(&self) -> &str {
+                &self.normalized
+            }
 
-    pub fn as_str(&self) -> &str {
-        &self.spelling
-    }
+            /// The normalized spelling
+            pub fn into_normalized(self) -> String {
+                self.normalized
+            }
 
-    pub fn into_string(self) -> String {
-        self.spelling
-    }
-}
+            pub fn as_str(&self) -> &str {
+                &self.spelling
+            }
 
-/// The name of a project, as spelled and normalized
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(try_from = "String", into = "String")]
-pub struct ProjectName {
-    spelling: String,
-    normalized: String,
-}
-
-impl ProjectName {
-    pub fn parse(name: String) -> Result<Self, (String, ProjectFieldError)> {
-        match parse_project_field(&name, "name") {
-            Ok(normalized) => Ok(Self {
-                spelling: name,
-                normalized,
-            }),
-            Err(e) => Err((name, e)),
+            pub fn into_string(self) -> String {
+                self.spelling
+            }
         }
-    }
 
-    /// The normalized name
-    pub fn normalized(&self) -> &str {
-        &self.normalized
-    }
+        impl TryFrom<String> for $ty {
+            type Error = ProjectFieldError;
 
-    /// The normalized name
-    pub fn into_normalized(self) -> String {
-        self.normalized
-    }
+            fn try_from(value: String) -> Result<Self, Self::Error> {
+                Self::parse(value).map_err(|(_, e)| e)
+            }
+        }
 
-    pub fn as_str(&self) -> &str {
-        &self.spelling
-    }
+        impl From<$ty> for String {
+            fn from(value: $ty) -> Self {
+                value.spelling
+            }
+        }
 
-    pub fn into_string(self) -> String {
-        self.spelling
-    }
+        impl AsRef<str> for $ty {
+            fn as_ref(&self) -> &str {
+                &self.spelling
+            }
+        }
+
+        impl Display for $ty {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str(&self.spelling)
+            }
+        }
+    };
 }
+
+project_field!(
+    /// The publisher of a project, as spelled and normalized
+    ProjectPublisher,
+    IdentifierKind::Publisher
+);
+project_field!(
+    /// The name of a project, as spelled and normalized
+    ProjectName,
+    IdentifierKind::Name
+);
 
 /// A publisher or a name: which identifier rule applies, and which
 /// identifier an [`IdentifierError`] is about
@@ -2165,10 +2507,26 @@ pub struct IdentifierError {
 }
 
 impl IdentifierKind {
-    /// Publishers disallow dots, but names permit them so that dotted
-    /// product names (e.g. `foo.bar`) are expressible
+    /// Publishers disallow dots, but names permit them (e.g. `foo.bar`).
     pub(crate) fn allows_dot_separator(self) -> bool {
         self == Self::Name
+    }
+
+    /// Whether `value` is valid as this field of an index usage, before
+    /// normalizing.
+    fn is_valid_unnormalized(self, value: &str) -> bool {
+        match self {
+            Self::Publisher => crate::purl::is_valid_unnormalized_publisher(value),
+            Self::Name => crate::purl::is_valid_unnormalized_name(value),
+        }
+    }
+
+    /// The field's name in project-field errors.
+    const fn field(self) -> &'static str {
+        match self {
+            Self::Publisher => "publisher",
+            Self::Name => "name",
+        }
     }
 
     fn rule(self) -> &'static str {
@@ -2185,114 +2543,45 @@ impl IdentifierKind {
     }
 }
 
-/// The publisher of a project as a `model.toml`, an index usage and an
-/// index spell it: valid, once normalized (see [`Self::normalized`]), as
-/// the publisher of a `pkg:sysand` PURL. Every such publisher is also a
-/// valid [`ProjectPublisher`], but not the other way around
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
-#[serde(try_from = "String", into = "String")]
-pub struct IndexPublisher(String);
+/// A project field as a `model.toml`, an index usage and an index spell
+/// it: valid, once normalized (see `normalized`), as that field of a
+/// `pkg:sysand` PURL.
+macro_rules! index_field {
+    ($(#[$doc:meta])* $ty:ident, $kind:expr) => {
+        $(#[$doc])*
+        #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+        #[serde(try_from = "String", into = "String")]
+        pub struct $ty(String);
 
-impl IndexPublisher {
-    pub fn parse(publisher: impl Into<String>) -> Result<Self, IdentifierError> {
-        let publisher = publisher.into();
-        if crate::purl::is_valid_unnormalized_publisher(&publisher) {
-            Ok(Self(publisher))
-        } else {
-            Err(IdentifierError {
-                kind: IdentifierKind::Publisher,
-                value: publisher,
-            })
+        impl $ty {
+            pub fn parse(value: impl Into<String>) -> Result<Self, IdentifierError> {
+                let value = value.into();
+                if $kind.is_valid_unnormalized(&value) {
+                    Ok(Self(value))
+                } else {
+                    Err(IdentifierError { kind: $kind, value })
+                }
+            }
+
+            pub fn as_str(&self) -> &str {
+                &self.0
+            }
+
+            pub fn into_string(self) -> String {
+                self.0
+            }
+
+            /// The value as the `pkg:sysand` PURL holds it
+            pub fn normalized(&self) -> String {
+                normalize_index_field(&self.0)
+            }
+
+            /// Whether the value is spelled as [`Self::normalized`] makes it
+            pub fn is_normalized(&self) -> bool {
+                is_normalized_index_field(&self.0)
+            }
         }
-    }
 
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-
-    pub fn into_string(self) -> String {
-        self.0
-    }
-
-    /// The publisher as the `pkg:sysand` PURL holds it
-    pub fn normalized(&self) -> String {
-        normalize_index_field(&self.0)
-    }
-
-    /// Whether the publisher is spelled as [`Self::normalized`] makes it
-    pub fn is_normalized(&self) -> bool {
-        is_normalized_index_field(&self.0)
-    }
-}
-
-/// The name of a project as a `model.toml`, an index usage and an index
-/// spell it: valid, once normalized (see [`Self::normalized`]), as the
-/// name of a `pkg:sysand` PURL. Every such name is also a valid
-/// [`ProjectName`], but not the other way around
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
-#[serde(try_from = "String", into = "String")]
-pub struct IndexName(String);
-
-impl IndexName {
-    pub fn parse(name: impl Into<String>) -> Result<Self, IdentifierError> {
-        let name = name.into();
-        if crate::purl::is_valid_unnormalized_name(&name) {
-            Ok(Self(name))
-        } else {
-            Err(IdentifierError {
-                kind: IdentifierKind::Name,
-                value: name,
-            })
-        }
-    }
-
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-
-    pub fn into_string(self) -> String {
-        self.0
-    }
-
-    /// The name as the `pkg:sysand` PURL holds it
-    pub fn normalized(&self) -> String {
-        normalize_index_field(&self.0)
-    }
-
-    /// Whether the name is spelled as [`Self::normalized`] makes it
-    pub fn is_normalized(&self) -> bool {
-        is_normalized_index_field(&self.0)
-    }
-}
-
-/// How the publisher of a typed usage of any kind normalizes: as
-/// [`IndexPublisher::normalized`] if it is spelled as an index usage can
-/// spell it, otherwise as [`ProjectPublisher::normalized`]. A publisher that
-/// is not even a valid project publisher is kept as it is
-pub(crate) fn normalize_typed_publisher(publisher: &str) -> String {
-    match IndexPublisher::parse(publisher) {
-        Ok(publisher) => publisher.normalized(),
-        Err(e) => match ProjectPublisher::parse(e.value) {
-            Ok(publisher) => publisher.into_normalized(),
-            Err((publisher, _)) => publisher,
-        },
-    }
-}
-
-/// How the name of a typed usage of any kind normalizes, as
-/// [`normalize_typed_publisher`] does for the publisher
-pub(crate) fn normalize_typed_name(name: &str) -> String {
-    match IndexName::parse(name) {
-        Ok(name) => name.normalized(),
-        Err(e) => match ProjectName::parse(e.value) {
-            Ok(name) => name.into_normalized(),
-            Err((name, _)) => name,
-        },
-    }
-}
-
-macro_rules! index_field_impls {
-    ($ty:ty) => {
         impl TryFrom<String> for $ty {
             type Error = IdentifierError;
 
@@ -2321,58 +2610,48 @@ macro_rules! index_field_impls {
     };
 }
 
-index_field_impls!(IndexPublisher);
-index_field_impls!(IndexName);
+index_field!(
+    /// The publisher of a project as a `model.toml`, an index usage and an
+    /// index spell it. Every such publisher is also a valid
+    /// [`ProjectPublisher`], but not the other way around
+    IndexPublisher,
+    IdentifierKind::Publisher
+);
+index_field!(
+    /// The name of a project as a `model.toml`, an index usage and an index
+    /// spell it. Every such name is also a valid [`ProjectName`], but not
+    /// the other way around
+    IndexName,
+    IdentifierKind::Name
+);
 
-impl TryFrom<String> for ProjectPublisher {
-    type Error = ProjectFieldError;
-
-    fn try_from(value: String) -> Result<Self, Self::Error> {
-        Self::parse(value).map_err(|(_, e)| e)
+impl From<IndexPublisher> for ProjectPublisher {
+    fn from(value: IndexPublisher) -> Self {
+        Self {
+            normalized: value.normalized(),
+            spelling: value.into_string(),
+        }
     }
 }
 
-impl From<ProjectPublisher> for String {
-    fn from(value: ProjectPublisher) -> Self {
-        value.spelling
+impl From<IndexName> for ProjectName {
+    fn from(value: IndexName) -> Self {
+        Self {
+            normalized: value.normalized(),
+            spelling: value.into_string(),
+        }
     }
 }
 
-impl AsRef<str> for ProjectPublisher {
-    fn as_ref(&self) -> &str {
-        &self.spelling
-    }
-}
-
-impl Display for ProjectPublisher {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.spelling)
-    }
-}
-
-impl TryFrom<String> for ProjectName {
-    type Error = ProjectFieldError;
-
-    fn try_from(value: String) -> Result<Self, Self::Error> {
-        Self::parse(value).map_err(|(_, e)| e)
-    }
-}
-
-impl From<ProjectName> for String {
-    fn from(value: ProjectName) -> Self {
-        value.spelling
-    }
-}
-
-impl AsRef<str> for ProjectName {
-    fn as_ref(&self) -> &str {
-        &self.spelling
-    }
-}
-
-impl Display for ProjectName {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.spelling)
+/// How the publisher or name of a typed usage of any kind normalizes: as
+/// an index usage's if it is spelled as an index usage can spell it,
+/// otherwise as a project's. A value that is not even a valid project
+/// field is kept as it is
+pub(crate) fn normalize_typed(value: &str, kind: IdentifierKind) -> String {
+    if kind.is_valid_unnormalized(value) {
+        normalize_index_field(value)
+    } else {
+        parse_project_field(value, kind).unwrap_or_else(|_| value.to_owned())
     }
 }
 
@@ -2461,7 +2740,7 @@ fn unsupported_metamodel(metamodel: Option<&str>) -> Option<&str> {
 
 /// Takes a required key, or records that it is missing.
 fn require<T>(
-    report: &mut Report,
+    report: &mut Diagnostics,
     value: Option<T>,
     key: &str,
     location: &KeyLocation,

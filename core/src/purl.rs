@@ -38,8 +38,8 @@ enum Spelling {
 /// Validates a publisher or name field for `pkg:sysand` project IDs.
 ///
 /// Rules: 3-50 ASCII alphanumeric characters, with single separators
-/// (hyphen, space if `spelling` is [`Spelling::Unnormalized`], and — for
-/// names — dot) allowed between words. Must start and end with an
+/// (hyphen, space if `spelling` is [`Spelling::Unnormalized`], and, for
+/// names, dot) allowed between words. Must start and end with an
 /// alphanumeric character. A [`Spelling::Normalized`] field must not contain
 /// uppercase letters.
 ///
@@ -74,7 +74,7 @@ fn is_valid_sysand_purl_part(s: &str, kind: IdentifierKind, spelling: Spelling) 
             return false;
         }
 
-        // only isolated separators — knowing first/last is alphanumeric,
+        // only isolated separators; knowing first/last is alphanumeric,
         // this is sufficient
         if !is_alphanumeric(b_previous) {
             return false;
@@ -95,15 +95,13 @@ pub fn is_valid_purl_name(s: &str) -> bool {
 }
 
 /// Whether `s` can, after normalization, be used as Sysand PURL publisher.
-/// Only for [`crate::model::IndexPublisher::parse`], which everything else
-/// uses instead
+/// Prefer [`crate::model::IndexPublisher::parse`]
 pub(crate) fn is_valid_unnormalized_publisher(s: &str) -> bool {
     is_valid_sysand_purl_part(s, IdentifierKind::Publisher, Spelling::Unnormalized)
 }
 
-/// Whether `s` can, after normalization, be used as Sysand PURL name. Only
-/// for [`crate::model::IndexName::parse`], which everything else uses
-/// instead
+/// Whether `s` can, after normalization, be used as Sysand PURL name.
+/// Prefer [`crate::model::IndexName::parse`]
 pub(crate) fn is_valid_unnormalized_name(s: &str) -> bool {
     is_valid_sysand_purl_part(s, IdentifierKind::Name, Spelling::Unnormalized)
 }
@@ -113,9 +111,8 @@ pub(crate) fn is_valid_unnormalized_name(s: &str) -> bool {
 /// without leaking parser internals.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum SysandPurlError {
-    /// Wrong number of slash-separated segments — expected exactly
-    /// `<publisher>/<name>`. `segments` is the count actually seen so the
-    /// error message can name it.
+    /// Wrong number of slash-separated segments; expected exactly
+    /// `<publisher>/<name>`. `segments` is the count actually seen.
     #[error(
         "`{purl}` is not a valid `pkg:sysand` PURL: expected exactly two \
          `/`-separated segments after `pkg:sysand/`, found {segments}"
@@ -146,6 +143,13 @@ pub enum SysandPurlError {
         norm_publisher: String,
         norm_name: String,
     },
+}
+
+/// The `pkg:sysand/<publisher>/<name>` IRI of `publisher` and `name`, which
+/// are put in as they are: the caller is responsible for them being valid
+/// (see [`parse_sysand_purl`], which reads it back)
+pub fn sysand_purl(publisher: &str, name: &str) -> String {
+    format!("{PKG_SYSAND_PREFIX}{publisher}/{name}")
 }
 
 /// Parse a `pkg:sysand/<publisher>/<name>` IRI into its `(publisher, name)`
