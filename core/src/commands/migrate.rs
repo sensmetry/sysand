@@ -442,10 +442,8 @@ fn migrate_resource(
 ) -> Option<Usage> {
     let iri = resource;
     let resource = resource.as_str();
-    let scheme = resource.split_once(':').map(|(scheme, _)| scheme);
-
-    match scheme {
-        Some("pkg") => {
+    match iri.scheme().as_str() {
+        "pkg" => {
             // Parsed only to refuse a resource that is not a
             // `pkg:sysand` PURL; the pair it carries is normalized, and
             // the manifest takes the target's spelling instead. A
@@ -501,7 +499,7 @@ fn migrate_resource(
         // Translated into a kpar/source path; the publisher and name
         // come from the target, and a target without a publisher is an
         // error.
-        Some("file") => match target(Target::File(iri)) {
+        "file" => match target(Target::File(iri)) {
             Ok(usage) => Some(usage),
             Err(reason) => {
                 report.push(Diagnostic::error(reason));
@@ -511,7 +509,7 @@ fn migrate_resource(
         // Used as-is for a URL; a `versionConstraint` is discarded with a
         // warning. The lookup is handed only the resource string, so the
         // warning is issued here.
-        Some("http" | "https") => {
+        "http" | "https" => {
             if let Some(constraint) = version_constraint {
                 // A standard-library IRI is the one URL whose meaning is
                 // known here, so the constraint is refused rather than
@@ -538,7 +536,7 @@ fn migrate_resource(
                 }
             }
         }
-        Some("ssh" | "git" | "git+http" | "git+https" | "git+ssh" | "git+file") => {
+        "ssh" | "git" | "git+http" | "git+https" | "git+ssh" | "git+file" => {
             report.push(Diagnostic::error(format!(
                 "usage `{resource}` is a git repository, which cannot be declared in a \
                  `model.toml` of manifest version 1"
