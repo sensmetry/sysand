@@ -2055,7 +2055,7 @@ impl InterchangeProjectMetadataRaw {
                     "{}",
                     ReadWarning::UnknownMetamodel {
                         location: KeyLocation::File(META_JSON_FILE.to_owned()),
-                        value: iri.to_string(),
+                        value: iri.clone(),
                     }
                 );
             }

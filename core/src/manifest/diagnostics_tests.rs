@@ -3,6 +3,7 @@
 
 use std::ops::Range;
 
+use fluent_uri::Iri;
 use serde::{Deserialize, Serialize};
 
 use crate::manifest::diagnostics::{
@@ -94,7 +95,7 @@ fn foreign_schema_key_warning_text() {
 fn unknown_metamodel_warning_text() {
     let warning = ReadWarning::UnknownMetamodel {
         location: KeyLocation::Table("project".to_owned()),
-        value: "https://example.com/spec/Other/1".to_owned(),
+        value: Iri::parse("https://example.com/spec/Other/1".to_owned()).unwrap(),
     };
     assert_eq!(
         warning.to_string(),
@@ -119,7 +120,7 @@ fn unknown_metamodel_warning_on_a_family_host_lists_the_recognized_ones() {
     ] {
         let warning = ReadWarning::UnknownMetamodel {
             location: KeyLocation::Table("project".to_owned()),
-            value: value.to_owned(),
+            value: Iri::parse(value.to_owned()).unwrap(),
         };
         assert_eq!(
             warning.to_string(),
@@ -140,7 +141,7 @@ fn unknown_metamodel_warning_on_a_family_host_lists_the_recognized_ones() {
     ] {
         let warning = ReadWarning::UnknownMetamodel {
             location: KeyLocation::Table("project".to_owned()),
-            value: value.to_owned(),
+            value: Iri::parse(value.to_owned()).unwrap(),
         };
         assert!(
             !warning.to_string().contains("Sysand recognizes"),
@@ -214,7 +215,7 @@ fn a_diagnostic_in_a_file_names_the_file() {
 fn read_warnings_become_warning_diagnostics() {
     let warning = ReadWarning::UnknownMetamodel {
         location: KeyLocation::Table("project".to_owned()),
-        value: "https://example.com/x".to_owned(),
+        value: Iri::parse("https://example.com/x".to_owned()).unwrap(),
     };
     let positioned = warning.clone().at(Position::at(4, 2));
     assert_eq!(positioned.severity, Severity::Warning);

@@ -19,6 +19,7 @@
 use std::fmt::Display;
 use std::ops::Range;
 
+use fluent_uri::Iri;
 use serde::de::{IgnoredAny, MapAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -482,7 +483,7 @@ pub enum ReadWarning {
     /// A metamodel outside the recognized values is a warning.
     UnknownMetamodel {
         location: KeyLocation,
-        value: String,
+        value: Iri<String>,
     },
     /// A `sysand.toml` anywhere else under the workspace is ignored as a
     /// whole, with a warning on any operation touching the overrides.
@@ -569,11 +570,11 @@ pub fn unsupported_metamodel_suffix(metamodel: &str) -> String {
 /// Whether `value` is on the host of a recognized metamodel family, where
 /// an unrecognized value is most likely a misspelled recognized one. The
 /// scheme, letter case and a `www.` prefix are ignored.
-fn in_family_host(value: &str) -> bool {
-    let Some((_scheme, rest)) = value.split_once("://") else {
+fn in_family_host(value: &Iri<String>) -> bool {
+    let Some(authority) = value.authority() else {
         return false;
     };
-    let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
+    let authority = authority.host();
     let host = match authority.split_at_checked(4) {
         Some((www, host)) if www.eq_ignore_ascii_case("www.") => host,
         _ => authority,
