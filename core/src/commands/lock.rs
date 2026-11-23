@@ -4,7 +4,6 @@
 #[cfg(feature = "filesystem")]
 #[cfg(feature = "filesystem")]
 use camino::Utf8Path;
-use fluent_uri::Iri;
 use std::{
     collections::{HashMap, HashSet, hash_map::Entry},
     fmt::{self, Debug},
@@ -223,7 +222,7 @@ pub fn do_lock_projects<
     PI: ProjectRead + Debug + 'a,
     PD: ProjectRead + Debug,
     // TODO: maybe take Vec<Iri<String>>, since empty vec is tolerated
-    I: IntoIterator<Item = (Option<Vec<Iri<String>>>, &'a PI)>,
+    I: IntoIterator<Item = (Option<Vec<Identifier>>, &'a PI)>,
     R: ResolveRead<ProjectStorage = PD> + Debug,
 >(
     projects: I,
@@ -238,7 +237,7 @@ pub fn do_lock_projects<
     lock_projects(
         projects.into_iter().map(|(identifiers, project)| {
             (
-                identifiers.map(|ids| ids.into_iter().map(String::from).collect()),
+                identifiers.map(|ids| ids.into_iter().map(Identifier::into_string).collect()),
                 project,
                 base_path.clone(),
                 None,
@@ -797,7 +796,7 @@ pub fn do_lock_local_editable<
     R: ResolveRead<ProjectStorage = PD> + Debug,
 >(
     project_root: PR,
-    identifiers: Option<Vec<Iri<String>>>,
+    identifiers: Option<Vec<Identifier>>,
     provided_usages: &ProvidedProjects,
     resolver: R,
     ctx: &ProjectContext,
@@ -813,7 +812,7 @@ pub fn do_lock_local_editable<
 
     lock_projects(
         [(
-            identifiers.map(|ids| ids.into_iter().map(String::from).collect()),
+            identifiers.map(|ids| ids.into_iter().map(Identifier::into_string).collect()),
             &project,
             ctx.project_root(),
             ctx.current_definition().cloned(),

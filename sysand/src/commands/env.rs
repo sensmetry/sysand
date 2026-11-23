@@ -24,7 +24,7 @@ use sysand_core::{
     project::{
         ProjectDefinition, ProjectRead as _,
         local_kpar::{KparInnerPath, LocalKParProject},
-        utils::wrapfs,
+        utils::{Identifier, wrapfs},
     },
     resolve::{ResolutionInfo, file::FileResolverProject},
     utils::SP,
@@ -258,7 +258,7 @@ pub fn command_env_install_path<Policy: HTTPAuthentication>(
             auth_policy.clone(),
         )?;
         let mut lock = lock::do_lock_projects(
-            [(Some(vec![iri]), &project)],
+            [(Some(vec![Identifier::from_iri_owned(iri)]), &project)],
             resolver,
             &provided_usages,
             &ctx,

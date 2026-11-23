@@ -20,8 +20,11 @@ use sysand_core::{
     lock::Lockfile,
     model::InterchangeProjectUsage,
     project::{
-        ProjectDefinition, ProjectRead, editable::EditableProject, local_kpar::LocalKParProjectRaw,
-        local_src::LocalSrcProject, utils::wrapfs,
+        ProjectDefinition, ProjectRead,
+        editable::EditableProject,
+        local_kpar::LocalKParProjectRaw,
+        local_src::LocalSrcProject,
+        utils::{Identifier, wrapfs},
     },
     resolve::{
         ResolutionInfo, ResolveRead,
@@ -136,14 +139,12 @@ pub fn command_clone<Policy: HTTPAuthentication>(
         );
         let project = EditableProject::new(".".into(), local_project);
         let identifiers = match locator {
-            ProjectLocator::Iri(iri) => Some(vec![iri]),
+            ProjectLocator::Iri(iri) => Some(vec![Identifier::from_iri_owned(iri)]),
             // The `pkg:sysand` PURL the index usage resolved by
             ProjectLocator::Index {
                 resolve,
                 version_constraint: _,
-            } => Some(vec![
-                Iri::parse(resolve.id().into_string()).map_err(|(e, _)| anyhow!(e))?,
-            ]),
+            } => Some(vec![resolve.id()]),
             ProjectLocator::Dir(_) | ProjectLocator::KparPath(_) => None,
         };
         let lock =
