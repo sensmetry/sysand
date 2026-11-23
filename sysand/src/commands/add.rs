@@ -107,7 +107,7 @@ pub fn command_add<Policy: HTTPAuthentication>(
                     publisher,
                     name,
                     version_constraint,
-                    normalized,
+                    normalized: _,
                 } if no_lock => {
                     let Some(version_constraint) = version_constraint else {
                         return Err(anyhow!(
@@ -118,18 +118,17 @@ pub fn command_add<Policy: HTTPAuthentication>(
                     };
                     // Without locking, the spelling can only be checked against,
                     // or recovered from, what is installed
-                    let (publisher, name) =
-                        spell_index_usage(ctx.env.as_ref(), &publisher, &name, normalized)
-                            .map_err(|err| match err {
-                                IndexSpellingError::NotInstalled {
-                                    usage: _,
-                                    normalized: _,
-                                } => anyhow!(
-                                    "{err}\n{USAGE}hint:{USAGE:#} leave out `--no-lock` to look \
+                    let (publisher, name) = spell_index_usage(ctx.env.as_ref(), &publisher, &name)
+                        .map_err(|err| match err {
+                            IndexSpellingError::NotInstalled {
+                                usage: _,
+                                normalized: _,
+                            } => anyhow!(
+                                "{err}\n{USAGE}hint:{USAGE:#} leave out `--no-lock` to look \
                                      the project up in the indexes"
-                                ),
-                                err => err.into(),
-                            })?;
+                            ),
+                            err => err.into(),
+                        })?;
                     UsageToAdd::Ready(index_usage(
                         publisher.into_string(),
                         name.into_string(),

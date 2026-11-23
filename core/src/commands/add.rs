@@ -139,8 +139,7 @@ pub enum IndexSpellingError<EnvError, ProjectError> {
 /// read from the first version of the project installed in `env`: the
 /// project's own spelling when `publisher`/`name` is normalized (see
 /// [`IndexPublisher::is_normalized`]), and `publisher`/`name` itself
-/// otherwise, once checked to be that spelling. `normalized` is whether
-/// `publisher`/`name` is normalized.
+/// otherwise, once checked to be that spelling.
 ///
 /// Fails when no version is installed, or when the installed project
 /// declares a publisher and name that do not normalize to `publisher`/`name`.
@@ -152,12 +151,12 @@ pub fn spell_index_usage<Env: ReadEnvironment>(
     env: Option<&Env>,
     publisher: &IndexPublisher,
     name: &IndexName,
-    normalized: bool,
 ) -> Result<
     (IndexPublisher, IndexName),
     IndexSpellingError<Env::ReadError, <Env::InterchangeProjectRead as ProjectRead>::Error>,
 > {
     let usage = format!("{publisher}/{name}");
+    let normalized = publisher.is_normalized() && name.is_normalized();
     let identifier = Identifier::from_index(publisher, name);
 
     let version = match env {
