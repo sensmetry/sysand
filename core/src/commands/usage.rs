@@ -40,8 +40,6 @@ pub enum ConstraintChange {
 
 #[derive(Debug, Error)]
 pub enum SetConstraintError {
-    #[error("`{0}` is not a valid version requirement")]
-    InvalidConstraint(String, #[source] semver::Error),
     #[error("`.project.json` is not a JSON object")]
     NotAnObject,
     #[error("`usage` is present in `.project.json` but is not an array")]
@@ -178,10 +176,9 @@ fn match_usage(usage: InterchangeProjectUsageRaw, identifier: &str) -> Option<Ma
 pub fn do_set_usage_constraint(
     doc: &mut serde_json::Value,
     resource: &str,
-    constraint: &str,
+    constraint: &semver::VersionReq,
 ) -> Result<ConstraintChange, SetConstraintError> {
-    semver::VersionReq::parse(constraint)
-        .map_err(|e| SetConstraintError::InvalidConstraint(constraint.to_owned(), e))?;
+    let constraint = constraint.to_string();
 
     let serde_json::Value::Object(root) = doc else {
         return Err(SetConstraintError::NotAnObject);
@@ -244,22 +241,20 @@ pub fn do_set_usage_constraint(
         None | Some(serde_json::Value::Null) => None,
         Some(value) => value.as_str().map(str::to_owned),
     };
-    if old.as_deref() == Some(constraint) {
-        return Ok(ConstraintChange::Unchanged {
-            constraint: constraint.to_owned(),
-        });
+    if old.as_deref() == Some(constraint.as_str()) {
+        return Ok(ConstraintChange::Unchanged { constraint });
     }
 
     // Assigning through the existing entry keeps its position; inserting a
     // new key appends it.
     usage.insert(
         VERSION_CONSTRAINT_KEY.to_owned(),
-        serde_json::Value::String(constraint.to_owned()),
+        serde_json::Value::String(constraint.clone()),
     );
 
     Ok(ConstraintChange::Replaced {
         old,
-        new: constraint.to_owned(),
+        new: constraint,
     })
 }
 
@@ -274,12 +269,11 @@ pub fn do_set_index_usage_constraint(
     doc: &mut serde_json::Value,
     publisher: &IndexPublisher,
     name: &IndexName,
-    constraint: &str,
+    constraint: &semver::VersionReq,
 ) -> Result<ConstraintChange, SetConstraintError> {
     let identifier = Identifier::from_index(publisher, name);
     let (publisher, name) = (publisher.as_str(), name.as_str());
-    semver::VersionReq::parse(constraint)
-        .map_err(|e| SetConstraintError::InvalidConstraint(constraint.to_owned(), e))?;
+    let constraint = constraint.to_string();
 
     let serde_json::Value::Object(root) = doc else {
         return Err(SetConstraintError::NotAnObject);
@@ -347,19 +341,17 @@ pub fn do_set_index_usage_constraint(
         .get(VERSION_CONSTRAINT_KEY)
         .and_then(serde_json::Value::as_str)
         .map(str::to_owned);
-    if old.as_deref() == Some(constraint) {
-        return Ok(ConstraintChange::Unchanged {
-            constraint: constraint.to_owned(),
-        });
+    if old.as_deref() == Some(constraint.as_str()) {
+        return Ok(ConstraintChange::Unchanged { constraint });
     }
     usage.insert(
         VERSION_CONSTRAINT_KEY.to_owned(),
-        serde_json::Value::String(constraint.to_owned()),
+        serde_json::Value::String(constraint.clone()),
     );
 
     Ok(ConstraintChange::Replaced {
         old,
-        new: constraint.to_owned(),
+        new: constraint,
     })
 }
 
@@ -382,7 +374,7 @@ pub enum UsageTarget {
 #[derive(Debug, Clone)]
 pub struct SetUsageConstraint {
     pub target: UsageTarget,
-    pub constraint: String,
+    pub constraint: semver::VersionReq,
 }
 
 #[cfg(feature = "filesystem")]
@@ -434,7 +426,7 @@ impl ManifestEdit for SetUsageConstraint {
 pub fn do_set_usage_constraint_toml(
     doc: &mut toml_edit::DocumentMut,
     resource: &str,
-    constraint: &str,
+    constraint: &semver::VersionReq,
 ) -> Result<ConstraintChange, SetConstraintError> {
     let wanted = match NormalizedIdentity::from_purl(resource) {
         Ok(Some(wanted)) => wanted,
@@ -446,7 +438,8 @@ pub fn do_set_usage_constraint_toml(
             });
         }
     };
-    set_toml_constraint_str(doc, &wanted, constraint)
+    set_toml_index_constraint(doc, &wanted, constraint)
+        .map_err(SetConstraintError::TomlUsageHasNoConstraint)
 }
 
 /// The `model.toml` arm of [`do_set_index_usage_constraint`]: the entry
@@ -456,9 +449,10 @@ pub fn do_set_index_usage_constraint_toml(
     doc: &mut toml_edit::DocumentMut,
     publisher: &IndexPublisher,
     name: &IndexName,
-    constraint: &str,
+    constraint: &semver::VersionReq,
 ) -> Result<ConstraintChange, SetConstraintError> {
-    set_toml_constraint_str(doc, &normalized_identity(publisher, name), constraint)
+    set_toml_index_constraint(doc, &normalized_identity(publisher, name), constraint)
+        .map_err(SetConstraintError::TomlUsageHasNoConstraint)
 }
 
 /// Sets the `version` of the `[[inline-usages]]` entry `wanted` names.
@@ -485,17 +479,6 @@ pub(crate) fn set_toml_index_constraint(
         old: Some(old),
         new,
     })
-}
-
-fn set_toml_constraint_str(
-    doc: &mut toml_edit::DocumentMut,
-    wanted: &NormalizedIdentity,
-    constraint: &str,
-) -> Result<ConstraintChange, SetConstraintError> {
-    let requirement = semver::VersionReq::parse(constraint)
-        .map_err(|e| SetConstraintError::InvalidConstraint(constraint.to_owned(), e))?;
-    set_toml_index_constraint(doc, wanted, &requirement)
-        .map_err(SetConstraintError::TomlUsageHasNoConstraint)
 }
 
 #[cfg(test)]

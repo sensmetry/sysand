@@ -1758,6 +1758,11 @@ fn do_set_usage_constraint_py(
     common_init();
 
     let named = NamedIndex::parse("set_usage_constraint", iri, publisher, name)?;
+    let constraint = semver::VersionReq::parse(&version_constraint).map_err(|e| {
+        ProjectError::new_err(format!(
+            "`{version_constraint}` is not a valid version requirement\n  caused by: {e}"
+        ))
+    })?;
     let mut ctx = project_context_at(Utf8Path::new(&path), Scope::Workspace, |_| None)?;
     let target = match &named {
         NamedIndex::Iri(iri) => UsageTarget::Resource(iri.as_str().to_owned()),
@@ -1766,10 +1771,7 @@ fn do_set_usage_constraint_py(
             name: name.clone(),
         },
     };
-    let changed = ctx.edit(SetUsageConstraint {
-        target,
-        constraint: version_constraint,
-    });
+    let changed = ctx.edit(SetUsageConstraint { target, constraint });
     match changed {
         Ok(ConstraintChange::Replaced { old, new }) => Ok((true, true, old, Some(new))),
         Ok(ConstraintChange::Unchanged { constraint }) => {

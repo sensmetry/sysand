@@ -11,6 +11,10 @@ const LOCAL_LIB: &str = "pkg:sysand/local-pub/local-lib";
 const LEGACY: &str = ">=0.10.0, <0.11.0";
 const TARGET: &str = ">=0.11.0, <0.12.0";
 
+fn req(constraint: &str) -> semver::VersionReq {
+    semver::VersionReq::parse(constraint).expect("a version requirement")
+}
+
 /// A manifest as sysand writes it, carrying an unknown top-level key, an
 /// unknown key inside the target usage, non-canonical key order, and a
 /// directory usage that must never match a resource lookup.
@@ -68,7 +72,7 @@ fn one_line_diff<'a>(before: &'a str, after: &'a str) -> (&'a str, &'a str) {
 fn replace_touches_exactly_one_line() {
     let mut d = doc(MANIFEST);
 
-    let change = do_set_usage_constraint(&mut d, LIBRARY, TARGET).unwrap();
+    let change = do_set_usage_constraint(&mut d, LIBRARY, &req(TARGET)).unwrap();
 
     assert_eq!(
         change,
@@ -95,7 +99,7 @@ fn the_shorthand_is_not_expanded() {
     // `pkg:sysand` usage it abbreviates.
     let mut d = doc(MANIFEST);
 
-    let change = do_set_usage_constraint(&mut d, "mock/library", TARGET).unwrap();
+    let change = do_set_usage_constraint(&mut d, "mock/library", &req(TARGET)).unwrap();
 
     assert_eq!(change, ConstraintChange::NotFound);
     assert_eq!(render(&d), MANIFEST);
@@ -109,7 +113,7 @@ fn set_when_absent_appends_the_key() {
         "",
     ));
 
-    let change = do_set_usage_constraint(&mut d, LIBRARY, "^0.11").unwrap();
+    let change = do_set_usage_constraint(&mut d, LIBRARY, &req("^0.11")).unwrap();
 
     assert_eq!(
         change,
@@ -125,7 +129,7 @@ fn set_when_absent_appends_the_key() {
 fn null_constraint_counts_as_absent_and_keeps_its_position() {
     let mut d = doc(&MANIFEST.replace(&format!("\"{LEGACY}\""), "null"));
 
-    let change = do_set_usage_constraint(&mut d, LIBRARY, TARGET).unwrap();
+    let change = do_set_usage_constraint(&mut d, LIBRARY, &req(TARGET)).unwrap();
 
     assert_eq!(
         change,
@@ -141,7 +145,7 @@ fn null_constraint_counts_as_absent_and_keeps_its_position() {
 fn unchanged_leaves_the_document_alone() {
     let mut d = doc(MANIFEST);
 
-    let change = do_set_usage_constraint(&mut d, LIBRARY, LEGACY).unwrap();
+    let change = do_set_usage_constraint(&mut d, LIBRARY, &req(LEGACY)).unwrap();
 
     assert_eq!(
         change,
@@ -155,12 +159,12 @@ fn unchanged_leaves_the_document_alone() {
 #[test]
 fn not_found_without_usage_key_and_without_match() {
     let mut d = doc(r#"{"name": "n", "version": "1.0.0"}"#);
-    let change = do_set_usage_constraint(&mut d, "pkg:sysand/acme/absent", "1").unwrap();
+    let change = do_set_usage_constraint(&mut d, "pkg:sysand/acme/absent", &req("1")).unwrap();
     assert_eq!(change, ConstraintChange::NotFound);
     assert_eq!(d, doc(r#"{"name": "n", "version": "1.0.0"}"#));
 
     let mut d = doc(MANIFEST);
-    let change = do_set_usage_constraint(&mut d, "pkg:sysand/acme/absent", "1").unwrap();
+    let change = do_set_usage_constraint(&mut d, "pkg:sysand/acme/absent", &req("1")).unwrap();
     assert_eq!(change, ConstraintChange::NotFound);
     assert_eq!(render(&d), MANIFEST);
 }
@@ -170,7 +174,7 @@ fn directory_usage_is_refused_rather_than_reported_missing() {
     // The directory usage is the same project the PURL names, so
     // "not declared" would be false; it just cannot carry a constraint.
     let mut d = doc(MANIFEST);
-    let err = do_set_usage_constraint(&mut d, LOCAL_LIB, "1").unwrap_err();
+    let err = do_set_usage_constraint(&mut d, LOCAL_LIB, &req("1")).unwrap_err();
 
     assert_matches!(
         err,
@@ -195,7 +199,7 @@ fn directory_usage_matches_through_the_normalized_identifier() {
     });
     let before = d.clone();
 
-    let err = do_set_usage_constraint(&mut d, LOCAL_LIB, "1").unwrap_err();
+    let err = do_set_usage_constraint(&mut d, LOCAL_LIB, &req("1")).unwrap_err();
 
     assert_matches!(
         err,
@@ -216,7 +220,7 @@ fn kpar_path_usage_is_refused_by_its_identifier() {
         "name": "local-lib",
     });
 
-    let err = do_set_usage_constraint(&mut d, LOCAL_LIB, "1").unwrap_err();
+    let err = do_set_usage_constraint(&mut d, LOCAL_LIB, &req("1")).unwrap_err();
 
     assert_matches!(
         err,
@@ -238,7 +242,7 @@ fn a_resource_and_a_typed_usage_of_one_project_are_ambiguous() {
     });
     let before = d.clone();
 
-    let err = do_set_usage_constraint(&mut d, LIBRARY, TARGET).unwrap_err();
+    let err = do_set_usage_constraint(&mut d, LIBRARY, &req(TARGET)).unwrap_err();
 
     assert_matches!(
         err,
@@ -256,7 +260,7 @@ fn an_unrecognized_usage_shape_is_refused() {
     d["usage"][0] = serde_json::json!({ "x-future-kind": "somewhere" });
     let before = d.clone();
 
-    let err = do_set_usage_constraint(&mut d, LIBRARY, "1").unwrap_err();
+    let err = do_set_usage_constraint(&mut d, LIBRARY, &req("1")).unwrap_err();
 
     assert_matches!(
         err,
@@ -275,7 +279,7 @@ fn ambiguous_is_refused_before_editing() {
     d["usage"][0] = serde_json::json!({ "resource": LIBRARY });
     let before = d.clone();
 
-    let err = do_set_usage_constraint(&mut d, LIBRARY, TARGET).unwrap_err();
+    let err = do_set_usage_constraint(&mut d, LIBRARY, &req(TARGET)).unwrap_err();
 
     assert_matches!(
         err,
@@ -288,26 +292,16 @@ fn ambiguous_is_refused_before_editing() {
 }
 
 #[test]
-fn invalid_constraint_is_rejected_before_editing() {
-    let mut d = doc(MANIFEST);
-
-    let err = do_set_usage_constraint(&mut d, LIBRARY, "nonsense").unwrap_err();
-
-    assert_matches!(err, SetConstraintError::InvalidConstraint(c, _) if c == "nonsense");
-    assert_eq!(render(&d), MANIFEST);
-}
-
-#[test]
 fn malformed_documents_are_rejected() {
     let mut d = doc("[]");
     assert_matches!(
-        do_set_usage_constraint(&mut d, LIBRARY, "1").unwrap_err(),
+        do_set_usage_constraint(&mut d, LIBRARY, &req("1")).unwrap_err(),
         SetConstraintError::NotAnObject
     );
 
     let mut d = doc(r#"{"usage": {"resource": "x"}}"#);
     assert_matches!(
-        do_set_usage_constraint(&mut d, LIBRARY, "1").unwrap_err(),
+        do_set_usage_constraint(&mut d, LIBRARY, &req("1")).unwrap_err(),
         SetConstraintError::UsageNotAnArray
     );
 }
@@ -359,7 +353,7 @@ mod filesystem {
     ) -> Result<ConstraintChange, EditError<ManifestStep<SetUsageConstraintError>>> {
         ctx.edit(SetUsageConstraint {
             target: UsageTarget::Resource(resource.to_owned()),
-            constraint: constraint.to_owned(),
+            constraint: super::req(constraint),
         })
     }
 
@@ -427,7 +421,7 @@ mod filesystem {
   "usage": [
     {
       "resource": "a:b",
-      "versionConstraint": "2.0.0"
+      "versionConstraint": "^2.0.0"
     }
   ],
   "z": 1
@@ -440,12 +434,15 @@ mod filesystem {
     fn edit_errors_leave_the_file_untouched() {
         let (dir, path) = json_project(MANIFEST);
 
-        let err = set(&mut context(&dir), LIBRARY, "nonsense").unwrap_err();
+        let err = set(&mut context(&dir), super::LOCAL_LIB, "^1").unwrap_err();
 
         assert_matches!(
             err,
             EditError::Edit(ManifestStep::Edit(SetUsageConstraintError::Edit(
-                SetConstraintError::InvalidConstraint(..)
+                SetConstraintError::UsageCannotHoldConstraint {
+                    identifier: _,
+                    kind: _
+                }
             )))
         );
         assert_eq!(std::fs::read_to_string(&path).unwrap(), MANIFEST);
@@ -504,7 +501,7 @@ mod index_usage {
             &mut d,
             &index_publisher("Acme Labs"),
             &index_name("My Lib"),
-            "^2",
+            &req("^2"),
         )
         .unwrap();
 
@@ -532,7 +529,7 @@ mod index_usage {
             &mut d,
             &index_publisher("Acme Labs"),
             &index_name("Other"),
-            "^2",
+            &req("^2"),
         )
         .unwrap();
 
@@ -550,7 +547,7 @@ mod index_usage {
             &mut d,
             &index_publisher("Acme Labs"),
             &index_name("My Lib"),
-            "^2",
+            &req("^2"),
         )
         .unwrap_err();
 
@@ -572,7 +569,7 @@ mod index_usage {
             &mut d,
             &index_publisher("acme labs"),
             &index_name("my lib"),
-            "^2",
+            &req("^2"),
         )
         .unwrap_err();
 
@@ -592,7 +589,7 @@ mod index_usage {
             &mut d,
             &index_publisher("mock"),
             &index_name("library"),
-            "^2",
+            &req("^2"),
         )
         .unwrap_err();
 
@@ -604,7 +601,8 @@ mod index_usage {
     fn purl_of_an_index_usage_points_at_publisher_and_name() {
         let mut d = doc(INDEX_MANIFEST);
 
-        let err = do_set_usage_constraint(&mut d, "pkg:sysand/acme-labs/my-lib", "^2").unwrap_err();
+        let err =
+            do_set_usage_constraint(&mut d, "pkg:sysand/acme-labs/my-lib", &req("^2")).unwrap_err();
 
         assert_matches!(
             err,
@@ -661,14 +659,15 @@ fn by_identity(
         doc,
         &IndexPublisher::parse(publisher.to_owned()).unwrap(),
         &IndexName::parse(name.to_owned()).unwrap(),
-        constraint,
+        &req(constraint),
     )
 }
 
 #[test]
 fn toml_replace_touches_exactly_one_line() {
     let mut doc = toml_doc(TOML);
-    let change = do_set_usage_constraint_toml(&mut doc, "pkg:sysand/acme/lib", "^2").expect("ok");
+    let change =
+        do_set_usage_constraint_toml(&mut doc, "pkg:sysand/acme/lib", &req("^2")).expect("ok");
     assert_eq!(
         change,
         ConstraintChange::Replaced {
@@ -747,15 +746,15 @@ fn a_usage_with_no_source_and_no_version_is_refused() {
 #[test]
 fn a_toml_usage_is_addressed_by_identity() {
     let mut doc = toml_doc(TOML);
-    let error =
-        do_set_usage_constraint_toml(&mut doc, "urn:kpar:lib", "^1").expect_err("not an identity");
+    let error = do_set_usage_constraint_toml(&mut doc, "urn:kpar:lib", &req("^1"))
+        .expect_err("not an identity");
     assert_eq!(
         error.to_string(),
         "`urn:kpar:lib` is not a `pkg:sysand` PURL; a `model.toml` usage is named `publisher/name`"
     );
     // A PURL whose parts are not normalized is malformed, as in the json arm.
-    let error =
-        do_set_usage_constraint_toml(&mut doc, "pkg:sysand/Acme/Lib", "^1").expect_err("malformed");
+    let error = do_set_usage_constraint_toml(&mut doc, "pkg:sysand/Acme/Lib", &req("^1"))
+        .expect_err("malformed");
     assert_matches!(
         error,
         SetConstraintError::MalformedPurl { iri: _, source: _ }

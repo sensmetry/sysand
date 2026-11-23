@@ -47,7 +47,8 @@ def set_usage_constraint(
     The dependency is named as :func:`remove` names it: by ``iri`` for a
     resource usage, or by ``publisher`` and ``name``, spelled exactly as the
     usage spells them, for an index usage. A constraint can be replaced but
-    not removed; pass ``"*"`` to accept any version.
+    not removed; pass ``"*"`` to accept any version. The constraint is written
+    in its normalized form (``"1.2"`` is written as ``"^1.2"``).
 
     Only that one ``versionConstraint`` value is touched: every other key,
     including keys sysand does not know, and the document's key order are

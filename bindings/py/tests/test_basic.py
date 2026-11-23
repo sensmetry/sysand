@@ -385,7 +385,8 @@ def test_set_usage_constraint_by_iri(
         project_dir=tmp_path, iri="pkg:sysand/mock/library", version_constraint="0.11.0"
     )
     assert change["found"] and change["changed"]
-    assert change["new_version_constraint"] == "0.11.0"
+    # Written in its normalized form
+    assert change["new_version_constraint"] == "^0.11.0"
 
 
 def test_set_usage_constraint_cannot_clear(tmp_path: Path) -> None:
@@ -548,7 +549,7 @@ def test_set_usage_constraint_normalizes_hand_formatted_whitespace(
   "usage": [
     {
       "resource": "a:b",
-      "versionConstraint": "2.0.0"
+      "versionConstraint": "^2.0.0"
     }
   ],
   "z": 1
