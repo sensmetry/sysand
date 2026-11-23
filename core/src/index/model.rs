@@ -13,7 +13,7 @@ use thiserror::Error;
 
 use serde::{Deserialize, Serialize};
 
-use crate::model::InterchangeProjectUsageRaw;
+use crate::{model::InterchangeProjectUsageRaw, utils::is_lowercase_sha256_hex};
 
 /// Top-level `index.json`: the list of every project IRI the index knows
 /// about. Used by `uris_async` for list-all enumeration. Per-project version
@@ -100,11 +100,7 @@ impl TryFrom<&str> for Sha256HexDigest {
 
     fn try_from(raw: &str) -> Result<Self, Self::Error> {
         let hex = raw.strip_prefix("sha256:").ok_or(())?;
-        if hex.len() != 64
-            || !hex
-                .bytes()
-                .all(|c| c.is_ascii_digit() || matches!(c, b'a'..=b'f'))
-        {
+        if !is_lowercase_sha256_hex(hex) {
             return Err(());
         }
         Ok(Self(hex.to_owned()))

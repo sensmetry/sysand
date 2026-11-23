@@ -117,6 +117,15 @@ pub fn sha256_lowercase_hex(data: impl AsRef<[u8]>) -> String {
     lowercase_hex(Sha256::digest(data))
 }
 
+/// Whether `hex` is a sha256 digest as [`sha256_lowercase_hex`] writes it: 64
+/// lowercase hex characters.
+pub fn is_lowercase_sha256_hex(hex: &str) -> bool {
+    hex.len() == 64
+        && hex
+            .bytes()
+            .all(|c| c.is_ascii_digit() || matches!(c, b'a'..=b'f'))
+}
+
 /// Encode `bytes` as lowercase hex string
 pub fn lowercase_hex(bytes: Array<u8, typenum::U32>) -> String {
     hex::encode(bytes)
