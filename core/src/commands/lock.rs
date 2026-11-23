@@ -236,9 +236,14 @@ pub fn do_lock_projects<
     #[cfg(not(feature = "filesystem"))]
     let base_path = None;
     lock_projects(
-        projects
-            .into_iter()
-            .map(|(identifiers, project)| (identifiers, project, base_path.clone(), None)),
+        projects.into_iter().map(|(identifiers, project)| {
+            (
+                identifiers.map(|ids| ids.into_iter().map(String::from).collect()),
+                project,
+                base_path.clone(),
+                None,
+            )
+        }),
         resolver,
         provided_usages,
         ctx,
@@ -262,7 +267,7 @@ fn lock_projects<
     PD: ProjectRead + Debug,
     I: IntoIterator<
         Item = (
-            Option<Vec<Iri<String>>>,
+            Option<Vec<String>>,
             &'a PI,
             Option<camino::Utf8PathBuf>,
             Option<ProjectDefinition>,
@@ -337,8 +342,7 @@ fn lock_projects<
             publisher: definition.publisher().map(ToOwned::to_owned),
             version: definition.version(),
             exports,
-            identifiers: identifiers
-                .map_or_default(|ids| ids.into_iter().map(Into::into).collect()),
+            identifiers: identifiers.unwrap_or_default(),
             sources,
             usages: usages.iter().map(Usage::from).collect(),
         });
@@ -764,12 +768,7 @@ pub fn do_lock_workspace<PD: ProjectRead + Debug, R: ResolveRead<ProjectStorage 
             .iter()
             .zip(workspace.members())
             .map(|(project, member)| {
-                let purl = member
-                    .project
-                    .identity()
-                    .lock_identifier()
-                    .parse()
-                    .expect("a validated publisher and name are a valid PURL");
+                let purl = member.project.identity().lock_identifier();
                 let definition = ProjectDefinition::Toml(Box::new(member.project.clone()));
                 (
                     Some(vec![purl]),
@@ -814,7 +813,7 @@ pub fn do_lock_local_editable<
 
     lock_projects(
         [(
-            identifiers,
+            identifiers.map(|ids| ids.into_iter().map(String::from).collect()),
             &project,
             ctx.project_root(),
             ctx.current_definition().cloned(),
