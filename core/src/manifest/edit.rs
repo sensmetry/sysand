@@ -41,7 +41,7 @@ use typed_path::Utf8UnixPathBuf;
 
 use crate::manifest::common::{
     InheritFrom, NormalizedIdentity, OMG_PUBLISHER, PathProblem, Sources, SourcesError, URL_KEYS,
-    UrlsG, normalized_identity,
+    UrlsG, normalized_identity, path_problem,
 };
 use crate::manifest::diagnostics::Diagnostic;
 use crate::manifest::inherit::{Inherited, MetaProperty};
@@ -660,11 +660,12 @@ pub fn exclude_source(doc: &mut DocumentMut, path: &str) -> Result<Utf8UnixPathB
     // Held to the same rules as an `include` argument, so `README.md` is
     // reported as not a model file.
     let wanted = strict_entry(path)?;
-    let wanted = Sources::new(vec![wanted])?
-        .as_slice()
-        .first()
-        .expect("one path in, one path out")
-        .clone();
+    if let Some(problem) = path_problem(wanted.as_str()) {
+        return Err(EditError::Sources(SourcesError::path(
+            problem,
+            wanted.as_str(),
+        )));
+    }
 
     let array = sources_mut(doc)?;
     let at = entries(array)
