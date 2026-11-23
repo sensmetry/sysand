@@ -1683,17 +1683,18 @@ impl InterchangeProjectMetadataPartial {
     ) -> Result<Validated<InterchangeProjectMetadataRaw>, Diagnostics> {
         let location = KeyLocation::File(file.to_owned());
         let declared = metamodel.or(self.metamodel.as_deref());
-        let unsupported = unsupported_metamodel(declared);
+        let parsed = declared.map(Metamodel::parse);
+        let parsed = match &parsed {
+            Some(Ok(metamodel)) => Some(metamodel),
+            Some(Err(_)) | None => None,
+        };
+        // Only a value this version does not recognize is worth naming
+        let unsupported = declared.filter(|_| !matches!(parsed, Some(Metamodel::Known(_))));
         let mut report = Diagnostics::new();
 
         // The family decides the shape. An absent or unrecognized
         // metamodel is the OMG family.
-        let family = Metamodel::schema_family(
-            declared
-                // ast-grep-ignore: dot-ok
-                .and_then(|value| Metamodel::parse(value).ok())
-                .as_ref(),
-        );
+        let family = Metamodel::schema_family(parsed);
         let foreign = |key: &str| {
             Diagnostic::from(ReadWarning::ForeignSchemaKey {
                 location: location.clone(),
