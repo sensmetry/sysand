@@ -185,7 +185,8 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for IndexEntryProject<Policy> 
 
     async fn sources_async(&self, _ctx: &ProjectContext) -> Result<Vec<Source>, Self::Error> {
         Ok(vec![Source::IndexKpar {
-            // Cannot panic: the URL was created from an IRI
+            // Panics on a URL holding a character that `url::Url` leaves
+            // unescaped and an IRI does not allow, such as `|`.
             index_kpar: Iri::parse(self.archive.url().to_string()).unwrap(),
             kpar_size: self.advertised.kpar_size,
             kpar_digest: self.advertised.kpar_digest.as_hex().to_owned(),

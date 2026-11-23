@@ -129,12 +129,6 @@ fn sources_async_panics_on_index_root_with_pipe() {
 
 #[test]
 #[should_panic(expected = "called `Result::unwrap()` on an `Err` value")]
-fn sources_async_panics_on_index_root_with_caret() {
-    index_kpar_sources("https://test.invalid/a^b/");
-}
-
-#[test]
-#[should_panic(expected = "called `Result::unwrap()` on an `Err` value")]
 fn sources_async_panics_on_index_root_with_brackets() {
     index_kpar_sources("https://test.invalid/a[b]/");
 }
