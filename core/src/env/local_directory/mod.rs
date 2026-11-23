@@ -457,6 +457,12 @@ pub enum LocalWriteError {
         /// "an editable" or "a workspace"
         kind: &'static str,
     },
+    #[error("invalid project at `{path}`")]
+    InvalidProject {
+        path: Utf8PathBuf,
+        #[source]
+        source: Box<crate::model::InterchangeProjectValidationError>,
+    },
     #[error("project is missing metadata file `.meta.json`")]
     MissingMeta,
     #[error("project is missing `.project.json` and/or `.meta.json` files")]
@@ -577,9 +583,15 @@ impl WriteEnvironment for LocalDirectoryEnvironment {
             existing.name = definition.name().to_owned();
             existing.version = definition.version();
             existing.usages = definition
-                .usages()
+                .usage_identifiers()
+                .map_err(|source| {
+                    PutProjectError::Write(LocalWriteError::InvalidProject {
+                        path: existing.path.as_str().into(),
+                        source: Box::new(source),
+                    })
+                })?
                 .into_iter()
-                .map(|u| Identifier::from_interchange_usage_unchecked(&u).into_string())
+                .map(Identifier::into_string)
                 .collect();
             existing.checksum = checksum.map(Into::into);
         } else {

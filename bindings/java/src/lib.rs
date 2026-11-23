@@ -209,7 +209,9 @@ fn create_env<'local>(
                     format!("Path already exists: {existing_path}"),
                 ),
                 commands::env::EnvError::Write(suberror) => match suberror {
-                    LocalWriteError::Deserialize(_) | LocalWriteError::Format(_) => {
+                    LocalWriteError::Deserialize(_)
+                    | LocalWriteError::Format(_)
+                    | LocalWriteError::InvalidProject { path: _, source: _ } => {
                         env.throw_exception(ExceptionKind::InvalidValue, e)
                     }
                     LocalWriteError::ImpossibleRelativePath(_) | LocalWriteError::Path(_) => {

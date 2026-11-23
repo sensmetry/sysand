@@ -114,23 +114,17 @@ impl ManifestUsages {
         manifest: Utf8PathBuf,
     ) -> Result<Self, VerifyError> {
         let usages = definition
-            .usages()
+            .validated_usages()
+            .map_err(|source| VerifyError::InvalidUsage {
+                manifest: manifest.clone(),
+                source,
+            })?
             .iter()
-            .map(|usage| {
-                let constraint = usage
-                    .validate()
-                    .map_err(|source| VerifyError::InvalidUsage {
-                        manifest: manifest.clone(),
-                        source,
-                    })?
-                    .version_constraint()
-                    .cloned();
-                Ok(ManifestUsage {
-                    identifier: Identifier::from_interchange_usage_unchecked(usage),
-                    constraint,
-                })
+            .map(|usage| ManifestUsage {
+                identifier: Identifier::from(usage),
+                constraint: usage.version_constraint().cloned(),
             })
-            .collect::<Result<_, VerifyError>>()?;
+            .collect();
         Ok(Self {
             manifest,
             publisher: definition.publisher().map(ToOwned::to_owned),

@@ -153,6 +153,12 @@ pub enum AddProjectError {
     ProjectRead(#[from] LocalSrcError),
     #[error("missing project info at `{0}`")]
     MissingInfo(Utf8PathBuf),
+    #[error("invalid project at `{path}`")]
+    InvalidProject {
+        path: Utf8PathBuf,
+        #[source]
+        source: Box<crate::model::InterchangeProjectValidationError>,
+    },
 }
 
 impl EnvMetadata {
@@ -269,6 +275,13 @@ impl EnvMetadata {
         let definition = project
             .get_project()?
             .ok_or_else(|| AddProjectError::MissingInfo(project.root_path().to_owned()))?;
+        let usages =
+            definition
+                .usage_identifiers()
+                .map_err(|source| AddProjectError::InvalidProject {
+                    path: project.root_path().to_owned(),
+                    source: Box::new(source),
+                })?;
         let project = EnvProject {
             publisher: definition.publisher().map(ToOwned::to_owned),
             name: definition.name().to_owned(),
@@ -278,11 +291,7 @@ impl EnvMetadata {
                 .expect("BUG: no nominal path for project")
                 .to_owned(),
             identifiers,
-            usages: definition
-                .usages()
-                .iter()
-                .map(|u| Identifier::from_interchange_usage_unchecked(u).into_string())
-                .collect(),
+            usages: usages.into_iter().map(Identifier::into_string).collect(),
             editable,
             workspace,
             checksum: checksum.map(Into::into),

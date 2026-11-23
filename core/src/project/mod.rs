@@ -440,6 +440,17 @@ impl ProjectDefinition {
         }
     }
 
+    /// The identifiers of the usages, validated.
+    pub fn usage_identifiers(
+        &self,
+    ) -> Result<Vec<utils::Identifier>, InterchangeProjectValidationError> {
+        Ok(self
+            .validated_usages()?
+            .iter()
+            .map(utils::Identifier::from)
+            .collect())
+    }
+
     pub fn format(&self) -> ProjectFormat {
         match self {
             Self::Toml(_) => ProjectFormat::Toml,

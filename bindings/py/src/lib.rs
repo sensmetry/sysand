@@ -306,6 +306,7 @@ fn do_env_py_local_dir(path: String) -> PyResult<()> {
                 | LocalWriteError::Path(_)
                 | LocalWriteError::Serialize(_)
                 | LocalWriteError::ImpossibleRelativePath(_)
+                | LocalWriteError::InvalidProject { path: _, source: _ }
                 | LocalWriteError::ProjectNotFound(_)
                 | LocalWriteError::OverwriteNotInstalled {
                     identifier: _,
