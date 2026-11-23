@@ -740,6 +740,13 @@ fn local_target_usage<E: ErrorBound>(
             })
         }
     };
+    let semver_of = |version: &str| {
+        semver::Version::parse(version).map_err(|_parse_error| KParBuildError::TomlTargetVersion {
+            usage: usage.to_string(),
+            path: relative.to_owned(),
+            version: version.to_owned(),
+        })
+    };
     let unreadable = |source: TomlTargetReadError| KParBuildError::TomlTargetRead {
         usage: usage.to_string(),
         path: relative.to_owned(),
@@ -766,7 +773,7 @@ fn local_target_usage<E: ErrorBound>(
         match kpar.get_project() {
             Ok(Some(definition)) => {
                 spelled(definition.publisher(), definition.name())?;
-                definition.version()
+                semver_of(&definition.version())?
             }
             Ok(None) => return Err(missing()),
             Err(error) => return Err(unreadable(error.into())),
@@ -792,21 +799,15 @@ fn local_target_usage<E: ErrorBound>(
                     // recognized OMG one, so the metamodel is a valid prefix.
                     return Ok(InterchangeProjectUsageRaw::Resource {
                         resource: format!("{}/{stem}.kpar", manifest.metamodel),
-                        version_constraint: Some(caret(
-                            &manifest.version.to_string(),
-                            usage,
-                            relative,
-                        )?),
+                        version_constraint: Some(caret(&manifest.version)),
                     });
                 }
-                // A `model.toml` constrains its own version to semver,
-                // so `TomlTargetVersion` cannot arise here.
-                manifest.version.to_string()
+                manifest.version.clone()
             }
             // A json target, the one `TomlTargetVersion` is for.
             Ok(Some(ProjectDefinition::Json { info, meta: _ })) => {
                 spelled(info.publisher.as_deref(), &info.name)?;
-                info.version
+                semver_of(&info.version)?
             }
             Ok(None) => return Err(missing()),
             Err(error) => return Err(unreadable(error.into())),
@@ -819,24 +820,22 @@ fn local_target_usage<E: ErrorBound>(
     Ok(InterchangeProjectUsageRaw::Index {
         publisher: publisher.as_str().to_owned(),
         name: usage.name().as_str().to_owned(),
-        version_constraint: caret(&version, usage, relative)?,
+        version_constraint: caret(&version),
     })
 }
 
-/// `^<version>`, or [`KParBuildError::TomlTargetVersion`].
-fn caret<E: ErrorBound>(
-    version: &str,
-    usage: &Usage,
-    relative: &str,
-) -> Result<String, KParBuildError<E>> {
-    match semver::VersionReq::parse(&format!("^{version}")) {
-        Ok(constraint) => Ok(constraint.to_string()),
-        Err(_parse_error) => Err(KParBuildError::TomlTargetVersion {
-            usage: usage.to_string(),
-            path: relative.to_owned(),
-            version: version.to_owned(),
-        }),
+/// `^<version>`.
+fn caret(version: &semver::Version) -> String {
+    semver::VersionReq {
+        comparators: vec![semver::Comparator {
+            op: semver::Op::Caret,
+            major: version.major,
+            minor: Some(version.minor),
+            patch: Some(version.patch),
+            pre: version.pre.clone(),
+        }],
     }
+    .to_string()
 }
 
 /// Every member, with the manifest the workspace load parsed.
