@@ -64,10 +64,9 @@ fn texts(report: &Diagnostics) -> Vec<&str> {
 /// Whether every diagnostic sits strictly after the one before it, which
 /// is what "in document order" means for a report.
 fn is_ascending(places: &[(usize, usize)]) -> bool {
-    places.windows(2).all(|pair| match pair {
-        [earlier, later] => earlier < later,
-        _ => true,
-    })
+    places
+        .array_windows()
+        .all(|[earlier, later]| earlier < later)
 }
 
 fn places(report: &Diagnostics) -> Vec<(usize, usize)> {

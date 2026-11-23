@@ -1,0 +1,7 @@
+id: or-insert-with-new
+severity: warning
+language: rust
+rule:
+  pattern: $E.or_insert_with($T::new)
+message: "use `or_default()`"
+fix: $E.or_default()

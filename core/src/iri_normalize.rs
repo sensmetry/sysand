@@ -240,7 +240,7 @@ fn iri_to_filename_part(iri: Iri<&str>) -> String {
     while let Some(c) = c_it.next() {
         if c.is_whitespace() {
             // Discard previous ASCII non-alphanum
-            while let Some(previous) = sanitized.chars().last() {
+            while let Some(previous) = sanitized.chars().next_back() {
                 if previous.is_ascii() && !previous.is_ascii_alphanumeric() {
                     sanitized.pop();
                 } else {
@@ -258,7 +258,7 @@ fn iri_to_filename_part(iri: Iri<&str>) -> String {
         } else if c.is_ascii() && !c.is_ascii_alphanumeric() {
             let mut discarded = 0u32;
             // Discard previous ASCII non-alphanum
-            while let Some(previous) = sanitized.chars().last() {
+            while let Some(previous) = sanitized.chars().next_back() {
                 if previous.is_ascii() && !previous.is_ascii_alphanumeric() {
                     sanitized.pop();
                     discarded += 1;

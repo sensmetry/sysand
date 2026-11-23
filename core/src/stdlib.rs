@@ -112,12 +112,12 @@ pub fn known_std_libs() -> ProvidedProjects {
     fn entries(
         xs: impl IntoIterator<Item = (&'static str, &'static str, &'static str)>,
     ) -> ProvidedProjects {
-        let mut result = HashMap::default();
+        let mut result = HashMap::<_, Vec<_>>::default();
 
         for (iri, info, meta) in xs {
             let projects = result
                 .entry(Identifier::from_iri_unchecked_str(iri))
-                .or_insert_with(Vec::new);
+                .or_default();
             projects.push(InMemoryProject::from_info_meta(
                 serde_json::from_str(info).unwrap(),
                 serde_json::from_str(meta).unwrap(),

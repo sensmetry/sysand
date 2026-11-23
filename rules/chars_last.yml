@@ -1,0 +1,8 @@
+# `chars().last()` walks the whole string; `next_back()` is O(1).
+id: chars-last
+severity: warning
+language: rust
+rule:
+  pattern: $E.chars().last()
+message: "use `chars().next_back()`, which does not scan the whole string"
+fix: $E.chars().next_back()

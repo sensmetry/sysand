@@ -231,10 +231,8 @@ pub(crate) fn validate_versions(
             });
         }
     }
-    for pair in validated.windows(2) {
-        if let [prev, curr] = pair
-            && prev.version <= curr.version
-        {
+    for [prev, curr] in validated.array_windows() {
+        if prev.version <= curr.version {
             return Err(VersionsJsonError::VersionsOutOfOrder {
                 location: location.into(),
                 prev: prev.version.to_string(),

@@ -1,0 +1,7 @@
+# `array_windows` yields `&[T; 2]`, so the pair destructures irrefutably.
+id: windows-two
+severity: warning
+language: rust
+rule:
+  pattern: $E.windows(2)
+message: "use `array_windows::<2>()` to destructure the pair without a slice pattern"

@@ -57,11 +57,14 @@ fn is_valid_sysand_purl_part(s: &str, kind: IdentifierKind, spelling: Spelling) 
         return false;
     }
 
-    if !is_alphanumeric(bytes[0]) || !is_alphanumeric(bytes[bytes.len() - 1]) {
+    let (Some(&first), Some((&last, init))) = (bytes.first(), bytes.split_last()) else {
+        return false;
+    };
+    if !is_alphanumeric(first) || !is_alphanumeric(last) {
         return false;
     }
 
-    for &[b_previous, b] in bytes[..bytes.len() - 1].array_windows() {
+    for &[b_previous, b] in init.array_windows() {
         if is_alphanumeric(b) {
             continue;
         }
@@ -158,12 +161,11 @@ pub fn sysand_purl(publisher: &str, name: &str) -> String {
 /// and `Err(_)` for IRIs that start with the prefix but fail validation.
 pub fn parse_sysand_purl(iri: &str) -> Result<Option<(&str, &str)>, SysandPurlError> {
     // scheme is case-insensitive
-    let rest = if iri.len() >= PKG_SYSAND_PREFIX.len()
-        && iri.as_bytes()[0..3].eq_ignore_ascii_case(b"pkg")
-        && iri.as_bytes()[3..].starts_with(b":sysand/")
-    {
-        iri.split_at(PKG_SYSAND_PREFIX.len()).1
-    } else {
+    let Some(rest) = iri
+        .split_at_checked(3)
+        .filter(|(scheme, _)| scheme.eq_ignore_ascii_case("pkg"))
+        .and_then(|(_, rest)| rest.strip_prefix(":sysand/"))
+    else {
         return Ok(None);
     };
 

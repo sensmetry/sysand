@@ -69,10 +69,9 @@ fn places(report: &Diagnostics) -> Vec<(usize, usize)> {
 
 /// Whether every diagnostic sits strictly after the one before it.
 fn is_ascending(places: &[(usize, usize)]) -> bool {
-    places.windows(2).all(|pair| match pair {
-        [earlier, later] => earlier < later,
-        _ => true,
-    })
+    places
+        .array_windows()
+        .all(|[earlier, later]| earlier < later)
 }
 
 /// The three keys `[project]` requires, so that a test about one other
