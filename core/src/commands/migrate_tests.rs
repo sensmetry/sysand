@@ -3,7 +3,7 @@
 
 use indexmap::IndexMap;
 
-use super::{MigrateOptions, migrate_project};
+use super::{MigrateOptions, Target, migrate_project};
 use crate::model::KnownMetamodel;
 use crate::{
     manifest::{
@@ -20,8 +20,11 @@ use crate::{
 
 /// The lookup for tests that have no `file:` usages: reaching it is a
 /// test's own bug.
-fn no_targets(resource: &str) -> Result<Usage, String> {
-    panic!("no test fixture should resolve a target, but `{resource}` was looked up")
+fn no_targets(target: Target<'_>) -> Result<Usage, String> {
+    panic!(
+        "no test fixture should resolve a target, but `{}` was looked up",
+        target.iri()
+    )
 }
 
 fn info(name: &str, publisher: Option<&str>, version: &str) -> InterchangeProjectInfoRaw {
@@ -677,8 +680,8 @@ fn a_constrained_purl_usage_becomes_an_index_usage() {
     // constraint is the json project's: a PURL's halves are normalized
     // by construction, and a `model.toml` never holds a normalized
     // identity. The version the lookup resolves is not used.
-    let lookup = |resource: &str| {
-        assert_eq!(resource, "pkg:sysand/acme/dep");
+    let lookup = |target: Target<'_>| {
+        assert_eq!(target.iri().as_str(), "pkg:sysand/acme/dep");
         Ok(TomlUsage::Index {
             publisher: IndexPublisher::parse("Acme".to_owned()).expect("a publisher"),
             name: IndexName::parse("Dep".to_owned()).expect("a name"),
@@ -712,8 +715,8 @@ fn an_unconstrained_purl_usage_reaches_the_lookup() {
         resource: "pkg:sysand/acme/dep".to_owned(),
         version_constraint: None,
     }];
-    let lookup = |resource: &str| {
-        assert_eq!(resource, "pkg:sysand/acme/dep");
+    let lookup = |target: Target<'_>| {
+        assert_eq!(target.iri().as_str(), "pkg:sysand/acme/dep");
         Ok(TomlUsage::Index {
             publisher: IndexPublisher::parse("acme".to_owned()).expect("a publisher"),
             name: IndexName::parse("dep".to_owned()).expect("a name"),
@@ -741,7 +744,7 @@ fn an_http_usage_reaches_the_lookup() {
             resource: resource.to_owned(),
             version_constraint: None,
         }];
-        let lookup = |_: &str| Ok(resolves_to("../dep", "acme", "dep"));
+        let lookup = |_: Target<'_>| Ok(resolves_to("../dep", "acme", "dep"));
         migrate_project(&raw, &meta(), &MigrateOptions::default(), &lookup)
             .unwrap_or_else(|e| panic!("{resource} resolves: {e:?}"));
     }
@@ -982,8 +985,10 @@ fn resolved_usage_errors(targets: &[(&str, &str)]) -> String {
     raw.usage = (0..targets.len())
         .map(|i| file_resource(&format!("file:///srv/{i}")))
         .collect();
-    let lookup = |resource: &str| {
-        let i: usize = resource
+    let lookup = |target: Target<'_>| {
+        let i: usize = target
+            .iri()
+            .as_str()
             .strip_prefix("file:///srv/")
             .and_then(|i| i.parse().ok())
             .expect("a fixture resource");
@@ -1059,7 +1064,7 @@ fn resolves_to(dir: &str, publisher: &str, name: &str) -> TomlUsage {
 fn a_file_usage_resolves_from_the_target() {
     let mut raw = info("widgets", Some("acme"), "1.0.0");
     raw.usage = vec![file_resource("file:///srv/dep")];
-    let lookup = |_: &str| Ok(resolves_to("../dep", "acme", "dep"));
+    let lookup = |_: Target<'_>| Ok(resolves_to("../dep", "acme", "dep"));
 
     let validated = migrate_project(&raw, &meta(), &MigrateOptions::default(), &lookup)
         .expect("the target resolves");
@@ -1073,7 +1078,7 @@ fn a_file_usage_resolves_from_the_target() {
 fn a_file_usage_whose_target_cannot_be_read_is_refused() {
     let mut raw = info("widgets", Some("acme"), "1.0.0");
     raw.usage = vec![file_resource("file:///srv/dep")];
-    let lookup = |_: &str| Err("`/srv/dep` declares no `publisher`".to_owned());
+    let lookup = |_: Target<'_>| Err("`/srv/dep` declares no `publisher`".to_owned());
 
     let rendered = messages(
         migrate_project(&raw, &meta(), &MigrateOptions::default(), &lookup)
@@ -1090,7 +1095,7 @@ fn two_file_usages_of_one_target_are_a_duplicate() {
         file_resource("file:///srv/dep"),
         file_resource("file:///srv/other"),
     ];
-    let lookup = |_: &str| Ok(resolves_to("../dep", "acme", "dep"));
+    let lookup = |_: Target<'_>| Ok(resolves_to("../dep", "acme", "dep"));
 
     let rendered = messages(
         migrate_project(&raw, &meta(), &MigrateOptions::default(), &lookup)
@@ -1101,7 +1106,7 @@ fn two_file_usages_of_one_target_are_a_duplicate() {
 
 /// An `http(s)` usage's `versionConstraint` is discarded with a
 /// warning. The warning belongs in core: the target lookup is
-/// handed only the resource string and never sees the constraint.
+/// handed only the resource and never sees the constraint.
 #[test]
 fn an_http_usage_discards_its_constraint_with_a_warning() {
     let mut raw = info("widgets", Some("acme"), "1.0.0");
@@ -1109,7 +1114,7 @@ fn an_http_usage_discards_its_constraint_with_a_warning() {
         resource: "https://example.com/dep.kpar".to_owned(),
         version_constraint: Some("^1.0.0".to_owned()),
     }];
-    let lookup = |_: &str| Ok(resolves_to("../dep", "acme", "dep"));
+    let lookup = |_: Target<'_>| Ok(resolves_to("../dep", "acme", "dep"));
     let validated = migrate_project(&raw, &meta(), &MigrateOptions::default(), &lookup)
         .expect("the usage resolves; the constraint is only discarded");
     let text = validated

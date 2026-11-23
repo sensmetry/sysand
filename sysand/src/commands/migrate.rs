@@ -14,7 +14,7 @@ use camino::{Utf8Path, Utf8PathBuf};
 
 use sysand_core::{
     auth::HTTPAuthentication,
-    commands::migrate::{MigrateOptions, VcsState, check_vcs, migrate_project},
+    commands::migrate::{MigrateOptions, Target, VcsState, check_vcs, migrate_project},
     config::Config,
     context::ProjectContext,
     discover::ManifestCache,
@@ -133,23 +133,25 @@ pub fn command_migrate<Policy: HTTPAuthentication>(
     let read_targets: RefCell<HashSet<typed_path::Utf8UnixPathBuf>> = RefCell::default();
     // The manifests the targets' workspace lookups read.
     let manifests: RefCell<ManifestCache> = RefCell::default();
-    let lookup = |resource: &str| {
-        if resource.starts_with("file:") {
-            let usage = resolve_file_target(resource, &dir, &manifests)?;
+    let lookup = |target: Target<'_>| match target {
+        Target::File(iri) => {
+            let usage = resolve_file_target(iri.as_str(), &dir, &manifests)?;
             if let Some(path) = usage.local_path() {
                 read_targets.borrow_mut().insert(path.clone());
             }
-            return Ok(usage);
+            Ok(usage)
         }
         // Before the resolver is built: the IRI names the release, so a
         // standard-library usage needs no network.
-        if sysand_core::model::is_omg_stdlib_iri(resource) {
-            return stdlib_target(resource);
+        Target::Url(iri) if sysand_core::model::is_omg_stdlib_iri(iri.as_str()) => {
+            stdlib_target(iri)
         }
-        build_resolver()?;
-        let borrowed = resolver.borrow();
-        let resolver = borrowed.as_ref().expect("just built");
-        resolve_remote_target(resource, resolver)
+        Target::Index(_) | Target::Url(_) => {
+            build_resolver()?;
+            let borrowed = resolver.borrow();
+            let resolver = borrowed.as_ref().expect("just built");
+            resolve_remote_target(target, resolver)
+        }
     };
     // Prompt for a missing publisher only when stdin is a TTY and
     // `--publisher` is absent; piped and CI runs get the missing-publisher
@@ -344,9 +346,8 @@ fn prompt_for_publisher() -> Result<Option<String>> {
 /// Such a usage is a `kpar-url` that declares no `publisher`. Its name is
 /// the one the KPAR declares, which Sysand embeds for every release it
 /// knows, not the IRI's stem.
-fn stdlib_target(resource: &str) -> Result<Usage, String> {
-    let url = fluent_uri::Iri::parse(resource.to_owned())
-        .map_err(|(e, _)| format!("`{resource}` is not a valid IRI: {e}"))?;
+fn stdlib_target(url: &fluent_uri::Iri<String>) -> Result<Usage, String> {
+    let resource = url.as_str();
     let declared = sysand_core::stdlib::std_lib_name(resource)
         .or_else(|| sysand_core::model::omg_stdlib_stem(resource))
         .ok_or_else(|| format!("`{resource}` names no standard library"))?;
@@ -354,18 +355,18 @@ fn stdlib_target(resource: &str) -> Result<Usage, String> {
     Ok(Usage::RemoteKpar {
         publisher: None,
         name,
-        url,
+        url: url.clone(),
     })
 }
 
 /// An `http(s)` or unconstrained-`pkg:sysand` usage, through the index.
 fn resolve_remote_target<Policy: HTTPAuthentication>(
-    resource: &str,
+    target: Target<'_>,
     resolver: &CliResolver<Policy>,
 ) -> Result<Usage, String> {
-    let iri = fluent_uri::Iri::parse(resource.to_owned())
-        .map_err(|(e, _)| format!("`{resource}` is not a valid IRI: {e}"))?;
-    let resolve = ResolutionInfo::iri(iri);
+    let iri = target.iri();
+    let resource = iri.as_str();
+    let resolve = ResolutionInfo::iri(iri.clone());
 
     // Pinned to `^<version>` of the highest version among the candidates
     // that read, skipping non-semver versions with a warning.
@@ -385,12 +386,7 @@ fn resolve_remote_target<Policy: HTTPAuthentication>(
     let name =
         IndexName::parse(definition.name().to_owned()).map_err(|e| format!("`{resource}`: {e}"))?;
 
-    // ast-grep-ignore: dot-ok
-    if sysand_core::purl::parse_sysand_purl(resource)
-        .ok()
-        .flatten()
-        .is_some()
-    {
+    if matches!(target, Target::Index(_)) {
         return Ok(Usage::Index {
             publisher,
             name,
@@ -405,8 +401,7 @@ fn resolve_remote_target<Policy: HTTPAuthentication>(
         // so a publisher is always known.
         publisher: Some(publisher),
         name,
-        url: fluent_uri::Iri::parse(resource.to_owned())
-            .map_err(|(e, _)| format!("`{resource}` is not a valid IRI: {e}"))?,
+        url: iri.clone(),
     })
 }
 

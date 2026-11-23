@@ -47,7 +47,27 @@ use gix::discover::upwards;
 /// project kinds the target is and what the path looks like relative to the
 /// project being migrated, and for every kind the target's publisher and
 /// name. `url::Url::to_file_path` is `cfg`'d off on the wasm target.
-pub type TargetLookup<'a> = &'a dyn Fn(&str) -> Result<Usage, String>;
+pub type TargetLookup<'a> = &'a dyn Fn(Target<'_>) -> Result<Usage, String>;
+
+/// What a [`TargetLookup`] is asked to resolve.
+#[derive(Clone, Copy, Debug)]
+pub enum Target<'a> {
+    /// A `pkg:sysand` package URL.
+    Index(&'a Iri<String>),
+    /// A `file:` URL.
+    File(&'a Iri<String>),
+    /// An `http(s)` URL.
+    Url(&'a Iri<String>),
+}
+
+impl<'a> Target<'a> {
+    /// The resource being resolved.
+    pub fn iri(self) -> &'a Iri<String> {
+        match self {
+            Self::Index(iri) | Self::File(iri) | Self::Url(iri) => iri,
+        }
+    }
+}
 
 /// What the caller supplies that the documents do not.
 #[derive(Clone, Debug, Default)]
@@ -420,6 +440,7 @@ fn migrate_resource(
     target: TargetLookup<'_>,
     report: &mut Diagnostics,
 ) -> Option<Usage> {
+    let iri = resource;
     let resource = resource.as_str();
     let scheme = resource.split_once(':').map(|(scheme, _)| scheme);
 
@@ -441,7 +462,7 @@ fn migrate_resource(
                     // Resolved at migration time and pinned to
                     // `^<version>`, `<version>` being the version that
                     // resolution found.
-                    return match target(resource) {
+                    return match target(Target::Index(iri)) {
                         Ok(usage) => Some(usage),
                         Err(reason) => {
                             report.push(Diagnostic::error(reason));
@@ -452,7 +473,7 @@ fn migrate_resource(
                 // A `model.toml` never holds a normalized identity, so the
                 // pair comes from the target, as the unconstrained arm's
                 // already does. Only the constraint is the json project's.
-                match target(resource) {
+                match target(Target::Index(iri)) {
                     Ok(Usage::Index {
                         publisher,
                         name,
@@ -480,7 +501,7 @@ fn migrate_resource(
         // Translated into a kpar/source path; the publisher and name
         // come from the target, and a target without a publisher is an
         // error.
-        Some("file") => match target(resource) {
+        Some("file") => match target(Target::File(iri)) {
             Ok(usage) => Some(usage),
             Err(reason) => {
                 report.push(Diagnostic::error(reason));
@@ -509,7 +530,7 @@ fn migrate_resource(
                 )));
             }
             // The publisher and name come from the fetched target.
-            match target(resource) {
+            match target(Target::Url(iri)) {
                 Ok(usage) => Some(usage),
                 Err(reason) => {
                     report.push(Diagnostic::error(reason));
