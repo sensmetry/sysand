@@ -726,7 +726,7 @@ pub fn remove_empty_sources(doc: &mut DocumentMut) -> Result<(), EditError> {
     let listed = project
         .get("sources")
         .and_then(Item::as_array)
-        .map_or(0, Array::len);
+        .map_or_default(Array::len);
     if listed > 0 {
         return Err(EditError::SourcesListed(listed));
     }

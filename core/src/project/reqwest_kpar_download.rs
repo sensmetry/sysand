@@ -401,7 +401,7 @@ async fn download<Policy: HTTPAuthentication>(
 
     let size_mismatch = |actual| ReqwestKparDownloadedError::SizeMismatch {
         url: response_url.clone(),
-        expected: expected.map_or(0, |expected| expected.size_bytes.get()),
+        expected: expected.map_or_default(|expected| expected.size_bytes.get()),
         actual,
     };
     let too_big = |actual| expected.is_some_and(|expected| actual > expected.size_bytes.get());

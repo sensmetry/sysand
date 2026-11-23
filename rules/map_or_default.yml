@@ -1,0 +1,26 @@
+# `Option::map_or_default` (1.98) and `Result::map_or_default` use `Default`.
+# ast-grep cannot see types: `0` is only a `Default` for integers, so a
+# non-integer type there needs `// ast-grep-ignore: map-or-zero`.
+id: map-or-new
+severity: warning
+language: rust
+rule:
+  pattern: $E.map_or_else($T::new, $F)
+message: "use `map_or_default($F)`"
+fix: $E.map_or_default($F)
+---
+id: map-or-zero
+severity: warning
+language: rust
+rule:
+  pattern: $E.map_or(0, $F)
+message: "use `map_or_default` when the result is an integer"
+fix: $E.map_or_default($F)
+---
+id: map-or-empty-str
+severity: warning
+language: rust
+rule:
+  pattern: $E.map_or("", $F)
+message: "use `map_or_default`"
+fix: $E.map_or_default($F)

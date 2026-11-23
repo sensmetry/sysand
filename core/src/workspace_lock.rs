@@ -98,7 +98,7 @@ impl WorkspaceLock {
             log::info!(
                 "{:>12} another process is using `{root}`; waiting up to {} seconds",
                 ' ',
-                wait.map_or(0, |w| w.as_secs())
+                wait.map_or_default(|w| w.as_secs())
             );
         })
         .map_err(|err| match err {

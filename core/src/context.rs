@@ -341,7 +341,7 @@ impl ProjectContext {
     /// The `members` of the workspace the command runs in, relative to its
     /// root; none outside one.
     pub fn workspace_members(&self) -> Vec<Utf8UnixPathBuf> {
-        self.workspace.as_ref().map_or_else(Vec::new, |workspace| {
+        self.workspace.as_ref().map_or_default(|workspace| {
             workspace
                 .config()
                 .members

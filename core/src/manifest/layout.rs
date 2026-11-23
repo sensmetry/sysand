@@ -132,7 +132,7 @@ impl Gap {
         let line_break = segments.len() > 1;
         let head = segments
             .first()
-            .map_or("", |(segment, _)| segment.trim_end());
+            .map_or_default(|(segment, _)| segment.trim_end());
         let end_of_line = head.contains('#').then(|| head.to_owned());
         let inner = segments
             .get(1..segments.len().saturating_sub(1))

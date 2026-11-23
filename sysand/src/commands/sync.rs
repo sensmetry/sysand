@@ -375,7 +375,7 @@ pub fn command_sync<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
     // `project_root` is the root the lockfile's `src_path`s are relative
     // to: the workspace root for a workspace's lockfile.
     let relative_root = project_root.as_ref();
-    let members: Vec<Utf8UnixPathBuf> = workspace.map_or_else(Vec::new, |workspace| {
+    let members: Vec<Utf8UnixPathBuf> = workspace.map_or_default(|workspace| {
         workspace
             .members()
             .iter()

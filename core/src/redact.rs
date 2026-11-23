@@ -115,7 +115,7 @@ fn redact_query(query: &str) -> Cow<'_, str> {
 pub(crate) fn redact_userinfo(raw: &str) -> Box<str> {
     // The authority runs from after any scheme separator to the first
     // `/`, `?`, or `#`; userinfo is everything up to the last `@` in it.
-    let authority_start = raw.find("://").map_or(0, |idx| idx + 3);
+    let authority_start = raw.find("://").map_or_default(|idx| idx + 3);
     let authority_end = raw[authority_start..]
         .find(['/', '?', '#'])
         .map_or(raw.len(), |idx| authority_start + idx);
