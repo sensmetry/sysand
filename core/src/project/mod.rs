@@ -414,18 +414,25 @@ impl ProjectDefinition {
     ) -> Result<ValidatedDependencies, InterchangeProjectValidationError> {
         match self {
             Self::Toml(project) => Ok(ValidatedDependencies {
+                name: project.name.clone().into(),
+                publisher: Some(project.publisher.clone().into()),
                 usages: toml_usages(project),
                 metamodel: Some(Metamodel::Known(project.metamodel.clone())),
             }),
-            Self::Json { info, meta } => Ok(ValidatedDependencies {
-                usages: info.validate()?.usage,
-                metamodel: meta
-                    .metamodel
-                    .as_deref()
-                    .map(Metamodel::parse)
-                    .transpose()
-                    .map_err(InterchangeProjectValidationError::InvalidMetamodel)?,
-            }),
+            Self::Json { info, meta } => {
+                let info = info.validate()?;
+                Ok(ValidatedDependencies {
+                    name: info.name,
+                    publisher: info.publisher,
+                    usages: info.usage,
+                    metamodel: meta
+                        .metamodel
+                        .as_deref()
+                        .map(Metamodel::parse)
+                        .transpose()
+                        .map_err(InterchangeProjectValidationError::InvalidMetamodel)?,
+                })
+            }
         }
     }
 
@@ -484,9 +491,12 @@ impl ProjectDefinition {
     }
 }
 
-/// What a project declares about the projects it depends on, validated.
+/// A project's name and publisher, and what it declares about the projects
+/// it depends on, validated.
 #[derive(Clone, Debug)]
 pub struct ValidatedDependencies {
+    pub name: crate::model::ProjectName,
+    pub publisher: Option<crate::model::ProjectPublisher>,
     pub usages: Vec<InterchangeProjectUsage>,
     /// The metamodel the project declares, which its dependencies are
     /// checked against.

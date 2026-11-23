@@ -328,7 +328,11 @@ pub fn install_in_env_with_usage(
     };
     let project = LocalSrcProject::new_access(source, None);
     do_env_install_project(
-        Identifier::from_pub_name(publisher, name).as_str(),
+        Identifier::from_project(
+            &sysand_core::model::ProjectPublisher::parse(publisher.to_owned()).unwrap(),
+            &sysand_core::model::ProjectName::parse(name.to_owned()).unwrap(),
+        )
+        .as_str(),
         version,
         &project,
         project

@@ -255,7 +255,7 @@ fn directory_usage_env_single_version() -> Result<(), Box<dyn std::error::Error>
 
     assert_eq!(solution.len(), 1);
 
-    let install = &solution[&Identifier::from_pub_name("acme", "widget")];
+    let install = &solution[&Identifier::from_spelling("acme", "widget")];
     assert_eq!(install.version_and_usage()?.unwrap().version, "1.0.0");
 
     Ok(())
@@ -284,7 +284,7 @@ fn directory_usage_env_multiple_versions_selects_highest() -> Result<(), Box<dyn
 
     assert_eq!(solution.len(), 1);
 
-    let install = &solution[&Identifier::from_pub_name("acme", "widget")];
+    let install = &solution[&Identifier::from_spelling("acme", "widget")];
     assert_eq!(install.version_and_usage()?.unwrap().version, "2.0.0");
 
     Ok(())
@@ -323,7 +323,7 @@ fn directory_usage_env_transitive() -> Result<(), Box<dyn std::error::Error>> {
 
     assert_eq!(solution.len(), 2);
 
-    let install = &solution[&Identifier::from_pub_name("acme", "widget")];
+    let install = &solution[&Identifier::from_spelling("acme", "widget")];
     assert_eq!(install.version_and_usage()?.unwrap().version, "2.0.0");
 
     Ok(())
@@ -368,7 +368,7 @@ fn directory_and_resource_usage_same_project() -> Result<(), Box<dyn std::error:
 
     assert_eq!(solution.len(), 2);
 
-    let install = &solution[&Identifier::from_pub_name("acme", "widget")];
+    let install = &solution[&Identifier::from_spelling("acme", "widget")];
     assert_eq!(install.version_and_usage()?.unwrap().version, "1.0.0");
 
     Ok(())
@@ -695,7 +695,7 @@ where
 fn stub_resolver(stub: StubProject) -> MemoryResolver<AcceptAll, StubProject> {
     MemoryResolver {
         iri_predicate: AcceptAll {},
-        projects: [(Identifier::from_pub_name("acme", "widget"), vec![stub])].into(),
+        projects: [(Identifier::from_spelling("acme", "widget"), vec![stub])].into(),
     }
 }
 
@@ -847,7 +847,7 @@ fn index_usage_skips_a_broken_version_it_rules_out() {
     let resolver = || MemoryResolver {
         iri_predicate: AcceptAll {},
         projects: [(
-            Identifier::from_pub_name("acme", "widget"),
+            Identifier::from_spelling("acme", "widget"),
             vec![
                 StubProject::read("2.0.0", vec![]),
                 StubProject::read(
@@ -869,7 +869,7 @@ fn index_usage_skips_a_broken_version_it_rules_out() {
 
     let solution = solve(vec![index_usage("^2")], None, resolver()).unwrap();
     assert_eq!(
-        solution[&Identifier::from_pub_name("acme", "widget")]
+        solution[&Identifier::from_spelling("acme", "widget")]
             .version_and_usage()
             .unwrap()
             .unwrap()
@@ -911,7 +911,7 @@ fn directory_usage_candidate_rejection_reason_is_reported() -> Result<(), Box<dy
 
     let resolver = MemoryResolver {
         iri_predicate: AcceptAll {},
-        projects: [(Identifier::from_pub_name("acme", "widget"), vec![project])].into(),
+        projects: [(Identifier::from_spelling("acme", "widget"), vec![project])].into(),
     };
 
     let result = solve(
@@ -1822,7 +1822,7 @@ fn directory_usage_admits_a_prerelease() -> Result<(), Box<dyn std::error::Error
         resolver,
     )?;
 
-    let install = &solution[&Identifier::from_pub_name("acme", "widget")];
+    let install = &solution[&Identifier::from_spelling("acme", "widget")];
     assert_eq!(
         install.version_and_usage()?.unwrap().version,
         "1.0.0-alpha.1"
@@ -2120,7 +2120,7 @@ mod index_usages {
         let mut resolver = lib_with_broken_newest();
         resolver
             .projects
-            .insert(Identifier::from_pub_name("acme", "mid"), vec![mid]);
+            .insert(Identifier::from_spelling("acme", "mid"), vec![mid]);
         let root = InterchangeProjectUsage::Index {
             publisher: crate::model::IndexPublisher::parse("acme".to_owned()).unwrap(),
             name: crate::model::IndexName::parse("mid".to_owned()).unwrap(),
@@ -2163,7 +2163,7 @@ mod index_usages {
         let mut resolver = lib_with_broken_newest();
         resolver
             .projects
-            .insert(Identifier::from_pub_name("acme", "mid"), vec![mid]);
+            .insert(Identifier::from_spelling("acme", "mid"), vec![mid]);
         let mid_usage = InterchangeProjectUsage::Index {
             publisher: crate::model::IndexPublisher::parse("acme".to_owned()).unwrap(),
             name: crate::model::IndexName::parse("mid".to_owned()).unwrap(),
@@ -2363,7 +2363,7 @@ kpar-url = "https://example.com/lib.kpar"
     );
     let resolver = RecordingResolver::new(MemoryResolver {
         iri_predicate: AcceptAll {},
-        projects: [(Identifier::from_pub_name("acme", "app"), vec![project])].into(),
+        projects: [(Identifier::from_spelling("acme", "app"), vec![project])].into(),
     });
     let seen = resolver.seen.clone();
 

@@ -22,7 +22,7 @@ use crate::{
     model::{
         IndexName, IndexPublisher, InterchangeProjectUsageRaw, InterchangeProjectValidationError,
     },
-    project::{ProjectRead, utils::Identifier},
+    project::{ProjectRead, ValidatedDependencies, utils::Identifier},
     utils::SP,
 };
 
@@ -93,6 +93,13 @@ pub enum IndexSpellingError<EnvError, ProjectError> {
          information"
     )]
     MissingInfo { usage: String, version: String },
+    #[error("version {version} of `{usage}` installed in the local environment is invalid")]
+    InvalidProject {
+        usage: String,
+        version: String,
+        #[source]
+        source: Box<InterchangeProjectValidationError>,
+    },
     #[error(
         "index usage `{usage}` cannot be used: version {version} installed in the local \
          environment declares no publisher"
@@ -174,17 +181,29 @@ pub fn spell_index_usage<Env: ReadEnvironment>(
     let Some(definition) = definition else {
         return Err(IndexSpellingError::MissingInfo { usage, version });
     };
-    let Some(found_publisher) = definition.publisher().map(ToOwned::to_owned) else {
+    let ValidatedDependencies {
+        name: found_name,
+        publisher: found_publisher,
+        usages: _,
+        metamodel: _,
+    } = definition.validated_dependencies().map_err(|source| {
+        IndexSpellingError::InvalidProject {
+            usage: usage.clone(),
+            version: version.clone(),
+            source: Box::new(source),
+        }
+    })?;
+    let Some(found_publisher) = found_publisher else {
         return Err(IndexSpellingError::NoPublisher { usage, version });
     };
-    let found_name = definition.name().to_owned();
-    if Identifier::from_pub_name(&found_publisher, &found_name) != identifier {
+    if Identifier::from_project(&found_publisher, &found_name) != identifier {
         return Err(IndexSpellingError::OtherProject {
             usage,
             version,
             spelling: format!("{found_publisher}/{found_name}"),
         });
     }
+    let (found_publisher, found_name) = (found_publisher.into_string(), found_name.into_string());
     if normalized || (found_publisher == publisher.as_str() && found_name == name.as_str()) {
         let spelling = format!("{found_publisher}/{found_name}");
         match (

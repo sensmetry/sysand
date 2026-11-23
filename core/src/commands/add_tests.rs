@@ -403,7 +403,7 @@ mod spell_index_usage {
     fn env(versions: Vec<(&str, InMemoryProject)>) -> MemoryStorageEnvironment<InMemoryProject> {
         MemoryStorageEnvironment {
             projects: HashMap::from([(
-                Identifier::from_pub_name("acme-labs", "my-lib").into_string(),
+                Identifier::from_spelling("acme-labs", "my-lib").into_string(),
                 versions
                     .into_iter()
                     .map(|(version, project)| (version.to_owned(), project))

@@ -298,7 +298,7 @@ mod typed_usage_spelling {
             projects: projects
                 .into_iter()
                 .map(|(publisher, name, project)| {
-                    (Identifier::from_pub_name(publisher, name), vec![project])
+                    (Identifier::from_spelling(publisher, name), vec![project])
                 })
                 .collect(),
         };
@@ -1860,7 +1860,7 @@ fn a_syside_kpar_is_a_usable_kpar_path_target() -> Result<(), Box<dyn std::error
 /// locked to, which has to be the project the usage names.
 #[test]
 fn a_respelled_usage_locks_only_to_the_project_it_names() {
-    let identifier = Identifier::from_pub_name("acme", "lib");
+    let identifier = Identifier::from_spelling("acme", "lib");
     let usage = || {
         (
             super::TypedSpelling {
@@ -1877,8 +1877,8 @@ fn a_respelled_usage_locks_only_to_the_project_it_names() {
         HashMap::from([(
             identifier.clone(),
             (
-                publisher.map(str::to_owned),
-                name.to_owned(),
+                publisher.map(|p| crate::model::ProjectPublisher::parse(p.to_owned()).unwrap()),
+                crate::model::ProjectName::parse(name.to_owned()).unwrap(),
                 "1.0.0".to_owned(),
             ),
         )])

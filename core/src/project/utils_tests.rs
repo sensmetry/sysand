@@ -12,54 +12,54 @@ use crate::{
 // --- Identifier constructors ---
 
 #[test]
-fn identifier_from_pub_name_purl_safe() {
+fn identifier_from_spelling_purl_safe() {
     assert_eq!(
-        Identifier::from_pub_name("acme-corp", "my-lib").as_str(),
+        Identifier::from_spelling("acme-corp", "my-lib").as_str(),
         "pkg:sysand/acme-corp/my-lib"
     );
 }
 
 #[test]
-fn identifier_from_pub_name_publisher_normalized() {
+fn identifier_from_spelling_publisher_normalized() {
     // Uppercase + space in publisher → lowercased, spaces become dashes
     assert_eq!(
-        Identifier::from_pub_name("ACME Corp", "my-lib").as_str(),
+        Identifier::from_spelling("ACME Corp", "my-lib").as_str(),
         "pkg:sysand/acme-corp/my-lib"
     );
 }
 
 #[test]
-fn identifier_from_pub_name_name_normalized() {
+fn identifier_from_spelling_name_normalized() {
     // Uppercase + dot in name → lowercased
     assert_eq!(
-        Identifier::from_pub_name("acme-corp", "My.Lib").as_str(),
+        Identifier::from_spelling("acme-corp", "My.Lib").as_str(),
         "pkg:sysand/acme-corp/my.lib"
     );
 }
 
 #[test]
-fn identifier_from_pub_name_both_normalized() {
+fn identifier_from_spelling_both_normalized() {
     // Both publisher and name need normalization
     assert_eq!(
-        Identifier::from_pub_name("ACME Corp", "My Lib").as_str(),
+        Identifier::from_spelling("ACME Corp", "My Lib").as_str(),
         "pkg:sysand/acme-corp/my-lib"
     );
 }
 
 #[test]
-fn identifier_from_pub_name_arbitrary_publisher_gives_urn() {
+fn identifier_from_spelling_arbitrary_publisher_gives_urn() {
     // Publisher too short (< 3 chars) → falls through to urn:sysand: form
     assert_eq!(
-        Identifier::from_pub_name("ab", "my-lib").as_str(),
+        Identifier::from_spelling("ab", "my-lib").as_str(),
         "urn:sysand:ab/my-lib"
     );
 }
 
 #[test]
-fn identifier_from_pub_name_arbitrary_name_gives_urn() {
+fn identifier_from_spelling_arbitrary_name_gives_urn() {
     // Name too short (< 3 chars) → falls through to urn:sysand: form
     assert_eq!(
-        Identifier::from_pub_name("acme-corp", "ab").as_str(),
+        Identifier::from_spelling("acme-corp", "ab").as_str(),
         "urn:sysand:acme-corp/ab"
     );
 }

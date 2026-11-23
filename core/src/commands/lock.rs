@@ -17,7 +17,10 @@ use crate::{
     context::ProjectContext,
     graph::{MetamodelDirectionError, MetamodelReleaseMismatch, check_metamodel_pair},
     lock::{Lock, Project, Usage, hash_str},
-    model::{InterchangeProjectUsage, InterchangeProjectValidationError, Metamodel},
+    model::{
+        InterchangeProjectUsage, InterchangeProjectValidationError, Metamodel, ProjectName,
+        ProjectPublisher,
+    },
     project::{
         ProjectDefinition, ProjectRead, SourceSymbolsError, SymbolIndexError,
         ValidatedDependencies, exported_symbols,
@@ -305,7 +308,12 @@ fn lock_projects<
             })
         })?;
         let named_project_label = format!("`{}` {}", definition.name(), definition.version());
-        let ValidatedDependencies { usages, metamodel } = definition
+        let ValidatedDependencies {
+            name: _,
+            publisher: _,
+            usages,
+            metamodel,
+        } = definition
             .validated_dependencies()
             .map_err(|e| LockError::InvalidProject {
                 identifier: named_project_label.clone(),
@@ -471,7 +479,12 @@ fn lock_extend<
                 field: IncompleteField::Info,
             })?;
         let version = definition.version();
-        let ValidatedDependencies { usages, metamodel } = definition
+        let ValidatedDependencies {
+            name: typed_name,
+            publisher: typed_publisher,
+            usages,
+            metamodel,
+        } = definition
             .validated_dependencies()
             .map_err(|e| LockError::InvalidProject {
                 identifier: format!("`{identifier}` {version}"),
@@ -497,7 +510,7 @@ fn lock_extend<
         }
         solved.insert(
             identifier.clone(),
-            (publisher.clone(), name.clone(), version.clone()),
+            (typed_publisher, typed_name, version.clone()),
         );
 
         let sources = if provided_usages.contains_key(&identifier) {
@@ -665,7 +678,7 @@ impl TypedSpelling {
 /// are checked as any other.
 fn check_typed_usages(
     typed_usages: Vec<(TypedSpelling, DeclaredBy)>,
-    solved: &HashMap<Identifier, (Option<String>, String, String)>,
+    solved: &HashMap<Identifier, (Option<ProjectPublisher>, ProjectName, String)>,
     respelled: Option<&Identifier>,
 ) -> Result<(), Box<TypedUsageMismatchError>> {
     for (usage, declared_by) in typed_usages {
@@ -675,14 +688,15 @@ fn check_typed_usages(
             continue;
         };
         let same_identity = publisher
-            .as_deref()
-            .is_some_and(|p| Identifier::from_pub_name(p, name) == usage.identifier);
+            .as_ref()
+            .is_some_and(|p| Identifier::from_project(p, name) == usage.identifier);
         let respelling =
             matches!(declared_by, DeclaredBy::Input(_)) && respelled == Some(&usage.identifier);
         let accepted = if respelling {
             same_identity
         } else {
-            publisher.as_deref() == Some(usage.publisher.as_str()) && *name == usage.name
+            publisher.as_ref().map(ProjectPublisher::as_str) == Some(usage.publisher.as_str())
+                && name.as_str() == usage.name
         };
         if !accepted {
             // An index entry is found by the usage's identifier, so one that
@@ -695,8 +709,8 @@ fn check_typed_usages(
                 usage_name: usage.name,
                 declared_by,
                 version: version.clone(),
-                publisher: publisher.clone(),
-                name: name.clone(),
+                publisher: publisher.as_ref().map(|p| p.as_str().to_owned()),
+                name: name.as_str().to_owned(),
             }));
         }
     }

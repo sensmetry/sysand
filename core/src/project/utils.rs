@@ -647,13 +647,6 @@ pub fn is_urn_sysand(iri: &str) -> bool {
 }
 
 impl Identifier {
-    /// The identifier of the project spelled `publisher`/`name`, which are
-    /// validated here; callers that hold a [`ProjectPublisher`] and
-    /// [`ProjectName`] should use [`Self::from_project`]
-    pub fn from_pub_name(publisher: &str, name: &str) -> Self {
-        Self::make_identifier_iri(publisher, name)
-    }
-
     /// The `pkg:sysand` PURL of the project spelled `publisher`/`name`, as an
     /// index usage spells it; always valid, so nothing has to be checked
     pub fn from_index(publisher: &IndexPublisher, name: &IndexName) -> Self {
@@ -773,6 +766,18 @@ impl Identifier {
                 Self::urn(&publisher, &name)
             }
         }
+    }
+}
+
+#[cfg(test)]
+impl Identifier {
+    /// [`Self::from_project`] of the project spelled `publisher`/`name`,
+    /// which must be valid.
+    pub(crate) fn from_spelling(publisher: &str, name: &str) -> Self {
+        Self::from_project(
+            &ProjectPublisher::parse(publisher.to_owned()).unwrap(),
+            &ProjectName::parse(name.to_owned()).unwrap(),
+        )
     }
 }
 
