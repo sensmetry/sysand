@@ -1176,13 +1176,9 @@ identifiers = ["pkg:sysand/acme/lib"]
     Ok(())
 }
 
-/// On the read side, a lockfile version that is not semver is a
-/// *warning*, and `sync` still runs.
-///
-/// The semver *error* is resolution-only, so it cannot fire from a
-/// lockfile read, but a warning is logged for every such version.
+/// A lockfile project whose version is not semver is refused.
 #[test]
-fn sync_warns_on_a_non_semver_version() -> Result<(), Box<dyn std::error::Error>> {
+fn sync_refuses_a_non_semver_version_in_the_lock() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
     // A `.project.json` can carry a version that is not semver, which a
     // `model.toml` refuses.
@@ -1209,9 +1205,9 @@ sources = [{ editable = "." }]
 
     run_sysand_in(&cwd, ["sync"], None)?
         .assert()
-        .success()
+        .failure()
         .stderr(predicate::str::contains(
-            "invalid semantic version `2023-11` for project `app`",
+            "project `app` has invalid semantic version `2023-11` in lockfile",
         ));
     Ok(())
 }

@@ -412,11 +412,8 @@ at resolution: a usage that resolves to a project whose version is not
 semver is an error that names the usage chain from the resolving project
 to the offending one and quotes the version, e.g. "`acme/app` -> `acme/lib`
 -> `legacy/util`: `legacy/util` declares version `2023-11`, which is not
-semver". Lockfile validation does not repeat the check: a lockfile
-records no version constraints, and one written by resolution never
-contains a non-semver version for a `model.toml` project, so a
-non-semver version met in a lockfile stays the warning it is today.
-Kinds that carry no
+semver". Lockfile validation refuses a project whose version is not
+semver. Kinds that carry no
 version constraint (remote-kpar) and json targets are therefore not
 forbidden up front; they fail only if what they resolve to is not semver.
 

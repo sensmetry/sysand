@@ -369,9 +369,9 @@ fn verify_manifest(
             }
             continue;
         };
-        if let Ok(version) = Version::parse(&locked.version)
-            && !constraint.matches(&version)
-        {
+        // `Lock::validate` refuses a project whose version is not semver.
+        let version = Version::parse(&locked.version).expect("a validated lock holds semver");
+        if !constraint.matches(&version) {
             stale.push(stale_usage(
                 identifier,
                 StaleKind::Constraint {

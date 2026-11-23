@@ -231,6 +231,12 @@ pub enum ValidationError {
         digest: String,
         name: String,
     },
+    #[error("project `{name}` has invalid semantic version `{version}` in lockfile")]
+    InvalidProjectVersion {
+        name: String,
+        version: String,
+        source: semver::Error,
+    },
     #[error("invalid source path provided for project `{name}` in lockfile")]
     InvalidSourcePath { name: String, source: UnixPathError },
     #[error("invalid source URL provided for project `{name}` in lockfile")]
@@ -400,14 +406,12 @@ impl Lock {
     fn validate_usages(&self) -> Result<(), ValidationError> {
         let mut identifier_versions = HashSet::new();
         for project in &self.projects {
-            if let Err(e) = Version::parse(&project.version) {
-                log::warn!(
-                    "invalid semantic version `{}` for project `{}`\n\
-                        {:>8} {e}",
-                    project.version,
-                    project.name,
-                    ' ',
-                );
+            if let Err(source) = Version::parse(&project.version) {
+                return Err(ValidationError::InvalidProjectVersion {
+                    name: project.name.clone(),
+                    version: project.version.clone(),
+                    source,
+                });
             }
             // Usage must be satisfied by the first identifier of a project
             if let Some(id) = project.identifiers.first() {

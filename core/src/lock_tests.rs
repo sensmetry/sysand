@@ -687,6 +687,30 @@ fn validate_unsupported_lock_version() {
 }
 
 #[test]
+fn validate_non_semver_project_version() {
+    let Err(err) = (Lock {
+        lock_version: CURRENT_LOCK_VERSION.to_owned(),
+        projects: vec![Project {
+            publisher: Some("acme".to_owned()),
+            name: "app".to_owned(),
+            version: "2023-11".to_owned(),
+            exports: vec![],
+            identifiers: vec!["urn:app".to_owned()],
+            usages: vec![],
+            sources: vec![],
+        }],
+    })
+    .validate() else {
+        panic!("a non-semver version must be refused")
+    };
+    assert_matches!(
+        err,
+        ValidationError::InvalidProjectVersion { name, version, source: _ }
+            if name == "app" && version == "2023-11"
+    );
+}
+
+#[test]
 fn validate_single_name_collision() {
     let name = "PackageName";
     let iri = "urn:kpar:test";
