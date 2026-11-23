@@ -141,7 +141,7 @@ pub fn parse_unix_path(path: &str, kind: PathKind) -> Result<&Utf8UnixPath, Unix
 
     // Past the root of a Unix path; a Windows drive is an ordinary first
     // component here.
-    let body = path.strip_prefix('/').unwrap_or(path);
+    let body = path.trim_prefix('/');
     match first_nul_or_backslash(body) {
         Some(b'\0') => {
             return Err(UnixPathError::ContainsNull {

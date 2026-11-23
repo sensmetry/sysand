@@ -841,7 +841,7 @@ fn arg<'a>(raw: Option<&&'a str>) -> Option<&'a str> {
     let raw = raw?.trim();
     let inner = raw
         .strip_prefix("Some(")
-        .map_or(raw, |rest| rest.strip_suffix(')').unwrap_or(rest));
+        .map_or(raw, |rest| rest.trim_suffix(')'));
     inner.strip_prefix('"')?.strip_suffix('"')
 }
 

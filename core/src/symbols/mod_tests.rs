@@ -141,3 +141,16 @@ fn a_source_that_does_not_parse_names_the_file() {
         "the parse error is the source: {error:?}"
     );
 }
+
+#[test]
+fn a_leading_byte_order_mark_is_ignored() {
+    let with_bom = "\u{feff}package Foo { part def Bar; }";
+    assert_eq!(
+        top_level_sysml(with_bom).expect("sysml with a BOM"),
+        top_level_sysml("package Foo { part def Bar; }").expect("sysml"),
+    );
+    assert_eq!(
+        top_level_kerml("\u{feff}package Foo { }").expect("kerml with a BOM"),
+        top_level_kerml("package Foo { }").expect("kerml"),
+    );
+}

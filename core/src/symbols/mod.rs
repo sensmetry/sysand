@@ -487,7 +487,7 @@ fn collect_symbols(
 
 /// A lexer that extracts top-level symbols from a SysML file.
 pub fn top_level_sysml<S: AsRef<str>>(source: S) -> Result<Vec<String>, ExtractError> {
-    let source = source.as_ref();
+    let source = strip_bom(source.as_ref());
     let all = lex_source(source)?;
 
     let keywords = HashMap::from([
@@ -580,8 +580,13 @@ pub fn top_level_sysml<S: AsRef<str>>(source: S) -> Result<Vec<String>, ExtractE
     collect_symbols(source, all, &keywords)
 }
 
+/// `source` without a leading UTF-8 byte order mark.
+fn strip_bom(source: &str) -> &str {
+    source.trim_prefix('\u{feff}')
+}
+
 pub fn top_level_kerml<S: AsRef<str>>(source: S) -> Result<Vec<String>, ExtractError> {
-    let source = source.as_ref();
+    let source = strip_bom(source.as_ref());
 
     let all = lex_source(source)?;
 

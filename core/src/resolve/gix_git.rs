@@ -70,13 +70,7 @@ impl ResolveRead for GitResolver {
                 }
 
                 Ok(ResolutionOutcome::Resolved(std::iter::once(
-                    // TODO: use trim_prefix() once it's stable
-                    match GixDownloadedProject::new(
-                        resource
-                            .as_str()
-                            .strip_prefix("git+")
-                            .unwrap_or(resource.as_str()),
-                    ) {
+                    match GixDownloadedProject::new(resource.as_str().trim_prefix("git+")) {
                         Ok(project) => Ok(project.with_cancellation(self.token.clone())),
                         Err(error) => Err(error.into()),
                     },

@@ -1004,6 +1004,7 @@ fn is_file_url(url: &str) -> bool {
 
 /// A member directory as the workspace names it.
 fn shorten(dir: &Utf8Path, root: &Utf8Path) -> Utf8PathBuf {
+    // ast-grep-ignore: strip-prefix-unwrap-or-self-nonliteral
     dir.strip_prefix(root).unwrap_or(dir).to_path_buf()
 }
 
