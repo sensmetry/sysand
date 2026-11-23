@@ -77,7 +77,8 @@ use sysand_core::{
     model::{
         IndexName, IndexPublisher, InterchangeProjectChecksumRaw, InterchangeProjectInfoRaw,
         InterchangeProjectMetadataRaw, InterchangeProjectUsage, InterchangeProjectUsageRaw,
-        ProjectFieldError, ProjectName, ProjectPublisher, UsageRef, parse_index_usage_spelling,
+        InterchangeProjectValidationError, ProjectFieldError, ProjectName, ProjectPublisher,
+        UsageRef, parse_index_usage_spelling,
     },
     project::{
         local_src::{LocalSrcError, LocalSrcProject},
@@ -1525,12 +1526,18 @@ fn do_add_py(
 ) -> PyResult<bool> {
     common_init();
 
-    let (locator, usage) = match NamedIndex::parse("add", iri, publisher, name)? {
+    // The errors are the ones the manifest gives for the same usage
+    let (locator, version_constraint) = match NamedIndex::parse("add", iri, publisher, name)? {
         NamedIndex::Iri(iri) => {
-            let usage = InterchangeProjectUsageRaw::Resource {
-                resource: iri.as_str().to_owned(),
-                version_constraint: Some(version_constraint),
-            };
+            let constraint = semver::VersionReq::parse(&version_constraint).map_err(|source| {
+                ProjectError::new_err(format_err(
+                    InterchangeProjectValidationError::InvalidUsageVersionConstraint {
+                        resource: iri.as_str().to_owned(),
+                        constraint: version_constraint,
+                        source,
+                    },
+                ))
+            })?;
             let locator = AddProjectLocatorArgs {
                 identifier: None,
                 dir: None,
@@ -1538,14 +1545,19 @@ fn do_add_py(
                 iri: Some(iri),
                 iri_path: None,
             };
-            (locator, usage)
+            (locator, constraint)
         }
         NamedIndex::PublisherName { publisher, name } => {
-            let usage = InterchangeProjectUsageRaw::Index {
-                publisher: publisher.as_str().to_owned(),
-                name: name.as_str().to_owned(),
-                version_constraint,
-            };
+            let constraint = semver::VersionReq::parse(&version_constraint).map_err(|source| {
+                ProjectError::new_err(format_err(
+                    InterchangeProjectValidationError::InvalidIndexUsageVersionConstraint {
+                        publisher: publisher.as_str().to_owned(),
+                        name: name.as_str().to_owned(),
+                        constraint: version_constraint,
+                        source,
+                    },
+                ))
+            })?;
             let locator = AddProjectLocatorArgs {
                 identifier: Some((publisher, name)),
                 dir: None,
@@ -1553,23 +1565,8 @@ fn do_add_py(
                 iri: None,
                 iri_path: None,
             };
-            (locator, usage)
+            (locator, constraint)
         }
-    };
-    // With the same message as the manifest would give for it
-    let (InterchangeProjectUsage::Resource {
-        version_constraint: Some(version_constraint),
-        resource: _,
-    }
-    | InterchangeProjectUsage::Index {
-        version_constraint,
-        publisher: _,
-        name: _,
-    }) = usage
-        .validate()
-        .map_err(|e| ProjectError::new_err(format_err(e)))?
-    else {
-        unreachable!("built above as a constrained resource or index usage");
     };
 
     let outcome: Result<bool, Failure> = py.detach(|| {
