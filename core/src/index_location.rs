@@ -619,22 +619,36 @@ fn validate_placeholders(raw: &str) -> Result<PathEncoding, IndexLocationError> 
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum HttpBaseUrlShapeError {
+    UnsupportedScheme,
+    Userinfo,
+}
+
+pub(crate) fn validate_http_base_url_shape(url: &url::Url) -> Result<(), HttpBaseUrlShapeError> {
+    if !matches!(url.scheme(), "http" | "https") {
+        return Err(HttpBaseUrlShapeError::UnsupportedScheme);
+    }
+    if !url.username().is_empty() || url.password().is_some() {
+        return Err(HttpBaseUrlShapeError::Userinfo);
+    }
+    Ok(())
+}
+
 /// Enforce the shared index-location invariant on `url`: an absolute
 /// HTTP(S) URL without userinfo or fragment. `reported` is the string
 /// named in any error (the template text for a template, the URL itself
 /// for a root).
 fn validate_url_shape(reported: &str, url: &url::Url) -> Result<(), IndexLocationError> {
-    if !matches!(url.scheme(), "http" | "https") {
-        return Err(IndexLocationError::UnsupportedScheme {
+    validate_http_base_url_shape(url).map_err(|error| match error {
+        HttpBaseUrlShapeError::UnsupportedScheme => IndexLocationError::UnsupportedScheme {
             url: redact_userinfo(reported),
             scheme: url.scheme().into(),
-        });
-    }
-    if !url.username().is_empty() || url.password().is_some() {
-        return Err(IndexLocationError::Userinfo {
+        },
+        HttpBaseUrlShapeError::Userinfo => IndexLocationError::Userinfo {
             url: redact_userinfo(reported),
-        });
-    }
+        },
+    })?;
     // Fragments are never sent to the server; on an index location one
     // is always a mistake. Templates reject `#` before parsing (it would
     // swallow the placeholder), so this arm fires for roots.

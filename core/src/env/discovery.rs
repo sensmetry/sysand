@@ -15,7 +15,10 @@ use crate::{
     auth::HTTPAuthentication,
     env::index::{HttpFetchError, IndexEnvironmentError, MissingPolicy, fetch_json},
     index::iri::parse_iri,
-    index_location::{IndexLocation, IndexLocationError, with_trailing_slash},
+    index_location::{
+        HttpBaseUrlShapeError, IndexLocation, IndexLocationError, validate_http_base_url_shape,
+        with_trailing_slash,
+    },
     redact::RedactedUrl,
 };
 
@@ -174,22 +177,6 @@ pub enum DiscoveryError {
         field: &'static str,
         source: IndexLocationError,
     },
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum HttpBaseUrlShapeError {
-    UnsupportedScheme,
-    Userinfo,
-}
-
-pub(crate) fn validate_http_base_url_shape(url: &url::Url) -> Result<(), HttpBaseUrlShapeError> {
-    if !matches!(url.scheme(), "http" | "https") {
-        return Err(HttpBaseUrlShapeError::UnsupportedScheme);
-    }
-    if !url.username().is_empty() || url.password().is_some() {
-        return Err(HttpBaseUrlShapeError::Userinfo);
-    }
-    Ok(())
 }
 
 fn discovery_shape_error(

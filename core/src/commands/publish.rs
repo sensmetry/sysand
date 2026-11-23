@@ -29,8 +29,7 @@ use crate::{
         BearerSelection, EnvBearerAuth, ForceBearerAuth, GlobMap, HTTPAuthentication as _,
         StoredBearerAuth, select_bearer,
     },
-    env::discovery::{HttpBaseUrlShapeError, validate_http_base_url_shape},
-    index_location::IndexLocation,
+    index_location::{HttpBaseUrlShapeError, IndexLocation, validate_http_base_url_shape},
     model::{
         IndexName, IndexPublisher, InterchangeProjectChecksum, InterchangeProjectUsageRaw,
         InterchangeProjectValidationError, KERML_SPEC_PREFIX, KerMlChecksumAlg, META_JSON_FILE,
