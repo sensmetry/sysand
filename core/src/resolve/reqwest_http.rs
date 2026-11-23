@@ -12,14 +12,13 @@ use crate::{
     context::ProjectContext,
     lock::Source,
     manifest::edit::DocumentMut,
-    model::InterchangeProjectUsage,
+    model::{InterchangeProjectUsage, is_http_url},
     project::{
         CanonicalizationError, ProjectDefinition, ProjectReadAsync,
         reqwest_kpar_download::ReqwestRemoteKparDownloadedProject,
         reqwest_src::ReqwestSrcProjectAsync,
     },
     resolve::{ResolutionInfo, ResolveReadAsync},
-    utils::scheme::{SCHEME_HTTP, SCHEME_HTTPS},
     workspace::model_toml::Workspace,
 };
 
@@ -328,7 +327,14 @@ impl<Policy: HTTPAuthentication> ResolveReadAsync for HTTPResolverAsync<Policy> 
             InterchangeProjectUsage::Resource {
                 resource,
                 version_constraint: _,
-            } => (resource, false),
+            } => {
+                if !is_http_url(resource) {
+                    return Ok(ResolutionOutcome::UnsupportedUsageType {
+                        reason: String::from("not an http(s) URL"),
+                    });
+                }
+                (resource, false)
+            }
             InterchangeProjectUsage::RemoteKpar {
                 kpar_url,
                 publisher: _,
@@ -340,11 +346,6 @@ impl<Policy: HTTPAuthentication> ResolveReadAsync for HTTPResolverAsync<Policy> 
                 });
             }
         };
-        if iri.scheme() != SCHEME_HTTP && iri.scheme() != SCHEME_HTTPS {
-            return Ok(ResolutionOutcome::UnsupportedUsageType {
-                reason: String::from("not an http(s) URL"),
-            });
-        }
         Ok(match reqwest::Url::parse(iri.as_str()) {
             Ok(url) => ResolutionOutcome::Resolved(futures::stream::iter(HTTPProjects {
                 client: self.client.clone(),
