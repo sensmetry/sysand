@@ -10,6 +10,7 @@ use fluent_uri::Iri;
 
 use crate::{
     auth::Unauthenticated,
+    commands::index::{do_index_add, do_index_init},
     index_location::IndexSource,
     project::{ProjectRead as _, local_kpar::test_support::write_kpar},
     resolve::{
@@ -18,16 +19,25 @@ use crate::{
     },
 };
 
-/// Indexes are a union: every configured index is asked, so a folder next to
-/// an HTTP index adds candidates and the HTTP index is still contacted. A
-/// remote that does not hold the project (its `versions.json` is 404)
-/// contributes nothing and the folder's archive is the resolution.
+/// A filesystem index holding `mock/dep` 0.1.0.
+fn dep_index(cwd: &camino::Utf8Path) -> camino::Utf8PathBuf {
+    let index = cwd.join("index");
+    do_index_init(&index).unwrap();
+    let archive = cwd.join("dep.kpar");
+    write_kpar(&archive, Some("mock"), "dep", "0.1.0");
+    do_index_add::<&str, _, _>(None, &archive, &index).unwrap();
+    index
+}
+
+/// Indexes are a union: every configured index is asked, so a filesystem
+/// index next to an HTTP index adds candidates and the HTTP index is still
+/// contacted. A remote that does not hold the project (its `versions.json`
+/// is 404) contributes nothing and the filesystem index's archive is the
+/// resolution.
 #[test]
 fn standard_index_resolver_unions_remote_and_filesystem() {
     let cwd = tempdir().unwrap();
-    let folder = cwd.path().join("folder");
-    std::fs::create_dir_all(&folder).unwrap();
-    write_kpar(&folder.join("dep.kpar"), Some("mock"), "dep", "0.1.0");
+    let index = dep_index(cwd.path());
 
     let mut server = mockito::Server::new();
     let discovery = server
@@ -51,7 +61,7 @@ fn standard_index_resolver_unions_remote_and_filesystem() {
         create_reqwest_client().unwrap(),
         vec![
             IndexSource::parse(&server.url()).unwrap(),
-            IndexSource::Filesystem(folder),
+            IndexSource::Filesystem(index),
         ],
         runtime,
         Arc::new(Unauthenticated {}),
@@ -60,7 +70,7 @@ fn standard_index_resolver_unions_remote_and_filesystem() {
 
     let resolution = ResolutionInfo::iri(Iri::parse("pkg:sysand/mock/dep").unwrap().into());
     let ResolutionOutcome::Resolved(projects) = resolver.resolve_read(&resolution).unwrap() else {
-        panic!("the folder holds the project")
+        panic!("the index holds the project")
     };
     let projects: Vec<_> = projects.into_iter().collect::<Result<_, _>>().unwrap();
     assert_eq!(projects.len(), 1);
@@ -75,14 +85,12 @@ fn standard_index_resolver_unions_remote_and_filesystem() {
 }
 
 /// A filesystem-only configuration opens no socket: with every proxy variable
-/// pointing at a closed port, the folder still resolves. An HTTP index under
+/// pointing at a closed port, the filesystem index still resolves. An HTTP index under
 /// the same environment fails (the control).
 #[test]
 fn filesystem_only_resolution_needs_no_network() {
     let cwd = tempdir().unwrap();
-    let folder = cwd.path().join("folder");
-    std::fs::create_dir_all(&folder).unwrap();
-    write_kpar(&folder.join("dep.kpar"), Some("mock"), "dep", "0.1.0");
+    let index = dep_index(cwd.path());
 
     let runtime = Arc::new(
         tokio::runtime::Builder::new_current_thread()
@@ -102,13 +110,13 @@ fn filesystem_only_resolution_needs_no_network() {
 
     let resolver = super::standard_index_resolver(
         denied.clone(),
-        vec![IndexSource::Filesystem(folder)],
+        vec![IndexSource::Filesystem(index)],
         runtime.clone(),
         Arc::new(Unauthenticated {}),
         crate::cancel::CancellationToken::new(),
     );
     let ResolutionOutcome::Resolved(projects) = resolver.resolve_read(&resolution).unwrap() else {
-        panic!("the folder holds the project")
+        panic!("the index holds the project")
     };
     assert_eq!(projects.into_iter().count(), 1);
 

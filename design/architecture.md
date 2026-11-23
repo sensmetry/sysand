@@ -464,8 +464,8 @@ Sysand-core specifics that aren't part of the protocol:
   `versions.json`, so lockfile writing records archive metadata without a HEAD
   round-trip.
 - `LocalIndexEnvironment` (`env/local_index.rs`) reads the same index
-  from a directory, structured or as a bare folder of archives, with
-  blocking `std::fs` calls inside the async trait methods; its
+  from a directory, with blocking
+  `std::fs` calls inside the async trait methods; its
   per-version leaf is a `LocalKParProject` whose `sources` is
   `Source::LocalKpar` relative to the workspace root. `ReadEnvironmentAsync`
   is not dyn-compatible, so `AnyIndexEnvironment<Policy>`

@@ -455,10 +455,7 @@ impl<'de> serde::Deserialize<'de> for IndexSource {
 }
 
 /// Where an index is read from: an HTTP(S) [`IndexLocation`], or a
-/// directory on this machine. Both modes of a filesystem index (a
-/// structured mirror written by `sysand index`, or a bare folder of
-/// `.kpar` files) share the one spelling; the environment tells them
-/// apart when it first reads the directory.
+/// directory on this machine (a structured index written by `sysand index`).
 ///
 /// The filesystem spelling is a path (`./<dir>`, `/<dir>`, `C:\<dir>`,
 /// `\\server\share`) or a `file://` URL naming a local path. A URL

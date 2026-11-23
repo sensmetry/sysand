@@ -550,7 +550,7 @@ fn combined_error_to_pyerr<F, L, R>(
         // connection; a directory that is an index but breaks the
         // protocol's rules is malformed, like a bad `versions.json`.
         CombinedResolverError::Index(Cancellable::Inner(AnyIndexError::Filesystem(
-            LocalIndexError::NeitherIndexNorFolder { path: _ }
+            LocalIndexError::NotAnIndex { path: _ }
             | LocalIndexError::NotADirectory { path: _ }
             | LocalIndexError::Io(_),
         ))) => PyResolutionError::new_err(message),

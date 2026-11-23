@@ -1,22 +1,13 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
-//! A Sysand index read from a directory on this machine, in either of the
-//! two shapes `design/index-protocol.md` "Filesystem indexes" names:
+//! A Sysand index read from a directory on this machine, in the layout
+//! `sysand index init`/`add` write (`design/index-protocol.md` "Filesystem
+//! indexes"): `index.json`, `<publisher>/<name>/versions.json` and
+//! `<publisher>/<name>/<version>/project.kpar`; the same bytes an HTTP
+//! index serves, read with `std::fs`.
 //!
-//! - **structured**: the layout `sysand index init`/`add` write:
-//!   `index.json`, `<publisher>/<name>/versions.json` and
-//!   `<publisher>/<name>/<version>/project.kpar`; the same bytes an HTTP
-//!   index serves, read with `std::fs`;
-//! - **folder**: a bare directory of `*.kpar` files with no
-//!   metadata; each archive's `.project.json` supplies `publisher`, `name`
-//!   and `version`, and the environment synthesizes the `versions.json`
-//!   view an index would have advertised.
-//!
-//! The shape is detected once, on first use: `index.json` present means
-//! structured, otherwise any `*.kpar` (extension compared
-//! case-insensitively) means folder, otherwise the directory is refused.
-//! Neither shape is a fallback for the other and neither warns.
+//! The directory must hold `index.json`; it is checked once, on first use.
 //!
 //! Every path the index names (an archive under a version directory,
 //! `versions.json`, an enumerated `*.kpar`) is canonicalized and must
@@ -32,7 +23,7 @@
 //! [`super::local_directory::LocalDirectoryEnvironment`] pays.
 
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::HashMap,
     sync::{Arc, Mutex},
 };
 
@@ -51,22 +42,17 @@ use crate::{
         },
     },
     project::{
-        AsAsyncProject, KparMeta, ProjectDefinition, ProjectRead as _,
-        local_kpar::{KparInnerPath, LocalKParError, LocalKParProject, LocalKParProjectRaw},
+        AsAsyncProject, KparMeta, ProjectRead as _,
+        local_kpar::{KparInnerPath, LocalKParError, LocalKParProject},
         utils::{FsIoError, wrapfs},
     },
-    purl::{PKG_SYSAND_PREFIX, sysand_purl},
 };
 
 #[derive(Error, Debug)]
 pub enum LocalIndexError {
-    /// The directory exists but holds neither shape.
-    #[error(
-        "`{path}` is neither a Sysand index nor a folder of KPARs;\n\
-        {SP:>8} a Sysand index holds `{INDEX_FILE_NAME}`, a folder of KPARs holds `*.kpar` files",
-        SP = ' '
-    )]
-    NeitherIndexNorFolder { path: Utf8PathBuf },
+    /// The directory exists but has no `index.json`.
+    #[error("`{path}` is not a Sysand index: it has no `{INDEX_FILE_NAME}`")]
+    NotAnIndex { path: Utf8PathBuf },
     #[error("index `{path}` is not a directory")]
     NotADirectory { path: Utf8PathBuf },
     #[error("`{entry}` in `{file}` escapes the index at `{root}`")]
@@ -74,33 +60,6 @@ pub enum LocalIndexError {
         entry: Utf8PathBuf,
         file: Utf8PathBuf,
         root: Utf8PathBuf,
-    },
-    /// An archive whose `.project.json` has no `publisher`. A folder of
-    /// KPARs is indexed by `pkg:sysand/<publisher>/<name>`, so it has no IRI
-    /// to be listed under, and a KPAR cannot carry a `model.toml` instead.
-    #[error(
-        "`{archive}` has a `.project.json` with no `publisher`;\n\
-        {SP:>8} a folder index names each archive `{PKG_SYSAND_PREFIX}<publisher>/<name>`, \
-        so add one and rebuild the archive",
-        SP = ' '
-    )]
-    NoPublisher { archive: Utf8PathBuf },
-    #[error("`{archive}` has no `.project.json`")]
-    MissingInfo { archive: Utf8PathBuf },
-    #[error("`{archive}` declares non-semver version `{value}`")]
-    NonSemverArchiveVersion {
-        archive: Utf8PathBuf,
-        value: String,
-        #[source]
-        source: semver::Error,
-    },
-    #[error("`{first}` and `{second}` in `{root}` both hold `{iri}` `{version}`")]
-    DuplicateArchive {
-        first: Utf8PathBuf,
-        second: Utf8PathBuf,
-        root: Utf8PathBuf,
-        iri: String,
-        version: String,
     },
     #[error("failed to parse JSON from `{file}`")]
     Json {
@@ -137,42 +96,31 @@ impl From<LocalKParError> for LocalIndexError {
     }
 }
 
-/// One `versions.json` entry after validation, or one archive of a
-/// folder: what a candidate needs to be enumerated and then opened.
+/// One `versions.json` entry after validation: what a candidate needs to be
+/// enumerated and then opened.
 #[derive(Debug, Clone)]
 struct Candidate {
     version: Version,
     status: VersionStatus,
-    /// Structured: the digest the entry advertises, verified against the
-    /// archive when it is opened. Folder: `None`, the archive is its own
-    /// authority.
-    expected: Option<KparMeta>,
-    /// Folder: the archive itself. Structured: `None`, the path follows
-    /// from the layout.
-    archive: Option<Utf8PathBuf>,
+    /// The digest the entry advertises, verified against the archive when
+    /// it is opened.
+    expected: KparMeta,
 }
 
 /// The versions of one identity, newest first.
 type Candidates = Arc<[Candidate]>;
 
-#[derive(Debug)]
-enum Shape {
-    Structured,
-    /// The synthesized `versions.json` view of a folder: IRI to its
-    /// archives, newest first; built once per environment lifetime.
-    Folder(Arc<BTreeMap<String, Candidates>>),
-}
-
-/// A structured mirror or a bare folder of archives, read from `root`.
+/// A structured index read from `root`.
 #[derive(Debug)]
 pub struct LocalIndexEnvironment {
     /// The spelling the user gave, for messages.
     display: Utf8PathBuf,
     /// Absolute, as spelled (symlinks intact); what paths are built from.
     root: Utf8PathBuf,
-    /// Canonical root plus detected shape; populated on first access.
-    detected: Mutex<Option<Arc<(Utf8PathBuf, Shape)>>>,
-    /// Structured shape: validated `versions.json` documents by IRI.
+    /// The canonical root, once the directory has been checked to be an
+    /// index; populated on first access.
+    checked: Mutex<Option<Arc<Utf8PathBuf>>>,
+    /// Validated `versions.json` documents by IRI.
     versions_cache: Mutex<HashMap<String, Candidates>>,
 }
 
@@ -189,14 +137,15 @@ impl LocalIndexEnvironment {
         Self {
             display,
             root,
-            detected: Mutex::new(None),
+            checked: Mutex::new(None),
             versions_cache: Mutex::new(HashMap::new()),
         }
     }
 
-    fn detect(&self) -> Result<Arc<(Utf8PathBuf, Shape)>, LocalIndexError> {
+    /// The canonical root, after checking that the directory is an index.
+    fn canonical_root(&self) -> Result<Arc<Utf8PathBuf>, LocalIndexError> {
         let mut guard = self
-            .detected
+            .checked
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some(found) = guard.as_ref() {
@@ -207,45 +156,14 @@ impl LocalIndexEnvironment {
                 path: self.display.clone(),
             });
         }
-        let canonical_root = wrapfs::canonicalize(&self.root)?;
-        let shape = if wrapfs::is_file(self.root.join(INDEX_FILE_NAME))? {
-            Shape::Structured
-        } else {
-            let archives = self.enumerate_archives(&canonical_root)?;
-            if archives.is_empty() {
-                return Err(LocalIndexError::NeitherIndexNorFolder {
-                    path: self.display.clone(),
-                });
-            }
-            Shape::Folder(Arc::new(self.tabulate_folder(archives)?))
-        };
-        let found = Arc::new((canonical_root, shape));
+        if !wrapfs::is_file(self.root.join(INDEX_FILE_NAME))? {
+            return Err(LocalIndexError::NotAnIndex {
+                path: self.display.clone(),
+            });
+        }
+        let found = Arc::new(wrapfs::canonicalize(&self.root)?);
         *guard = Some(Arc::clone(&found));
         Ok(found)
-    }
-
-    /// The `*.kpar` files directly under the root (not recursive), by
-    /// name, each canonicalized and checked to stay under the root.
-    fn enumerate_archives(
-        &self,
-        canonical_root: &Utf8Path,
-    ) -> Result<Vec<Utf8PathBuf>, LocalIndexError> {
-        let mut names: Vec<Utf8PathBuf> = Vec::new();
-        for entry in wrapfs::read_dir(&self.root)? {
-            let entry = entry.map_err(|e| Box::new(FsIoError::ReadDir(self.root.clone(), e)))?;
-            let path = entry.path();
-            let is_kpar = path
-                .extension()
-                .is_some_and(|ext| ext.eq_ignore_ascii_case("kpar"));
-            if is_kpar && wrapfs::is_file(path)? {
-                names.push(path.to_path_buf());
-            }
-        }
-        names.sort();
-        names
-            .into_iter()
-            .map(|path| self.contained(canonical_root, &path, &self.root))
-            .collect()
     }
 
     /// Canonicalize `candidate` (following symlinks) and require it to
@@ -270,69 +188,17 @@ impl LocalIndexEnvironment {
         }
     }
 
-    /// Open each archive's `.project.json` and build the per-IRI table
-    /// (one pass over the archives).
-    fn tabulate_folder(
-        &self,
-        archives: Vec<Utf8PathBuf>,
-    ) -> Result<BTreeMap<String, Candidates>, LocalIndexError> {
-        let mut table: BTreeMap<String, Vec<(Candidate, Utf8PathBuf)>> = BTreeMap::new();
-        for archive in archives {
-            let raw = LocalKParProjectRaw::new_guess_root(&archive)?;
-            let Some((info, _)) = raw.get_project()?.and_then(ProjectDefinition::into_json) else {
-                return Err(LocalIndexError::MissingInfo { archive });
-            };
-            let Some(publisher) = info.publisher else {
-                return Err(LocalIndexError::NoPublisher { archive });
-            };
-            let version = Version::parse(&info.version).map_err(|source| {
-                LocalIndexError::NonSemverArchiveVersion {
-                    archive: archive.clone(),
-                    value: info.version.clone(),
-                    source,
-                }
-            })?;
-            let iri = sysand_purl(&publisher, &info.name);
-            let held = table.entry(iri.clone()).or_default();
-            if let Some((_, first)) = held.iter().find(|(c, _)| c.version == version) {
-                return Err(LocalIndexError::DuplicateArchive {
-                    first: first.clone(),
-                    second: archive,
-                    root: self.display.clone(),
-                    iri,
-                    version: version.to_string(),
-                });
-            }
-            held.push((
-                Candidate {
-                    version,
-                    status: VersionStatus::Available,
-                    expected: None,
-                    archive: Some(archive.clone()),
-                },
-                archive,
-            ));
-        }
-        Ok(table
-            .into_iter()
-            .map(|(iri, mut held)| {
-                held.sort_by(|(a, _), (b, _)| b.version.cmp(&a.version));
-                (iri, held.into_iter().map(|(c, _)| c).collect())
-            })
-            .collect())
-    }
-
     /// `<root>/<publisher>/<name>` (or `<root>/_iri/<sha256>`), the
-    /// structured layout's project directory.
+    /// project directory.
     fn project_dir(&self, iri: &str) -> Result<Utf8PathBuf, LocalIndexError> {
         let [first, second] = parse_iri(iri)?.get_path_segments();
         Ok(self.root.join(first).join(second))
     }
 
-    /// Structured shape: the validated `versions.json` of `iri`, or `None`
+    /// The validated `versions.json` of `iri`, or `None`
     /// when the file is absent (the project is not in this index, as for a
     /// 404 over HTTP).
-    fn structured_versions(
+    fn versions_of(
         &self,
         canonical_root: &Utf8Path,
         iri: &str,
@@ -361,11 +227,10 @@ impl LocalIndexEnvironment {
             .map(|advertised| Candidate {
                 version: advertised.version,
                 status: advertised.status,
-                expected: Some(KparMeta {
+                expected: KparMeta {
                     size_bytes: advertised.kpar_size,
                     sha256_hex: advertised.kpar_digest.as_hex().to_owned(),
-                }),
-                archive: None,
+                },
             })
             .collect();
         self.versions_cache
@@ -376,12 +241,8 @@ impl LocalIndexEnvironment {
     }
 
     fn candidates(&self, iri: &str) -> Result<Option<Candidates>, LocalIndexError> {
-        let detected = self.detect()?;
-        let (canonical_root, shape) = &*detected;
-        match shape {
-            Shape::Structured => self.structured_versions(canonical_root, iri),
-            Shape::Folder(table) => Ok(table.get(iri).cloned()),
-        }
+        let canonical_root = self.canonical_root()?;
+        self.versions_of(&canonical_root, iri)
     }
 }
 
@@ -393,22 +254,17 @@ impl ReadEnvironmentAsync for LocalIndexEnvironment {
     type UriStream = ResultStream<String>;
 
     async fn uris_async(&self) -> Result<Self::UriStream, Self::ReadError> {
-        let detected = self.detect()?;
-        let iris: Vec<Result<String, LocalIndexError>> = match &detected.1 {
-            Shape::Structured => {
-                let file = self.root.join(INDEX_FILE_NAME);
-                let text = wrapfs::read_to_string(&file)?;
-                let index: IndexJson = serde_json::from_str(&text)
-                    .map_err(|source| LocalIndexError::Json { file, source })?;
-                index
-                    .projects
-                    .into_iter()
-                    .filter(|p| p.status == ProjectStatus::Available)
-                    .map(|p| Ok(p.iri))
-                    .collect()
-            }
-            Shape::Folder(table) => table.keys().cloned().map(Ok).collect(),
-        };
+        self.canonical_root()?;
+        let file = self.root.join(INDEX_FILE_NAME);
+        let text = wrapfs::read_to_string(&file)?;
+        let index: IndexJson =
+            serde_json::from_str(&text).map_err(|source| LocalIndexError::Json { file, source })?;
+        let iris: Vec<Result<String, LocalIndexError>> = index
+            .projects
+            .into_iter()
+            .filter(|p| p.status == ProjectStatus::Available)
+            .map(|p| Ok(p.iri))
+            .collect();
         Ok(futures::stream::iter(iris))
     }
 
@@ -444,12 +300,8 @@ impl ReadEnvironmentAsync for LocalIndexEnvironment {
     ) -> Result<Self::InterchangeProjectRead, Self::ReadError> {
         let iri = uri.as_ref();
         let version = version.as_ref();
-        let detected = self.detect()?;
-        let (canonical_root, shape) = &*detected;
-        let versions_file = match shape {
-            Shape::Structured => self.project_dir(iri)?.join(VERSIONS_FILE_NAME),
-            Shape::Folder(_) => self.root.clone(),
-        };
+        let canonical_root = self.canonical_root()?;
+        let versions_file = self.project_dir(iri)?.join(VERSIONS_FILE_NAME);
         let candidates =
             self.candidates(iri)?
                 .ok_or_else(|| LocalIndexError::ProjectNotInIndex {
@@ -473,25 +325,18 @@ impl ReadEnvironmentAsync for LocalIndexEnvironment {
                 version: candidate.version.to_string(),
             });
         }
-        let archive = if let Some(archive) = &candidate.archive {
-            archive.clone()
-        } else {
-            let named = self
-                .project_dir(iri)?
-                .join(candidate.version.to_string())
-                .join(KPAR_FILE_NAME);
-            self.contained(canonical_root, &named, &versions_file)?
-        };
+        let named = self
+            .project_dir(iri)?
+            .join(candidate.version.to_string())
+            .join(KPAR_FILE_NAME);
+        let archive = self.contained(&canonical_root, &named, &versions_file)?;
         // The archive's declared identity is not checked against `iri` here.
-        let project = match &candidate.expected {
-            Some(expected) => LocalKParProject::new_with_expected(
-                archive,
-                KparInnerPath::Root,
-                None,
-                expected.clone(),
-            ),
-            None => LocalKParProject::new_access(archive, KparInnerPath::Root, None),
-        };
+        let project = LocalKParProject::new_with_expected(
+            archive,
+            KparInnerPath::Root,
+            None,
+            candidate.expected.clone(),
+        );
         Ok(project.to_async())
     }
 }

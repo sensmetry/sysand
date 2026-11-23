@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
-//! Tests for the filesystem index in both shapes (`design/index-protocol.md`
-//! "Filesystem indexes").
+//! Tests for the filesystem index (`design/index-protocol.md` "Filesystem
+//! indexes").
 
 use camino_tempfile::tempdir;
 use futures::StreamExt as _;
@@ -14,7 +14,7 @@ use crate::{
     commands::index::{do_index_add, do_index_init},
     context::ProjectContext,
     lock::Source,
-    project::{ProjectReadAsync as _, local_kpar::test_support::write_kpar},
+    project::{ProjectDefinition, ProjectReadAsync as _, local_kpar::test_support::write_kpar},
     utils::sha256_lowercase_hex,
     workspace::model_toml,
 };
@@ -170,102 +170,7 @@ fn structured_index_digest_mismatch_is_refused() {
 }
 
 #[test]
-fn folder_index_enumerates_case_insensitively() {
-    let cwd = tempdir().unwrap();
-    let cwd = wrapfs::canonicalize(cwd.path()).unwrap();
-    let root = cwd.join("folder");
-    std::fs::create_dir_all(&root).unwrap();
-    write_kpar(&root.join("a.kpar"), Some("mock"), "dep", "0.1.0");
-    write_kpar(&root.join("B.KPAR"), Some("mock"), "dep", "0.2.0");
-    write_kpar(&root.join("c.Kpar"), Some("mock"), "other", "1.0.0");
-    std::fs::write(root.join("notes.txt"), "not an archive").unwrap();
-    // Not recursive: a nested archive is not part of the folder.
-    std::fs::create_dir_all(root.join("sub")).unwrap();
-    write_kpar(&root.join("sub/d.kpar"), Some("mock"), "nested", "1.0.0");
-
-    let rt = runtime();
-    let env = LocalIndexEnvironment::new(&root);
-    assert_eq!(
-        uris(&rt, &env),
-        vec![DEP.to_owned(), "pkg:sysand/mock/other".to_owned()]
-    );
-    assert_eq!(versions(&rt, &env, DEP), vec!["0.2.0", "0.1.0"]);
-    assert_eq!(
-        versions(&rt, &env, "pkg:sysand/mock/nested"),
-        Vec::<String>::new()
-    );
-
-    let project = rt.block_on(env.get_project_async(DEP, "0.2.0")).unwrap();
-    let version = rt
-        .block_on(project.version_and_usage_async())
-        .unwrap()
-        .unwrap()
-        .version;
-    assert_eq!(version, "0.2.0");
-    let ctx = workspace_ctx(&cwd);
-    let sources = rt.block_on(project.sources_async(&ctx)).unwrap();
-    assert_matches!(
-        sources.as_slice(),
-        [Source::LocalKpar { kpar_path, kpar_size: _, kpar_digest: _ }] if kpar_path.as_str() == "folder/B.KPAR"
-    );
-}
-
-#[test]
-fn folder_archive_without_publisher_is_refused() {
-    let cwd = tempdir().unwrap();
-    let root = cwd.path().join("folder");
-    std::fs::create_dir_all(&root).unwrap();
-    write_kpar(&root.join("widgets.kpar"), None, "widgets", "1.2.3");
-
-    let rt = runtime();
-    let env = LocalIndexEnvironment::new(&root);
-    let error = rt.block_on(env.versions_async(DEP)).unwrap_err();
-    assert_eq!(
-        error.to_string(),
-        format!(
-            "`{archive}` has a `.project.json` with no `publisher`;\n\
-            {SP:>8} a folder index names each archive `pkg:sysand/<publisher>/<name>`, \
-            so add one and rebuild the archive",
-            archive = root.join("widgets.kpar"),
-            SP = ' '
-        )
-    );
-}
-
-#[test]
-fn folder_non_semver_version_is_refused() {
-    let cwd = tempdir().unwrap();
-    let root = cwd.path().join("folder");
-    std::fs::create_dir_all(&root).unwrap();
-    write_kpar(&root.join("a.kpar"), Some("mock"), "dep", "latest");
-    let rt = runtime();
-    let env = LocalIndexEnvironment::new(&root);
-    let error = rt.block_on(env.uris_async()).unwrap_err();
-    assert_matches!(error, LocalIndexError::NonSemverArchiveVersion { value, archive: _, source: _ } if value == "latest");
-}
-
-#[test]
-fn folder_duplicate_identity_version_is_refused() {
-    let cwd = tempdir().unwrap();
-    let root = cwd.path().join("folder");
-    std::fs::create_dir_all(&root).unwrap();
-    write_kpar(&root.join("a.kpar"), Some("mock"), "dep", "0.1.0");
-    write_kpar(&root.join("b.kpar"), Some("mock"), "dep", "0.1.0");
-    let rt = runtime();
-    let env = LocalIndexEnvironment::new(&root);
-    let error = rt.block_on(env.uris_async()).unwrap_err();
-    assert_eq!(
-        error.to_string(),
-        format!(
-            "`{a}` and `{b}` in `{root}` both hold `pkg:sysand/mock/dep` `0.1.0`",
-            a = root.join("a.kpar"),
-            b = root.join("b.kpar"),
-        )
-    );
-}
-
-#[test]
-fn neither_index_nor_folder_is_refused() {
+fn directory_without_index_json_is_refused() {
     let cwd = tempdir().unwrap();
     let root = cwd.path().join("empty");
     std::fs::create_dir_all(&root).unwrap();
@@ -276,37 +181,15 @@ fn neither_index_nor_folder_is_refused() {
     let text = error.to_string();
     assert!(
         text.starts_with(&format!(
-            "`{root}` is neither a Sysand index nor a folder of KPARs"
+            "`{root}` is not a Sysand index: it has no `index.json`"
         )),
         "{text}"
     );
 
-    // A missing directory is its own message, not `NeitherIndexNorFolder`.
+    // A missing directory is its own message, not `NotAnIndex`.
     let env = LocalIndexEnvironment::new(cwd.path().join("absent"));
     let error = rt.block_on(env.versions_async(DEP)).unwrap_err();
     assert_matches!(error, LocalIndexError::NotADirectory { path: _ });
-}
-
-#[test]
-#[cfg(unix)]
-fn symlinked_archive_outside_root_is_refused() {
-    let cwd = tempdir().unwrap();
-    let root = cwd.path().join("folder");
-    std::fs::create_dir_all(&root).unwrap();
-    let outside = cwd.path().join("outside.kpar");
-    write_kpar(&outside, Some("mock"), "dep", "0.1.0");
-    symlink(&outside, root.join("link.kpar")).unwrap();
-
-    let rt = runtime();
-    let env = LocalIndexEnvironment::new(&root);
-    let error = rt.block_on(env.versions_async(DEP)).unwrap_err();
-    assert_eq!(
-        error.to_string(),
-        format!(
-            "`{entry}` in `{root}` escapes the index at `{root}`",
-            entry = root.join("link.kpar"),
-        )
-    );
 }
 
 #[test]
@@ -336,94 +219,6 @@ fn versions_entry_escaping_root_is_refused() {
     );
     // The untouched version is still served.
     rt.block_on(env.get_project_async(DEP, "0.1.0")).unwrap();
-}
-
-#[test]
-fn folder_enumeration_cost_100_archives() {
-    let cwd = tempdir().unwrap();
-    let root = cwd.path().join("folder");
-    std::fs::create_dir_all(&root).unwrap();
-    for i in 0..100 {
-        write_kpar(
-            &root.join(format!("dep{i:03}.kpar")),
-            Some("mock"),
-            &format!("dep{i:03}"),
-            "1.0.0",
-        );
-    }
-    let rt = runtime();
-    let env = LocalIndexEnvironment::new(&root);
-    let started = std::time::Instant::now();
-    assert_eq!(uris(&rt, &env).len(), 100);
-    let first_pass = started.elapsed();
-    // The table is built once per environment lifetime.
-    let started = std::time::Instant::now();
-    assert_eq!(versions(&rt, &env, "pkg:sysand/mock/dep042"), vec!["1.0.0"]);
-    let lookup = started.elapsed();
-    eprintln!(
-        "folder enumeration of 100 archives: {} ms; cached lookup: {} us",
-        first_pass.as_millis(),
-        lookup.as_micros()
-    );
-}
-
-/// A `log::Log` that keeps warning texts, for the no-warning rule
-/// (neither shape warns about the other). Tests run
-/// in parallel, so the assertion filters by the test's own paths rather
-/// than requiring silence from the whole binary.
-struct WarnCapture(Mutex<Vec<String>>);
-
-impl log::Log for WarnCapture {
-    fn enabled(&self, metadata: &log::Metadata) -> bool {
-        metadata.level() <= log::Level::Warn
-    }
-
-    fn log(&self, record: &log::Record) {
-        if record.level() <= log::Level::Warn {
-            self.0
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .push(record.args().to_string());
-        }
-    }
-
-    fn flush(&self) {}
-}
-
-static WARNINGS: WarnCapture = WarnCapture(Mutex::new(Vec::new()));
-
-#[test]
-fn no_warning_in_either_shape() {
-    // Another test in this binary may already have installed a logger;
-    // then this one cannot observe and passes vacuously.
-    if log::set_logger(&WARNINGS).is_err() {
-        return;
-    }
-    log::set_max_level(log::LevelFilter::Warn);
-    let cwd = tempdir().unwrap();
-    let (structured, _) = structured_index(cwd.path());
-    let folder = cwd.path().join("folder");
-    std::fs::create_dir_all(&folder).unwrap();
-    write_kpar(&folder.join("a.kpar"), Some("mock"), "dep", "0.1.0");
-
-    let rt = runtime();
-    for root in [structured, folder] {
-        let env = LocalIndexEnvironment::new(&root);
-        assert_eq!(
-            versions(&rt, &env, DEP).len(),
-            if root.ends_with("folder") { 1 } else { 2 }
-        );
-        rt.block_on(env.get_project_async(DEP, "0.1.0")).unwrap();
-    }
-    let mine: Vec<String> = WARNINGS
-        .0
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .iter()
-        .filter(|text| text.contains(cwd.path().as_str()))
-        .cloned()
-        .collect();
-    assert!(mine.is_empty(), "warnings about the index: {mine:?}");
 }
 
 use std::assert_matches;

@@ -33,29 +33,6 @@ def denied_network(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("NO_PROXY", "")
 
 
-def test_versions_from_folder_of_kpars(tmp_path: Path, denied_network: None) -> None:
-    folder = tmp_path / "mirror"
-    folder.mkdir()
-    write_kpar(folder / "dep-0.1.0.kpar", "mock", "dep", "0.1.0")
-    write_kpar(folder / "DEP-0.2.0.KPAR", "mock", "dep", "0.2.0")
-    write_kpar(folder / "other.kpar", "mock", "other", "1.0.0")
-
-    listing = sysand.versions(
-        iri=DEP,
-        resolution=sysand.Resolution(default_index=[str(folder)], use_config=False),
-    )
-    assert listing["iri"] == DEP
-    assert listing["versions"] == ["0.2.0", "0.1.0"]
-    assert listing["ignored"] == []
-
-    # The `file://` spelling names the same folder.
-    listing = sysand.versions(
-        iri=DEP,
-        resolution=sysand.Resolution(default_index=[folder.as_uri()], use_config=False),
-    )
-    assert listing["versions"] == ["0.2.0", "0.1.0"]
-
-
 def test_versions_from_structured_index(tmp_path: Path, denied_network: None) -> None:
     index = tmp_path / "index"
     archive = tmp_path / "dep.kpar"
@@ -70,15 +47,22 @@ def test_versions_from_structured_index(tmp_path: Path, denied_network: None) ->
         iri=DEP,
         resolution=sysand.Resolution(default_index=[str(index)], use_config=False),
     )
+    assert listing["iri"] == DEP
+    assert listing["versions"] == ["0.3.0"]
+    assert listing["ignored"] == []
+
+    # The `file://` spelling names the same directory.
+    listing = sysand.versions(
+        iri=DEP,
+        resolution=sysand.Resolution(default_index=[index.as_uri()], use_config=False),
+    )
     assert listing["versions"] == ["0.3.0"]
 
 
-def test_neither_index_nor_folder_is_refused(tmp_path: Path) -> None:
+def test_directory_without_index_json_is_refused(tmp_path: Path) -> None:
     empty = tmp_path / "empty"
     empty.mkdir()
-    with pytest.raises(
-        sysand.ResolutionError, match="neither a Sysand index nor a folder of KPARs"
-    ):
+    with pytest.raises(sysand.ResolutionError, match="is not a Sysand index"):
         sysand.versions(
             iri=DEP,
             resolution=sysand.Resolution(default_index=[str(empty)], use_config=False),
