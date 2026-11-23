@@ -209,6 +209,7 @@ pub fn spell_index_usage<Env: ReadEnvironment>(
 
 /// What [`merge_located_usage`] did with an existing usage.
 #[cfg(feature = "filesystem")]
+#[derive(PartialEq, Eq)]
 enum Merge {
     /// The existing usage is the new one.
     Identical,

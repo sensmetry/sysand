@@ -189,6 +189,7 @@ impl ModelToml {
 }
 
 /// Whether the read can go on.
+#[derive(PartialEq, Eq)]
 enum Stop {
     Yes,
     No,
@@ -204,7 +205,7 @@ fn read_manifest(
 
     // clippy::equatable_if_let requires `matches!` for a unit variant
     // ast-grep-ignore: if-matches
-    if matches!(manifest_version(source, top, &mut report), Stop::Yes) {
+    if manifest_version(source, top, &mut report) == Stop::Yes {
         return Err(report);
     }
 

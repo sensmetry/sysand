@@ -24,7 +24,7 @@ impl<Pr> Default for NullEnvironment<Pr> {
     }
 }
 
-#[derive(Error, Debug, Clone, Copy)]
+#[derive(Error, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EmptyEnvironmentError {
     #[error("null environment contains no packages")]
     NullEnvironmentIsEmpty,

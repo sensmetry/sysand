@@ -108,7 +108,7 @@ fn memory_resolver(
 
 /// Which usage forms a storage can serve: a local-path-like storage serves
 /// directory usages, a remote-index-like storage serves resource IRIs
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 enum Serves {
     DirectoryUsages,
     ResourceUsages,

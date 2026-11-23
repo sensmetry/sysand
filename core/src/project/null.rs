@@ -24,7 +24,7 @@ pub struct NullProject {
     nothing: !,
 }
 
-#[derive(Error, Debug, Clone, Copy)]
+#[derive(Error, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NotARealProjectError {
     #[error("null project error")]
     NotARealProject,

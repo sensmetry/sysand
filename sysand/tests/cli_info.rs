@@ -30,7 +30,7 @@ fn mock_index_config_absent(server: &mut mockito::Server, expected_count: usize)
 }
 
 /// A project manifest format, for tests that run on both.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Kind {
     ModelToml,
     ProjectJson,
@@ -1871,7 +1871,7 @@ fn info_get_and_edit_fields(kind: Kind) -> Result<(), Box<dyn Error>> {
     }
 
     // A `model.toml` has no room for the fields a build computes
-    if matches!(kind, Kind::ProjectJson) {
+    if kind == Kind::ProjectJson {
         for (field, value) in [("includes-derived", "true"), ("includes-implied", "false")] {
             assert_eq!(get(field)?, "");
             edit(&[&format!("--{field}"), value])?;
@@ -1885,7 +1885,7 @@ fn info_get_and_edit_fields(kind: Kind) -> Result<(), Box<dyn Error>> {
     edit(&["--description", "d", "--add-topic", "t"])?;
     assert_eq!(get("description")?, "d\n");
     assert_eq!(get("topic")?, "t\n");
-    if matches!(kind, Kind::ProjectJson) {
+    if kind == Kind::ProjectJson {
         edit(&["--includes-implied", "true"])?;
         assert_eq!(get("includes-implied")?, "true\n");
     }
@@ -1903,7 +1903,7 @@ fn info_get_and_edit_fields(kind: Kind) -> Result<(), Box<dyn Error>> {
         get("metamodel")?,
         "https://www.omg.org/spec/SysML/20250201\n"
     );
-    if matches!(kind, Kind::ProjectJson) {
+    if kind == Kind::ProjectJson {
         assert_ne!(get("created")?, "");
     }
     for flag in ["--usage", "--index", "--created", "--checksum"] {

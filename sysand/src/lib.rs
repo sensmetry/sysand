@@ -972,6 +972,7 @@ fn run_cli_with(
 
             // `--dir`/`--kpar-path`/`--iri` name their own target, so a
             // workspace selector alongside one is a contradiction.
+            // ast-grep-ignore: matches-unit-variant
             if (names_dir || !matches!(location, Location::WorkDir))
                 && selector.selector() != Selector::Current
             {
@@ -1311,6 +1312,7 @@ struct CommandTraits<'a> {
 /// (which must not read a torn state), none for commands that write only
 /// a manifest or read. `clone` populates a directory that must be empty
 /// or absent and takes none.
+#[derive(PartialEq, Eq)]
 enum LockNeed {
     None,
     Exclusive,

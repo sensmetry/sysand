@@ -129,7 +129,7 @@ pub fn do_index_remove<I: AsRef<str>, R: AsRef<Utf8Path>>(
                 &versions_path,
                 &mut versions_file,
                 &mut versions_value,
-                |v| !matches!(v.status, VersionStatus::Removed),
+                |v| v.status != VersionStatus::Removed,
             )?;
             overwrite_file(&mut index_file, &index_path, &index_str)?;
             Ok(())

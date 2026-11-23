@@ -664,7 +664,7 @@ pub struct EnvProjectLocatorArgs {
     pub iri: Option<Iri<String>>,
 }
 
-#[derive(clap::ValueEnum, Default, Copy, Clone, Debug)]
+#[derive(clap::ValueEnum, Default, Copy, Clone, Debug, PartialEq, Eq)]
 #[clap(rename_all = "lowercase")]
 pub enum KparCompressionMethodCli {
     /// Store the files as is

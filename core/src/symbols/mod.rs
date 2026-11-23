@@ -18,7 +18,7 @@ use typed_path::Utf8UnixPath;
 
 use crate::symbols::lex::LexingError;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Language {
     SysML,
     KerML,
@@ -162,6 +162,7 @@ fn skip_list_of_refs<'a, I: Iterator<Item = &'a (Token, Box<str>, logos::Span)>>
     }
 }
 
+#[derive(PartialEq, Eq)]
 enum KeywordType {
     Simple,
     MultiReferences,

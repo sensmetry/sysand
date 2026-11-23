@@ -584,7 +584,7 @@ fn in_family_host(value: &str) -> bool {
 }
 
 /// How [`InFile`] writes a diagnostic that has no position.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum Unpositioned {
     /// Prefixed by the file: the line stands alone.
     Named,
