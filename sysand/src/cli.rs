@@ -1719,26 +1719,34 @@ impl TryFrom<MetamodelRelease> for MetamodelVersionCli {
     }
 }
 
-/// Parse a `<publisher>/<name>` project identifier
-pub fn parse_project_identifier(s: &str) -> Result<(ProjectPublisher, ProjectName), String> {
-    let Some((publisher, name)) = s.split_once('/') else {
+/// Parse a `<publisher>/<name>` identifier with `publisher` and `name` parsed as
+/// the kind of project spelling the identifier is for
+fn parse_identifier<P, N, E: std::fmt::Display>(
+    s: &str,
+    publisher: impl FnOnce(&str) -> Result<P, E>,
+    name: impl FnOnce(&str) -> Result<N, E>,
+) -> Result<(P, N), String> {
+    let Some((publisher_str, name_str)) = s.split_once('/') else {
         return Err("identifier is not of the form `<publisher>/<name>`".to_owned());
     };
     Ok((
-        parse_project_publisher(publisher).map_err(|e| e.to_string())?,
-        parse_project_name(name).map_err(|e| e.to_string())?,
+        publisher(publisher_str).map_err(|e| e.to_string())?,
+        name(name_str).map_err(|e| e.to_string())?,
     ))
+}
+
+/// Parse a `<publisher>/<name>` project identifier
+pub fn parse_project_identifier(s: &str) -> Result<(ProjectPublisher, ProjectName), String> {
+    parse_identifier(s, parse_project_publisher, parse_project_name)
 }
 
 /// Parse a `<publisher>/<name>` identifier for an index project
 pub fn parse_index_identifier(s: &str) -> Result<(IndexPublisher, IndexName), String> {
-    let Some((publisher, name)) = s.split_once('/') else {
-        return Err("identifier is not of the form `<publisher>/<name>`".to_owned());
-    };
-    Ok((
-        IndexPublisher::parse(publisher).map_err(|e| e.to_string())?,
-        IndexName::parse(name).map_err(|e| e.to_string())?,
-    ))
+    parse_identifier(
+        s,
+        |publisher| IndexPublisher::parse(publisher),
+        |name| IndexName::parse(name),
+    )
 }
 
 /// Parse a project publisher
