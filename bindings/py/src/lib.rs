@@ -1414,15 +1414,51 @@ impl NamedIndex {
         publisher: Option<String>,
         name: Option<String>,
     ) -> PyResult<Self> {
-        Ok(match Named::any_usage(function, iri, publisher, name)? {
-            Named::Iri(iri) => Self::Iri(iri),
-            Named::PublisherName { publisher, name } => {
-                let (publisher, name) =
-                    parse_index_usage_spelling(publisher.as_str(), name.as_str())
-                        .map_err(|e| ProjectError::new_err(format_err(e)))?;
+        Ok(match NamedRaw::select(function, iri, publisher, name)? {
+            NamedRaw::Iri(iri) => Self::Iri(validate_iri(iri)?),
+            NamedRaw::PublisherName { publisher, name } => {
+                let (publisher, name) = match parse_index_usage_spelling(&publisher, &name) {
+                    Ok(spelling) => spelling,
+                    // Not even a project spelling is reported as that, which
+                    // says what is wrong with it
+                    Err(error) => {
+                        Named::project_spelling(publisher, name)?;
+                        return Err(ProjectError::new_err(format_err(error)));
+                    }
+                };
                 Self::PublisherName { publisher, name }
             }
         })
+    }
+}
+
+/// What `iri`, `publisher` and `name` of a call name, before they are parsed
+enum NamedRaw {
+    Iri(String),
+    PublisherName { publisher: String, name: String },
+}
+
+impl NamedRaw {
+    /// Raises `TypeError` unless `function` (the Python function, for the
+    /// message) was given exactly one of `iri` and `publisher` with `name`
+    fn select(
+        function: &str,
+        iri: Option<String>,
+        publisher: Option<String>,
+        name: Option<String>,
+    ) -> PyResult<Self> {
+        if publisher.is_some() != name.is_some() {
+            return Err(PyTypeError::new_err(format!(
+                "{function}() takes `publisher` and `name` together"
+            )));
+        }
+        match (iri, publisher, name) {
+            (Some(iri), None, None) => Ok(Self::Iri(iri)),
+            (None, Some(publisher), Some(name)) => Ok(Self::PublisherName { publisher, name }),
+            _ => Err(PyTypeError::new_err(format!(
+                "{function}() takes exactly one of `iri` and `publisher` with `name`"
+            ))),
+        }
     }
 }
 
@@ -1439,26 +1475,27 @@ impl Named {
         publisher: Option<String>,
         name: Option<String>,
     ) -> PyResult<Self> {
-        if publisher.is_some() != name.is_some() {
-            return Err(PyTypeError::new_err(format!(
-                "{function}() takes `publisher` and `name` together"
-            )));
-        }
-        match (iri, publisher, name) {
-            (Some(iri), None, None) => Ok(Self::Iri(validate_iri(iri)?)),
-            (None, Some(publisher), Some(name)) => {
-                let invalid = |(value, e): (String, ProjectFieldError)| {
-                    ProjectError::new_err(format!("`{value}` is invalid: {e}"))
-                };
-                Ok(Self::PublisherName {
-                    publisher: ProjectPublisher::parse(publisher).map_err(invalid)?,
-                    name: ProjectName::parse(name).map_err(invalid)?,
-                })
+        match NamedRaw::select(function, iri, publisher, name)? {
+            NamedRaw::Iri(iri) => Ok(Self::Iri(validate_iri(iri)?)),
+            NamedRaw::PublisherName { publisher, name } => {
+                let (publisher, name) = Self::project_spelling(publisher, name)?;
+                Ok(Self::PublisherName { publisher, name })
             }
-            _ => Err(PyTypeError::new_err(format!(
-                "{function}() takes exactly one of `iri` and `publisher` with `name`"
-            ))),
         }
+    }
+
+    /// `publisher`/`name` as the spelling of a project of any kind
+    fn project_spelling(
+        publisher: String,
+        name: String,
+    ) -> PyResult<(ProjectPublisher, ProjectName)> {
+        let invalid = |(value, e): (String, ProjectFieldError)| {
+            ProjectError::new_err(format!("`{value}` is invalid: {e}"))
+        };
+        Ok((
+            ProjectPublisher::parse(publisher).map_err(invalid)?,
+            ProjectName::parse(name).map_err(invalid)?,
+        ))
     }
 }
 
