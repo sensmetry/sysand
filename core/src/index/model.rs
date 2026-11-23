@@ -220,24 +220,24 @@ pub(crate) fn validate_versions(
             })
         })
         .collect::<Result<_, _>>()?;
-    // Two entries with the same semver may carry different digests, so
-    // duplicates are rejected.
-    let mut seen = std::collections::HashSet::new();
-    for v in &validated {
-        if !seen.insert(v.version.clone()) {
-            return Err(VersionsJsonError::DuplicateVersion {
-                location: location.into(),
-                version: v.version.to_string(),
-            });
-        }
-    }
+    // Two entries with the same semver may carry different digests, so a
+    // repeated version is rejected rather than ordered.
     for [prev, curr] in validated.array_windows() {
-        if prev.version <= curr.version {
-            return Err(VersionsJsonError::VersionsOutOfOrder {
-                location: location.into(),
-                prev: prev.version.to_string(),
-                curr: curr.version.to_string(),
-            });
+        match prev.version.cmp(&curr.version) {
+            std::cmp::Ordering::Greater => {}
+            std::cmp::Ordering::Equal => {
+                return Err(VersionsJsonError::DuplicateVersion {
+                    location: location.into(),
+                    version: curr.version.to_string(),
+                });
+            }
+            std::cmp::Ordering::Less => {
+                return Err(VersionsJsonError::VersionsOutOfOrder {
+                    location: location.into(),
+                    prev: prev.version.to_string(),
+                    curr: curr.version.to_string(),
+                });
+            }
         }
     }
     Ok(validated)
