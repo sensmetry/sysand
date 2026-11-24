@@ -44,7 +44,12 @@ semver = { version = "1.0.27", default-features = false }
 serde = { version = "1.0.228", default-features = false }
 serde_json = { version = "1.0.149", default-features = false }
 sha2 = { version = "0.11", default-features = false }
-spdx = { version = "0.13.4", default-features = false, features = ["std"] }
+# Pinned exactly: which SPDX identifiers a manifest may use is part of the
+# manifest format (the `license` key). A newer License List adds identifiers
+# and deprecates others, and deprecated identifiers are refused, so a bump
+# can reject a `license` a published project already uses; see RELEASE.md.
+spdx = { version = "=0.13.6", default-features = false, features = ["std"] }
+sysand = { path = "sysand", default-features = false }
 sysand-core = { path = "core" }
 thiserror = { version = "2.0.18", default-features = false, features = ["std"] }
 tokio = { version = "1.50.0", default-features = false }
@@ -56,7 +61,7 @@ zip = { version = "9.0.5", default-features = false, features = ["deflate"] }
 
 [workspace.lints.rust]
 # rustc lints that are allow-by-default, enabled individually.
-# Edition migration lints are omitted: the workspace is on edition 2024.
+# Edition migration lints are omitted
 ambiguous_negative_literals = "warn"
 closure_returning_async_block = "warn"
 deprecated_in_future = "warn"
@@ -160,10 +165,6 @@ unused_async_trait_impl = "allow"
 # Restriction
 
 string_slice = "allow"
-# should enable, but default of 2 segments is too strict,
-# and increasing requires clippy.toml
-absolute_paths = "allow"
-allow_attributes_without_reason = "allow"
 # interesting, may want to enable, but requires clippy.toml
 arbitrary_source_item_ordering = "allow"
 arithmetic_side_effects = "allow"
@@ -220,6 +221,7 @@ std_instead_of_core = "allow"
 string_add = "allow"
 # complains about integration tests
 tests_outside_test_module = "allow"
+# conflicts with `rest_pattern_accessible_field`
 unneeded_field_pattern = "allow"
 unreachable = "allow"
 unseparated_literal_suffix = "allow"
@@ -249,8 +251,6 @@ missing_const_for_fn = "allow"
 # false positives (e.g. suggests pointless drop immediately before return)
 # and can't be disabled in integration tests
 significant_drop_tightening = "allow"
-# false positives
-uninhabited_references = "allow"
 option_if_let_else = "allow"
 
 [workspace.lints.rustdoc]

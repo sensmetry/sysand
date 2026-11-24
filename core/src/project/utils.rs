@@ -8,7 +8,7 @@ use std::{
     ops::Deref,
 };
 
-use camino::{Utf8Component, Utf8Path, Utf8PathBuf};
+use camino::{Utf8Path, Utf8PathBuf};
 use fluent_uri::{
     Iri,
     pct_enc::{EString, encoder::IData},
@@ -20,13 +20,12 @@ use typed_path::Utf8UnixPathBuf;
 use zip::{self, result::ZipError};
 
 use crate::{
-    manifest::diagnostics::{Report, Validated},
+    manifest::diagnostics::{Diagnostics, Report, Validated, take_logged},
     model::{
         IndexName, IndexPublisher, InterchangeProjectUsage, InterchangeProjectUsageRaw,
-        ProjectName, ProjectPublisher, normalize_typed_name, normalize_typed_publisher,
+        PartialManifest, ProjectName, ProjectPublisher,
     },
-    purl::PKG_SYSAND_PREFIX,
-    resolve::UsageOrigin,
+    purl::sysand_purl,
     utils::SP,
 };
 
@@ -114,9 +113,6 @@ pub enum FsIoError {
     OpenFile(Utf8PathBuf, #[source] io::Error),
     #[error("failed to get metadata for\n  `{0}`")]
     Metadata(Utf8PathBuf, #[source] io::Error),
-    /// Same as `Self::Metadata`, but path is unknown when using file handle
-    #[error("failed to get metadata for file")]
-    MetadataHandle(#[source] io::Error),
     #[error("failed to create a temporary file")]
     CreateTempFile(#[source] io::Error),
     #[error("failed to create a temporary directory")]
@@ -146,10 +142,95 @@ pub enum FsIoError {
     CurrentDir(#[source] io::Error),
     #[error("failed to get metadata to determine if\n  `{0}` is a regular file")]
     IsFile(Utf8PathBuf, #[source] io::Error),
-    #[error("failed to get metadata to determine if\n  `{0}` is a directory")]
-    IsDir(Utf8PathBuf, #[source] io::Error),
     #[error("failed to seek file `{0}` to {1}")]
     Seek(Utf8PathBuf, u64, #[source] io::Error),
+}
+
+impl FsIoError {
+    /// The kind of the underlying I/O error.
+    pub fn kind(&self) -> io::ErrorKind {
+        match self {
+            Self::Canonicalize(_, err)
+            | Self::Absolute(_, err)
+            | Self::MkDir(_, err)
+            | Self::OpenFile(_, err)
+            | Self::Metadata(_, err)
+            | Self::WriteFile(_, err)
+            | Self::ReadDir(_, err)
+            | Self::ReadFile(_, err)
+            | Self::Move(_, _, err)
+            | Self::CreateFile(_, err)
+            | Self::CopyFile(_, _, err)
+            | Self::RmFile(_, err)
+            | Self::LockFile(_, err)
+            | Self::RmDir(_, err)
+            | Self::IsFile(_, err)
+            | Self::Seek(_, _, err)
+            | Self::CreateTempFile(err)
+            | Self::MkTempDir(err)
+            | Self::ReadFileHandle(err)
+            | Self::CurrentDir(err) => err.kind(),
+        }
+    }
+}
+
+/// Which advisory lock to take on a file: shared for readers, exclusive
+/// for writers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LockMode {
+    Shared,
+    Exclusive,
+}
+
+impl LockMode {
+    /// Take this lock on `file` if no conflicting lock is held, without
+    /// waiting.
+    pub fn try_lock(self, file: &std::fs::File) -> Result<(), std::fs::TryLockError> {
+        match self {
+            Self::Shared => file.try_lock_shared(),
+            Self::Exclusive => file.try_lock(),
+        }
+    }
+
+    /// Take this lock on `file`, polling every `poll_interval` for up to
+    /// `wait` (not at all when `None`). `on_wait` runs once, before the
+    /// first sleep.
+    pub fn lock_polling(
+        self,
+        file: &std::fs::File,
+        wait: Option<std::time::Duration>,
+        poll_interval: std::time::Duration,
+        on_wait: impl FnOnce(),
+    ) -> Result<(), LockPollError> {
+        let deadline = wait.map(|wait| std::time::Instant::now() + wait);
+        let mut on_wait = Some(on_wait);
+        loop {
+            match self.try_lock(file) {
+                Ok(()) => return Ok(()),
+                Err(std::fs::TryLockError::WouldBlock) => {
+                    let Some(deadline) = deadline else {
+                        return Err(LockPollError::Blocked);
+                    };
+                    if std::time::Instant::now() >= deadline {
+                        return Err(LockPollError::Blocked);
+                    }
+                    if let Some(on_wait) = on_wait.take() {
+                        on_wait();
+                    }
+                    std::thread::sleep(poll_interval);
+                }
+                Err(std::fs::TryLockError::Error(err)) => return Err(LockPollError::Io(err)),
+            }
+        }
+    }
+}
+
+/// Why [`LockMode::lock_polling`] gave up.
+#[derive(Debug)]
+pub enum LockPollError {
+    /// Another holder kept the lock for the whole wait.
+    Blocked,
+    Io(io::Error),
 }
 
 /// Wrappers for filesystem I/O functions to return `FsIoError`.
@@ -165,7 +246,10 @@ pub mod wrapfs {
 
     use super::FsIoError;
 
-    #[expect(non_snake_case)]
+    #[expect(
+        non_snake_case,
+        reason = "the module is named after the `File` type it wraps"
+    )]
     pub mod File {
 
         use std::fs;
@@ -188,6 +272,13 @@ pub mod wrapfs {
             fs::File::create_new(path.as_ref())
                 .map_err(|e| Box::new(FsIoError::CreateFile(path.as_ref().into(), e)))
         }
+    }
+
+    /// Whether `path` exists. Errors such as permission denied are reported
+    /// instead of read as absence.
+    pub fn exists<P: AsRef<Utf8Path>>(path: P) -> Result<bool, Box<FsIoError>> {
+        fs::exists(path.as_ref())
+            .map_err(|e| Box::new(FsIoError::Metadata(path.as_ref().into(), e)))
     }
 
     pub fn create_dir<P: AsRef<Utf8Path>>(path: P) -> Result<(), Box<FsIoError>> {
@@ -256,6 +347,41 @@ pub mod wrapfs {
             .map_err(|e| Box::new(FsIoError::WriteFile(path.as_ref().into(), e)))
     }
 
+    /// Write `contents` to `path` by writing a sibling file and renaming it
+    /// over `path`, so a reader sees the old file or the new one.
+    ///
+    /// A symlink at `path` is written through, so the link keeps pointing at
+    /// its target, and an existing file keeps its permissions. The sibling is
+    /// removed when the write fails. It is named after `path`, so concurrent
+    /// writers of one file need an outside lock.
+    pub fn write_atomic<P: AsRef<Utf8Path>, C: AsRef<[u8]>>(
+        path: P,
+        contents: C,
+    ) -> Result<(), Box<FsIoError>> {
+        let path = path.as_ref();
+        let target = canonicalize_raw(path).unwrap_or_else(|_missing| path.to_owned());
+        let name = target.file_name().unwrap_or("manifest");
+        let sibling = target.with_file_name(format!(".{name}.sysand-tmp"));
+        let permissions = match fs::metadata(&target) {
+            Ok(existing) => Some(existing.permissions()),
+            Err(e) if e.kind() == ErrorKind::NotFound => None,
+            Err(e) => return Err(Box::new(FsIoError::WriteFile(target.as_path().into(), e))),
+        };
+        let written = write(&sibling, contents).and_then(|()| {
+            if let Some(permissions) = permissions {
+                fs::set_permissions(&sibling, permissions)
+                    .map_err(|e| Box::new(FsIoError::WriteFile(sibling.as_path().into(), e)))?;
+            }
+            fs::rename(&sibling, &target)
+                .map_err(|e| Box::new(FsIoError::WriteFile(path.into(), e)))
+        });
+        if written.is_err() {
+            // The sibling is useless once a step failed.
+            drop(fs::remove_file(&sibling));
+        }
+        written
+    }
+
     /// Canonicalizes UTF-8 path. If canonicalized path is not valid
     /// UTF-8, returns `io::Error` of `InvalidData` kind.
     /// On Windows this returns most compatible form of a path instead of UNC.
@@ -264,7 +390,7 @@ pub mod wrapfs {
             .map_err(|e| Box::new(FsIoError::Canonicalize(path.as_ref().into(), e)))
     }
 
-    /// Same as `canonicalize`, but does not wrap the error
+    /// Same as `canonicalize`, with the raw `io::Error`
     pub fn canonicalize_raw<P: AsRef<Utf8Path>>(path: P) -> Result<Utf8PathBuf, io::Error> {
         let path = dunce::canonicalize(path.as_ref())?;
         Utf8PathBuf::from_path_buf(path)
@@ -351,8 +477,8 @@ pub enum ProjectDeserializationError {
     },
     /// The document is json, but not a manifest: a key it must carry is
     /// absent. Every reason is reported at once.
-    #[error("`{path}` is not a valid manifest:\n{}", indent(report))]
-    Invalid { path: Box<Utf8Path>, report: Report },
+    #[error("`{}` is not a valid manifest:\n{}", .report.file(), indent(report))]
+    Invalid { report: Report },
 }
 
 impl ProjectDeserializationError {
@@ -363,10 +489,9 @@ impl ProjectDeserializationError {
         }
     }
 
-    pub fn invalid(path: impl AsRef<Utf8Path>, report: Report) -> Self {
+    pub fn invalid(path: impl AsRef<Utf8Path>, diagnostics: impl Into<Diagnostics>) -> Self {
         Self::Invalid {
-            path: path.as_ref().into(),
-            report,
+            report: diagnostics.into().in_file(path.as_ref().as_str()),
         }
     }
 }
@@ -375,21 +500,25 @@ impl ProjectDeserializationError {
 /// against the document it came from.
 pub fn validate_manifest<T>(
     path: impl AsRef<Utf8Path>,
-    validated: Result<Validated<T>, Report>,
+    validated: Result<Validated<T>, Diagnostics>,
 ) -> Result<T, ProjectDeserializationError> {
-    match validated {
-        Ok(validated) => {
-            for warning in &validated.warnings {
-                log::warn!("`{}`: {warning}", path.as_ref());
-            }
-            Ok(validated.value)
-        }
-        Err(report) => Err(ProjectDeserializationError::invalid(path, report)),
-    }
+    take_logged(validated, path.as_ref().as_str())
+        .map_err(|report| ProjectDeserializationError::Invalid { report })
 }
 
-/// A report is several lines; every line after the first is indented to
-/// align with the text of the first, as `DEVELOPMENT.md` asks.
+/// Parse a json manifest document from `reader` and validate it, logging
+/// its warnings against the document. `metamodel` is named as a possible
+/// reason for a key this version requires but the document does not carry.
+pub fn read_json_manifest<T: PartialManifest>(
+    reader: impl Read,
+    metamodel: Option<&str>,
+) -> Result<T::Validated, ProjectDeserializationError> {
+    let partial: T = serde_json::from_reader(io::BufReader::new(reader))
+        .map_err(|e| ProjectDeserializationError::new(T::FILE, e))?;
+    validate_manifest(T::FILE, partial.validate_manifest(metamodel))
+}
+
+/// Indent every line of a multi-line report to align with the first.
 fn indent(report: &Report) -> String {
     report
         .to_string()
@@ -433,146 +562,6 @@ pub enum ZipArchiveError {
     Finish(Box<Utf8Path>, #[source] ZipError),
 }
 
-#[derive(Debug, Error, Clone)]
-pub enum RelativizePathError {
-    #[error("unable to relativize path `{path}` with respect to `{root}`")]
-    NoCommonPrefix {
-        path: Box<Utf8Path>,
-        root: Box<Utf8Path>,
-    },
-}
-
-// Note: `components()` ignores non-leading `CurDir` so paths like `/a/./b`
-// will not register as non-canonical.
-fn contains_non_canonical_components(path: &Utf8Path) -> bool {
-    path.components()
-        .any(|c| matches!(c, Utf8Component::CurDir | Utf8Component::ParentDir))
-}
-
-/// Computes the relative path from `root` to `path`.
-///
-/// Both `path` and `root` must be absolute and structurally canonical:
-///
-/// - They must be absolute paths.
-/// - They must not contain `.` (`CurDir`) components.
-/// - They must not contain `..` (`ParentDir`) components.
-/// - They must share the same path prefix (e.g., drive letter on Windows).
-///
-/// May panic if any of these preconditions are not satisfied.
-///
-/// This function performs purely syntactic path manipulation. It does **not**
-/// access the filesystem and does not resolve symlinks. Callers are expected
-/// to pass paths that have been canonicalized beforehand (e.g., via
-/// [`wrapfs::canonicalize`] or equivalent).
-///
-/// # Returns
-///
-/// - `Ok(relative_path)` if a relative path from `root` to `path` can be computed.
-/// - `Err(RelativizePathError)` if the paths do not share a common prefix (should
-///   be relevant only on Windows).
-///
-/// If `path` and `root` are identical, a `Utf8PathBuf` with a single `.` component
-/// is returned.
-///
-/// # Examples
-///
-/// ```rust
-/// # use camino::Utf8Path;
-/// # use sysand_core::project::utils::relativize_path;
-/// let path = if cfg!(windows) {
-///     Utf8Path::new(r"C:\a\b\c")
-/// } else {
-///     Utf8Path::new("/a/b/c")
-/// };
-/// let root = if cfg!(windows) {
-///     Utf8Path::new(r"C:\a\b")
-/// } else {
-///     Utf8Path::new("/a/b")
-/// };
-///
-/// let relative = relativize_path(path, root).unwrap();
-/// assert_eq!(relative, "c");
-/// ```
-///
-/// ```rust
-/// # use camino::Utf8Path;
-/// # use sysand_core::project::utils::relativize_path;
-/// let path = if cfg!(windows) {
-///     Utf8Path::new(r"C:\a\b")
-/// } else {
-///     Utf8Path::new("/a/b")
-/// };
-/// let root = if cfg!(windows) {
-///     Utf8Path::new(r"C:\a\b\c")
-/// } else {
-///     Utf8Path::new("/a/b/c")
-/// };
-///
-/// let relative = relativize_path(path, root).unwrap();
-/// assert_eq!(relative, "..");
-/// ```
-pub fn relativize_path<P: AsRef<Utf8Path>, R: AsRef<Utf8Path>>(
-    path: P,
-    root: R,
-) -> Result<Utf8UnixPathBuf, RelativizePathError> {
-    let path = path.as_ref();
-    let root = root.as_ref();
-
-    assert!(path.is_absolute());
-    assert!(root.is_absolute());
-    assert!(!contains_non_canonical_components(path));
-    assert!(!contains_non_canonical_components(root));
-
-    let mut path_iter = path.components().peekable();
-    let mut root_iter = root.components().peekable();
-
-    // Both paths are absolute, so prefixes can only differ on Windows in the cases when:
-    // - paths point to different drives
-    // - path kinds differ (regular vs UNC vs DOS device paths)
-    // Failure should not be possible on Unix-like systems, since absolute
-    // paths all start with the common prefix `/`.
-    match (path_iter.peek(), root_iter.peek()) {
-        (Some(p0), Some(r0)) if p0 == r0 => {
-            path_iter.next();
-            root_iter.next();
-        }
-        _ => {
-            return Err(RelativizePathError::NoCommonPrefix {
-                path: path.into(),
-                root: root.into(),
-            });
-        }
-    }
-
-    while let (Some(p), Some(r)) = (path_iter.peek(), root_iter.peek()) {
-        if p == r {
-            path_iter.next();
-            root_iter.next();
-        } else {
-            break;
-        }
-    }
-
-    let mut result = Utf8UnixPathBuf::new();
-
-    for r in root_iter {
-        if let Utf8Component::Normal(_) = r {
-            result.push("..");
-        }
-    }
-
-    // TODO: it's probably always expected that we will use Unix paths
-    for p in path_iter {
-        result.push(p.as_str());
-    }
-
-    if result.as_str().is_empty() {
-        result.push(".");
-    }
-
-    Ok(result.into_string().into())
-}
-
 /// Project identifier IRI. Always a valid IRI.
 // TODO: construction steps
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Hash)]
@@ -602,6 +591,11 @@ impl From<&InterchangeProjectUsage> for Identifier {
             InterchangeProjectUsage::Resource {
                 resource,
                 version_constraint: _,
+            }
+            | InterchangeProjectUsage::RemoteKpar {
+                kpar_url: resource,
+                publisher: _,
+                name: _,
             } => Self(resource.to_string()),
             InterchangeProjectUsage::Directory {
                 publisher,
@@ -628,6 +622,11 @@ impl From<InterchangeProjectUsage> for Identifier {
             InterchangeProjectUsage::Resource {
                 resource,
                 version_constraint: _,
+            }
+            | InterchangeProjectUsage::RemoteKpar {
+                kpar_url: resource,
+                publisher: _,
+                name: _,
             } => Self(resource.into_string()),
             typed => Self::from(&typed),
         }
@@ -648,18 +647,10 @@ pub fn is_urn_sysand(iri: &str) -> bool {
 }
 
 impl Identifier {
-    pub fn from_pub_name(publisher: &str, name: &str) -> Self {
-        Self::make_identifier_iri(publisher, name)
-    }
-
     /// The `pkg:sysand` PURL of the project spelled `publisher`/`name`, as an
     /// index usage spells it; always valid, so nothing has to be checked
     pub fn from_index(publisher: &IndexPublisher, name: &IndexName) -> Self {
-        Self(format!(
-            "{PKG_SYSAND_PREFIX}{}/{}",
-            publisher.normalized(),
-            name.normalized()
-        ))
+        Self(sysand_purl(&publisher.normalized(), &name.normalized()))
     }
 
     /// The identifier of the project spelled `publisher`/`name`: as
@@ -672,9 +663,7 @@ impl Identifier {
     /// `acme-inc/foo` is a valid index spelling, which is
     /// `pkg:sysand/acme-inc/foo`. So a directory or KPAR usage of
     /// `ACME Inc./Foo` and an index usage of `acme-inc/foo` are different
-    /// projects. Deciding by the normalized form instead would make them the
-    /// same project, at the cost of changing the identifiers of such spellings
-    /// from `urn:sysand` to `pkg:sysand`
+    /// projects.
     pub fn from_project(publisher: &ProjectPublisher, name: &ProjectName) -> Self {
         if let (Ok(publisher), Ok(name)) = (
             IndexPublisher::parse(publisher.as_str().to_owned()),
@@ -702,63 +691,36 @@ impl Identifier {
     /// Returns `None` for a typed usage with an empty `publisher` or `name`,
     /// which has no well-formed identifier (and which
     /// [`Self::from_interchange_usage_unchecked`] rejects with a debug
-    /// assertion). Callers use this to compare usages of *any* kind by
-    /// identity without having to trust the manifest first.
+    /// assertion). Usages of *any* kind can be compared by identity
+    /// without trusting the manifest first.
     pub fn from_unvalidated_usage(usage: &InterchangeProjectUsageRaw) -> Option<Self> {
+        if usage
+            .typed_publisher_name()
+            .is_some_and(|(publisher, name)| publisher.is_empty() || name.is_empty())
+        {
+            return None;
+        }
+        Some(Self::from_interchange_usage_unchecked(usage))
+    }
+
+    pub fn from_interchange_usage_unchecked(usage: &InterchangeProjectUsageRaw) -> Self {
         match usage {
             InterchangeProjectUsageRaw::Resource {
                 resource,
                 version_constraint: _,
-            } => Some(Self(resource.clone())),
-            InterchangeProjectUsageRaw::Directory {
-                publisher,
-                name,
-                dir: _,
             }
-            | InterchangeProjectUsageRaw::KparPath {
-                publisher,
-                name,
-                kpar_path: _,
-            }
-            | InterchangeProjectUsageRaw::Index {
-                publisher,
-                name,
-                version_constraint: _,
-            } => {
-                if publisher.is_empty() || name.is_empty() {
-                    None
-                } else {
-                    Some(Self::make_identifier_iri(publisher, name))
-                }
+            | InterchangeProjectUsageRaw::RemoteKpar {
+                kpar_url: resource,
+                publisher: _,
+                name: _,
+            } => Self(resource.clone()),
+            typed => {
+                let (publisher, name) = typed
+                    .typed_publisher_name()
+                    .expect("a non-resource usage is typed");
+                Self::make_identifier_iri(publisher, name)
             }
         }
-    }
-
-    pub fn from_interchange_usage_unchecked(usage: &InterchangeProjectUsageRaw) -> Self {
-        let (publisher, name) = match usage {
-            InterchangeProjectUsageRaw::Resource {
-                resource,
-                version_constraint: _,
-            } => {
-                return Self(resource.clone());
-            }
-            InterchangeProjectUsageRaw::Directory {
-                publisher,
-                name,
-                dir: _,
-            }
-            | InterchangeProjectUsageRaw::KparPath {
-                publisher,
-                name,
-                kpar_path: _,
-            }
-            | InterchangeProjectUsageRaw::Index {
-                publisher,
-                name,
-                version_constraint: _,
-            } => (publisher, name),
-        };
-        Self::make_identifier_iri(publisher, name)
     }
 
     pub fn from_iri_owned(iri: Iri<String>) -> Self {
@@ -775,11 +737,6 @@ impl Identifier {
 
     pub fn into_string(self) -> String {
         self.0
-    }
-
-    /// Construct `Identifier` from a String, assuming it's a valid IRI
-    pub fn from_iri_unchecked(iri: String) -> Self {
-        Self(iri)
     }
 
     /// Construct `Identifier` from `&str`, assuming it's a valid IRI
@@ -812,6 +769,18 @@ impl Identifier {
     }
 }
 
+#[cfg(test)]
+impl Identifier {
+    /// [`Self::from_project`] of the project spelled `publisher`/`name`,
+    /// which must be valid.
+    pub(crate) fn from_spelling(publisher: &str, name: &str) -> Self {
+        Self::from_project(
+            &ProjectPublisher::parse(publisher.to_owned()).unwrap(),
+            &ProjectName::parse(name.to_owned()).unwrap(),
+        )
+    }
+}
+
 impl AsRef<str> for Identifier {
     fn as_ref(&self) -> &str {
         &self.0
@@ -838,136 +807,19 @@ impl Display for Identifier {
     }
 }
 
-/// How an expected identity is compared with the one the target
-/// declares.
-///
-/// model-toml.md "Normalization": "All projects are resolved by their
-/// *normalized* identity, regardless of how the usage is declared. This
-/// is to ensure consistent resolution for existing PURL usages in json
-/// projects. Resolution is the only place that normalizes ... Every
-/// other comparison is literal string equality."
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum IdentityMatch {
-    /// A usage being resolved, which is the only place that normalizes.
-    Normalized,
-    /// Every other comparison, `sysand sync` against the pair the
-    /// lockfile recorded above all: there the point is to catch drift,
-    /// which normalizing would hide.
-    Literal,
-}
-
-/// The identity a usage expects to find at its target.
-///
-/// model-toml.md "Usages": "Every usage carries `publisher` and `name`:
-/// that pair is the identity a usage is resolved by ... The target must
-/// declare the same publisher (compared after normalization)."
-#[derive(Clone, Debug)]
-pub struct ExpectedIdentity {
-    publisher: Option<String>,
-    name: String,
-    matching: IdentityMatch,
-    origin: UsageOrigin,
-}
-
-/// How the identity a target declares differs from the expected one.
-#[derive(Clone, Debug)]
-pub enum IdentityMismatch {
-    /// The target declares no publisher at all, and the usage was
-    /// written in a `model.toml`, where one is required. The same target
-    /// under a json usage is an ordinary
-    /// [`Self::Publisher`] mismatch against `<none>`.
-    NoPublisher {
-        name: String,
-    },
-    Publisher {
-        expected: Option<String>,
-        actual: Option<String>,
-    },
-    Name {
-        expected: String,
-        actual: String,
-    },
-}
-
-impl ExpectedIdentity {
-    /// A usage being resolved. `publisher` is `None` when the usage
-    /// expects a target that declares none.
-    pub fn resolving(publisher: Option<String>, name: String) -> Self {
-        Self {
-            publisher,
-            name,
-            matching: IdentityMatch::Normalized,
-            origin: UsageOrigin::Json,
-        }
-    }
-
-    /// A pair the lockfile recorded, which is compared literally.
-    pub fn recorded(publisher: Option<String>, name: String) -> Self {
-        Self {
-            publisher,
-            name,
-            matching: IdentityMatch::Literal,
-            origin: UsageOrigin::Json,
-        }
-    }
-
-    /// The manifest the usage was written in, which decides only
-    /// whether a publisher-less target is an
-    /// [`IdentityMismatch::NoPublisher`] or an
-    /// [`IdentityMismatch::Publisher`].
-    #[must_use]
-    pub fn declared_in(self, origin: UsageOrigin) -> Self {
-        Self { origin, ..self }
-    }
-
-    pub fn publisher(&self) -> Option<&str> {
-        self.publisher.as_deref()
-    }
-
-    pub fn name(&self) -> &str {
-        &self.name
-    }
-
-    /// Compare what the target declares with what the usage expected.
-    pub fn check(
-        &self,
-        actual_publisher: Option<&str>,
-        actual_name: &str,
-    ) -> Result<(), IdentityMismatch> {
-        let same = |expected: &str, actual: &str, normalize: fn(&str) -> String| match self.matching
-        {
-            IdentityMatch::Normalized => normalize(expected) == normalize(actual),
-            IdentityMatch::Literal => expected == actual,
-        };
-
-        match (&self.publisher, actual_publisher) {
-            (Some(expected), Some(actual)) if same(expected, actual, normalize_typed_publisher) => {
-            }
-            // A target with no publisher at all, under a usage that was
-            // written where one is required, gets the message that names
-            // the fix rather than a comparison against `<none>`
-            (Some(_), None) if self.origin == UsageOrigin::Toml => {
-                return Err(IdentityMismatch::NoPublisher {
-                    name: self.name.clone(),
-                });
-            }
-            (None, None) => {}
-            (expected, actual) => {
-                return Err(IdentityMismatch::Publisher {
-                    expected: expected.clone(),
-                    actual: actual.map(ToOwned::to_owned),
-                });
-            }
-        }
-
-        if same(&self.name, actual_name, normalize_typed_name) {
-            Ok(())
-        } else {
-            Err(IdentityMismatch::Name {
-                expected: self.name.clone(),
-                actual: actual_name.to_owned(),
-            })
-        }
+/// How a mismatch spells one side of a comparison: `<publisher>/<name>`,
+/// with `<none>` for a side that declares no publisher.
+#[cfg_attr(
+    not(feature = "filesystem"),
+    expect(
+        dead_code,
+        reason = "the readers that render a spelling mismatch are behind `filesystem`"
+    )
+)]
+pub(crate) fn pair(publisher: Option<&str>, name: &str) -> String {
+    match publisher {
+        Some(publisher) => format!("{publisher}/{name}"),
+        None => format!("<none>/{name}"),
     }
 }
 

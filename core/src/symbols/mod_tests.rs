@@ -132,10 +132,25 @@ fn a_file_with_no_model_extension_names_itself() {
 fn a_source_that_does_not_parse_names_the_file() {
     let error = top_level_symbols(&Utf8UnixPath::new("a.sysml"), "package Foo { /*", None)
         .expect_err("an unterminated comment");
+    assert_eq!(
+        error.to_string(),
+        "failed to extract symbol names from `a.sysml`"
+    );
     assert!(
-        error
-            .to_string()
-            .starts_with("failed to extract symbol names from `a.sysml`: "),
-        "unexpected message: {error}"
+        std::error::Error::source(&error).is_some(),
+        "the parse error is the source: {error:?}"
+    );
+}
+
+#[test]
+fn a_leading_byte_order_mark_is_ignored() {
+    let with_bom = "\u{feff}package Foo { part def Bar; }";
+    assert_eq!(
+        top_level_sysml(with_bom).expect("sysml with a BOM"),
+        top_level_sysml("package Foo { part def Bar; }").expect("sysml"),
+    );
+    assert_eq!(
+        top_level_kerml("\u{feff}package Foo { }").expect("kerml with a BOM"),
+        top_level_kerml("package Foo { }").expect("kerml"),
     );
 }

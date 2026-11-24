@@ -8,7 +8,7 @@ use std::process::Command;
 
 use sysand::render_long_help;
 
-/// The bare binary, deliberately not `common::sysand_cmd_in_with`: that
+/// The bare binary, not `common::sysand_cmd_in_with`: that
 /// helper appends `--no-config` after the caller's arguments and injects
 /// environment, neither of which belongs in a byte comparison of help text.
 /// The environment is cleared all the same, since clap shows the value of
@@ -81,8 +81,8 @@ fn program_name_replaces_argv0() {
 #[test]
 fn program_name_does_not_change_the_footer() {
     // `{name} v{version}` in the help template resolves through clap's
-    // display name, never the bin name. Deliberate: the usage line says how
-    // to invoke the command, the footer says which tool and version answers.
+    // display name, never the bin name: the usage line says how to invoke
+    // the command, the footer says which tool and version answers.
     let help = render_long_help("custom sysand", Vec::<String>::new());
 
     assert!(help.contains("Usage: custom sysand"), "{help}");
@@ -90,14 +90,14 @@ fn program_name_does_not_change_the_footer() {
 }
 
 #[test]
-fn trailing_var_arg_subcommand_still_renders_its_own_help() {
-    // `new` takes `trailing_var_arg` + `allow_hyphen_values`, so an appended
-    // `--help` is swallowed as one of its values and the command line parses
-    // cleanly. Falling back to the root help there would be silently wrong.
+fn an_aliased_subcommand_still_renders_its_own_help() {
+    // `new` is a visible alias of `init`, so an appended `--help` reaches
+    // `init` and clap renders it under its canonical name. Falling back to
+    // the root help here would be silently wrong.
     for args in [vec!["new"], vec!["new", "somewhere"]] {
         let help = render_long_help("sysand", args.clone());
 
-        assert!(help.contains("Usage: sysand new"), "{args:?}: {help}");
+        assert!(help.contains("Usage: sysand init"), "{args:?}: {help}");
         assert!(
             !help.contains("A package manager for SysML v2 and KerML"),
             "{args:?} fell back to the root help: {help}"

@@ -11,6 +11,7 @@ use toml_edit::{ArrayOfTables, DocumentMut, Item, Table, Value};
 use super::Config;
 use crate::{
     config::OverrideSource,
+    paths::{PathKind, UnixPathError, parse_unix_path},
     project::utils::{FsIoError, wrapfs},
     utils::multiline_array,
 };
@@ -22,6 +23,8 @@ pub const CONFIG_FILE: &str = "sysand.toml";
 pub enum ConfigReadError {
     #[error("failed to deserialize TOML file `{0}`")]
     Toml(Box<Utf8Path>, #[source] toml::de::Error),
+    #[error("invalid project source path in configuration file `{0}`")]
+    SourcePath(Box<Utf8Path>, #[source] UnixPathError),
     #[error(transparent)]
     Io(#[from] Box<FsIoError>),
 }
@@ -46,7 +49,7 @@ pub fn get_config<P: AsRef<Utf8Path>>(path: P) -> Result<Config, ConfigReadError
 pub fn read_config<P: AsRef<Utf8Path>>(path: P) -> Result<Config, ConfigReadError> {
     let path = path.as_ref();
     let contents = wrapfs::read_to_string(path)?;
-    toml::from_str(&contents).map_err(|e| ConfigReadError::Toml(path.into(), e))
+    parse_config(path, &contents)
 }
 
 pub fn load_configs<P: AsRef<Utf8Path>>(working_dir: P) -> Result<Config, ConfigReadError> {
@@ -82,6 +85,33 @@ pub enum ConfigProjectSourceError {
     TomlEdit(Utf8PathBuf, #[source] toml_edit::TomlError),
     #[error("{0}")]
     InvalidProjects(String),
+    #[error(transparent)]
+    Invalid(#[from] ConfigReadError),
+}
+
+/// Refuse configuration text that [`read_config`] would refuse.
+fn validate_config_text(path: &Utf8Path, text: &str) -> Result<(), ConfigProjectSourceError> {
+    parse_config(path, text)?;
+    Ok(())
+}
+
+/// The configuration `text` of the file at `path`. A local source path
+/// takes the rule of a usage path.
+fn parse_config(path: &Utf8Path, text: &str) -> Result<Config, ConfigReadError> {
+    let config: Config = toml::from_str(text).map_err(|e| ConfigReadError::Toml(path.into(), e))?;
+    for source in config.projects.iter().flat_map(|project| &project.sources) {
+        let (local, kind) = match source {
+            OverrideSource::Editable { editable: local }
+            | OverrideSource::LocalSrc { src_path: local } => (local, PathKind::Directory),
+            OverrideSource::LocalKpar { kpar_path: local } => (local, PathKind::File),
+            OverrideSource::RemoteKpar { remote_kpar: _ }
+            | OverrideSource::RemoteSrc { remote_src: _ }
+            | OverrideSource::RemoteGit { remote_git: _ } => continue,
+        };
+        parse_unix_path(local.as_str(), kind)
+            .map_err(|e| ConfigReadError::SourcePath(path.into(), e))?;
+    }
+    Ok(config)
 }
 
 pub fn add_project_source_to_config<P: AsRef<Utf8Path>>(
@@ -145,7 +175,9 @@ pub fn add_project_source_to_config<P: AsRef<Utf8Path>>(
         config_path,
     );
 
-    wrapfs::write(config_path, config.to_string())?;
+    let edited = config.to_string();
+    validate_config_text(config_path, &edited)?;
+    wrapfs::write(config_path, edited)?;
 
     Ok(())
 }
@@ -166,6 +198,7 @@ pub fn remove_project_source_from_config<P: AsRef<Utf8Path>>(
         }
         Err(err) => return Err(ConfigProjectSourceError::Io(err)),
     };
+    validate_config_text(config_path, &contents)?;
     let mut config = DocumentMut::from_str(&contents)
         .map_err(|err| ConfigProjectSourceError::TomlEdit(config_path.to_owned(), err))?;
     let Some(projects) = config

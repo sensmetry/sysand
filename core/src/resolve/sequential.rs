@@ -2,12 +2,13 @@
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
 use crate::resolve::{ResolutionInfo, ResolutionOutcome, ResolveRead, ResolveReadAsync};
+#[cfg(feature = "filesystem")]
+use crate::workspace::model_toml::Workspace;
 use futures::StreamExt as _;
 use std::iter::Flatten;
 
-/// Takes a sequence of similar resolvers, and tries them in sequence.
-/// First resolves all versions in the first environment, then all
-/// in the second, ...
+/// Takes a sequence of similar resolvers and tries them in order: all
+/// versions from the first, then all from the second, and so on.
 #[derive(Debug)]
 pub struct SequentialResolver<R> {
     inner: Vec<R>,
@@ -23,6 +24,17 @@ impl<R> SequentialResolver<R> {
 
 impl<R: ResolveRead> ResolveRead for SequentialResolver<R> {
     type Error = R::Error;
+
+    #[cfg(feature = "filesystem")]
+    fn within_workspace(self, workspace: std::sync::Arc<Workspace>) -> Self {
+        Self {
+            inner: self
+                .inner
+                .into_iter()
+                .map(|resolver| resolver.within_workspace(workspace.clone()))
+                .collect(),
+        }
+    }
 
     type ProjectStorage = R::ProjectStorage;
 
@@ -73,6 +85,17 @@ impl<R: ResolveRead> ResolveRead for SequentialResolver<R> {
 
 impl<R: ResolveReadAsync> ResolveReadAsync for SequentialResolver<R> {
     type Error = R::Error;
+
+    #[cfg(feature = "filesystem")]
+    fn within_workspace(self, workspace: std::sync::Arc<Workspace>) -> Self {
+        Self {
+            inner: self
+                .inner
+                .into_iter()
+                .map(|resolver| resolver.within_workspace(workspace.clone()))
+                .collect(),
+        }
+    }
 
     type ProjectStorage = R::ProjectStorage;
 

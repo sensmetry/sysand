@@ -1,0 +1,11 @@
+# No em-dashes or ` -- ` as dashes in comments; use a colon,
+# parentheses or a new sentence.
+id: comment-dash
+severity: warning
+language: rust
+rule:
+  any:
+    - kind: line_comment
+    - kind: block_comment
+  regex: "—| -- "
+message: "dash in comment; use a colon, parentheses or a new sentence"

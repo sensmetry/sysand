@@ -11,10 +11,14 @@ use crate::{
         SCHEME_FILE, SCHEME_GIT_FILE, SCHEME_GIT_HTTP, SCHEME_GIT_HTTPS, SCHEME_GIT_SSH,
         SCHEME_HTTP, SCHEME_HTTPS, SCHEME_SSH,
     },
+    workspace::model_toml::Workspace,
 };
 
-#[derive(Debug, Clone, Copy)]
-pub struct GitResolver;
+#[derive(Debug, Default)]
+pub struct GitResolver {
+    /// Observed by every clone this resolver starts.
+    pub token: crate::cancel::CancellationToken,
+}
 
 #[derive(Error, Debug)]
 pub enum GitResolverError {
@@ -24,6 +28,12 @@ pub enum GitResolverError {
 
 impl ResolveRead for GitResolver {
     type Error = GitResolverError;
+
+    #[cfg(feature = "filesystem")]
+    fn within_workspace(self, _workspace: std::sync::Arc<Workspace>) -> Self {
+        // This resolver reads no local targets.
+        self
+    }
 
     type ProjectStorage = GixDownloadedProject;
 
@@ -60,14 +70,10 @@ impl ResolveRead for GitResolver {
                 }
 
                 Ok(ResolutionOutcome::Resolved(std::iter::once(
-                    // TODO: use trim_prefix() once it's stable
-                    GixDownloadedProject::new(
-                        resource
-                            .as_str()
-                            .strip_prefix("git+")
-                            .unwrap_or(resource.as_str()),
-                    )
-                    .map_err(Into::into),
+                    match GixDownloadedProject::new(resource.as_str().trim_prefix("git+")) {
+                        Ok(project) => Ok(project.with_cancellation(self.token.clone())),
+                        Err(error) => Err(error.into()),
+                    },
                 )))
             }
             InterchangeProjectUsage::Directory {
@@ -77,6 +83,11 @@ impl ResolveRead for GitResolver {
             }
             | InterchangeProjectUsage::KparPath {
                 kpar_path: _,
+                publisher: _,
+                name: _,
+            }
+            | InterchangeProjectUsage::RemoteKpar {
+                kpar_url: _,
                 publisher: _,
                 name: _,
             }

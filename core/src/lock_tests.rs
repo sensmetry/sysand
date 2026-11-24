@@ -117,13 +117,53 @@ sources = [{{ index_kpar = "https://example.org/project.kpar", kpar_size = 0, kp
     };
 }
 
+/// A local source path follows the rule of a usage path: no `.` component,
+/// `..` only at the start, and no trailing slash on a file. An `editable` source may
+/// also be `.`, the project at the lockfile's root.
+#[test]
+fn a_local_source_path_follows_the_usage_path_rule() {
+    const DIGEST: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    let lockfile = |source: &str| {
+        format!(
+            r#"{LOCKFILE_PREFIX}lock_version = "{CURRENT_LOCK_VERSION}"
+
+[[project]]
+name = "dep"
+version = "1.0.0"
+sources = [{{ {source} }}]
+"#
+        )
+    };
+    for source in [
+        r#"editable = "./dep""#.to_owned(),
+        format!(r#"kpar_path = "../a.kpar/", kpar_size = 1, kpar_digest = "{DIGEST}""#),
+        format!(r#"src_path = "../a/../dep", checksum = "{DIGEST}""#),
+        format!(r#"kpar_path = "../aaa/.././a.kpar", kpar_size = 1, kpar_digest = "{DIGEST}""#),
+        format!(r#"kpar_path = "/abs/a.kpar", kpar_size = 1, kpar_digest = "{DIGEST}""#),
+    ] {
+        assert_matches!(
+            Lock::parse(&lockfile(&source)),
+            Err(ParseError::Validation(ValidationError::InvalidSourcePath {
+                name: _,
+                source: _
+            })),
+            "{source}"
+        );
+    }
+    for source in [
+        r#"editable = ".""#.to_owned(),
+        r#"editable = "dep/""#.to_owned(),
+        r#"editable = "../dep""#.to_owned(),
+        format!(r#"kpar_path = "../a.kpar", kpar_size = 1, kpar_digest = "{DIGEST}""#),
+    ] {
+        Lock::parse(&lockfile(&source)).expect(&source);
+    }
+}
+
 #[test]
 fn check_missing_lock_version() {
     let document = DocumentMut::from_str("").unwrap();
-    let Err(err) = check_lock_version(&document) else {
-        panic!()
-    };
-    let VersionError::Missing = err else { panic!() };
+    assert_matches!(check_lock_version(&document), Err(VersionError::Missing));
 }
 
 fn to_toml_matches_expected<D: Display>(projects: Vec<Project>, toml: D) {
@@ -647,6 +687,30 @@ fn validate_unsupported_lock_version() {
 }
 
 #[test]
+fn validate_non_semver_project_version() {
+    let Err(err) = (Lock {
+        lock_version: CURRENT_LOCK_VERSION.to_owned(),
+        projects: vec![Project {
+            publisher: Some("acme".to_owned()),
+            name: "app".to_owned(),
+            version: "2023-11".to_owned(),
+            exports: vec![],
+            identifiers: vec!["urn:app".to_owned()],
+            usages: vec![],
+            sources: vec![],
+        }],
+    })
+    .validate() else {
+        panic!("a non-semver version must be refused")
+    };
+    assert_matches!(
+        err,
+        ValidationError::InvalidProjectVersion { name, version, source: _ }
+            if name == "app" && version == "2023-11"
+    );
+}
+
+#[test]
 fn validate_single_name_collision() {
     let name = "PackageName";
     let iri = "urn:kpar:test";
@@ -728,7 +792,7 @@ fn validate_unsatisfied_usage() {
 
 #[test]
 fn validate_checksum_invalid_digest_all_source_types() {
-    // 64 chars but contains 'X' — right length, wrong character.
+    // 64 chars but contains 'X': right length, wrong character.
     const INVALID: &str = "dA8747a6f27A32f10Ba393113bCE29fX88181037a71f093f90e0ad5829D2b780";
 
     let cases: Vec<(&str, Source)> = vec![
@@ -871,11 +935,8 @@ fn sort_exports() {
     assert_eq!(projects, vec![project2]);
 }
 
-// `identifiers` must not be sorted by `Lock::sort()`
-// (unlike `exports`, `usages` and `sources`, which are). Other projects'
-// `usages` entries are assumed to reference a project's *first*
-// identifier (see `validate_usages` and `remove_usage`), so
-// reordering `identifiers` would desync that reference
+// `Lock::sort()` must not reorder `identifiers`: other projects' `usages`
+// refer to a project's first identifier.
 #[test]
 fn sort_does_not_reorder_identifiers() {
     let project = make_project("a", None, "0.0.1", &[], &["urn:kpar:b", "urn:kpar:a"], &[]);
@@ -891,7 +952,6 @@ fn sort_does_not_reorder_identifiers() {
     assert_eq!(projects, vec![project]);
 }
 
-// End-to-end test for the same invariant as `sort_does_not_reorder_identifiers`
 #[test]
 fn canonicalize_preserves_first_identifier_used_by_usage() {
     let dep = make_project(
@@ -1140,8 +1200,7 @@ fn canonicalize_checksums() {
     };
     assert_eq!(kpar_digest, LOWER);
 
-    // Editable and RemoteGit carry no checksum; their presence here confirms
-    // canonicalize_checksums does not panic on them.
+    // Editable and RemoteGit carry no checksum.
     assert_matches!(&project.sources[5], Source::Editable { editable: _ });
     assert_matches!(&project.sources[6], Source::RemoteGit { remote_git: _ });
 }
@@ -1366,14 +1425,12 @@ fn project_with_sources(sources: Vec<Source>) -> Project {
     }
 }
 
-/// A root project (the project being operated on directly), as produced by
-/// `do_lock_local_editable(".", ...)` for an ordinary, non-workspace project.
+/// A root project, as the lock entry of an ordinary non-workspace project.
 fn root_project(publisher: Option<&str>, name: &str, usages: &[&str]) -> Project {
     workspace_root_project(publisher, name, ".", usages)
 }
 
-/// A root project living at a workspace-relative subpath, as a workspace
-/// member's own lock entry would be represented.
+/// A root project at a workspace-relative subpath.
 fn workspace_root_project(
     publisher: Option<&str>,
     name: &str,
@@ -1420,31 +1477,38 @@ fn project_names(lock: &Lock) -> Vec<String> {
     names
 }
 
-#[test]
-fn is_root_true_for_dot_editable() {
-    // The nominal path used for the current project's own lock entry
-    // (see `EditableProject`/`do_lock_local_editable(".", ...)`).
-    let project = project_with_sources(vec![Source::Editable {
-        editable: Utf8UnixPathBuf::from("."),
-    }]);
-    assert!(Lock::is_root(&project));
+/// The roots of a lockfile made outside a workspace.
+fn single_root() -> Vec<Utf8UnixPathBuf> {
+    vec![Utf8UnixPathBuf::from(".")]
+}
+
+fn editable(path: &str) -> Source {
+    Source::Editable {
+        editable: Utf8UnixPathBuf::from(path),
+    }
 }
 
 #[test]
-fn is_root_true_for_subpath_editable() {
-    // The nominal path used for a workspace member's lock entry.
-    let project = project_with_sources(vec![Source::Editable {
-        editable: Utf8UnixPathBuf::from("packages/foo"),
-    }]);
-    assert!(Lock::is_root(&project));
+fn is_root_true_for_a_listed_editable() {
+    let roots = [
+        Utf8UnixPathBuf::from("."),
+        Utf8UnixPathBuf::from("packages/foo"),
+    ];
+    assert!(Lock::is_root(
+        &project_with_sources(vec![editable(".")]),
+        &roots
+    ));
+    assert!(Lock::is_root(
+        &project_with_sources(vec![editable("packages/foo")]),
+        &roots
+    ));
 }
 
+/// An editable dependency under the lockfile's directory is not a root.
 #[test]
-fn is_root_false_for_parent_relative_editable() {
-    let project = project_with_sources(vec![Source::Editable {
-        editable: Utf8UnixPathBuf::from(".."),
-    }]);
-    assert!(!Lock::is_root(&project));
+fn is_root_false_for_an_unlisted_editable() {
+    let project = project_with_sources(vec![editable("vendor/dep")]);
+    assert!(!Lock::is_root(&project, &single_root()));
 }
 
 #[test]
@@ -1452,26 +1516,44 @@ fn is_root_false_for_non_editable_source() {
     let project = project_with_sources(vec![Source::RemoteGit {
         remote_git: iri("https://example.com/foo.git"),
     }]);
-    assert!(!Lock::is_root(&project));
+    assert!(!Lock::is_root(&project, &single_root()));
 }
 
 #[test]
 fn is_root_false_for_multiple_sources() {
     let project = project_with_sources(vec![
-        Source::Editable {
-            editable: Utf8UnixPathBuf::from("."),
-        },
+        editable("."),
         Source::RemoteGit {
             remote_git: iri("https://example.com/foo.git"),
         },
     ]);
-    assert!(!Lock::is_root(&project));
+    assert!(!Lock::is_root(&project, &single_root()));
 }
 
 #[test]
 fn is_root_false_for_no_sources() {
     let project = project_with_sources(vec![]);
-    assert!(!Lock::is_root(&project));
+    assert!(!Lock::is_root(&project, &single_root()));
+}
+
+/// A `dir` dependency inside the project is locked as editable, and is
+/// pruned like any other dependency.
+#[test]
+fn remove_usage_prunes_an_editable_dependency_inside_the_project() {
+    let mut dep = dep_project("dep", "urn:dep", &[]);
+    dep.sources = vec![editable("dep")];
+    let mut lock = Lock {
+        lock_version: CURRENT_LOCK_VERSION.to_owned(),
+        projects: vec![root_project(Some("me"), "root", &["urn:dep"]), dep],
+    };
+
+    let RemoveUsageOutcome::Removed { pruned } =
+        lock.remove_usage(&single_root(), Some("me"), "root", "urn:dep")
+    else {
+        panic!("usage should be removed");
+    };
+    assert_eq!(pruned.len(), 1);
+    assert_eq!(project_names(&lock), vec!["root".to_owned()]);
 }
 
 #[test]
@@ -1485,7 +1567,7 @@ fn remove_usage_prunes_unreachable_dependency() {
     };
 
     let RemoveUsageOutcome::Removed { pruned: removed } =
-        lock.remove_usage(Some("me"), "root", "urn:dep")
+        lock.remove_usage(&single_root(), Some("me"), "root", "urn:dep")
     else {
         panic!("usage should be removed");
     };
@@ -1506,7 +1588,7 @@ fn remove_usage_reports_root_not_found() {
         ],
     };
 
-    let outcome = lock.remove_usage(Some("someone-else"), "root", "urn:dep");
+    let outcome = lock.remove_usage(&single_root(), Some("someone-else"), "root", "urn:dep");
 
     assert_eq!(outcome, RemoveUsageOutcome::RootNotFound);
     assert_eq!(
@@ -1526,7 +1608,7 @@ fn remove_usage_reports_usage_not_present() {
         ],
     };
 
-    let outcome = lock.remove_usage(Some("me"), "root", "urn:other");
+    let outcome = lock.remove_usage(&single_root(), Some("me"), "root", "urn:other");
 
     assert_eq!(outcome, RemoveUsageOutcome::UsageNotFound);
     assert_eq!(
@@ -1549,9 +1631,12 @@ fn remove_usage_keeps_dependency_needed_by_sibling_root() {
         ],
     };
 
-    let RemoveUsageOutcome::Removed { pruned: removed } =
-        lock.remove_usage(Some("me"), "app", "urn:shared")
-    else {
+    let RemoveUsageOutcome::Removed { pruned: removed } = lock.remove_usage(
+        &[Utf8UnixPathBuf::from("app"), Utf8UnixPathBuf::from("lib")],
+        Some("me"),
+        "app",
+        "urn:shared",
+    ) else {
         panic!("usage should be removed");
     };
 
@@ -1578,7 +1663,7 @@ fn remove_usage_prunes_transitive_chain() {
     };
 
     let RemoveUsageOutcome::Removed { pruned: removed } =
-        lock.remove_usage(Some("me"), "root", "urn:b")
+        lock.remove_usage(&single_root(), Some("me"), "root", "urn:b")
     else {
         panic!("usage should be removed");
     };
@@ -1606,7 +1691,7 @@ fn remove_usage_keeps_sibling_usage_and_its_own_subtree() {
     };
 
     let RemoveUsageOutcome::Removed { pruned: removed } =
-        lock.remove_usage(Some("me"), "root", "urn:b")
+        lock.remove_usage(&single_root(), Some("me"), "root", "urn:b")
     else {
         panic!("usage should be removed");
     };
@@ -1682,10 +1767,7 @@ fn lockfile_parse_error_includes_path() {
     };
     assert_eq!(err_path, &path);
     assert_eq!(v, "0.4");
-    assert!(matches!(
-        Lockfile::read(dir.path()),
-        Err(LockfileError::Parse(..))
-    ));
+    assert_matches!(Lockfile::read(dir.path()), Err(LockfileError::Parse(..)));
 }
 
 #[test]
@@ -1828,4 +1910,28 @@ fn current_lockfile_is_not_migrated() {
         lock.projects[0].identifiers,
         ["urn:sysand:ACME%20Inc./App".to_owned()]
     );
+}
+
+/// The standard libraries are mutually dependent, so a lockfile
+/// containing them must parse. The cycle check does not run here, since
+/// a lockfile entry cannot say it carries `stdlib`.
+#[test]
+fn validate_accepts_a_cycle() {
+    let text = format!(
+        r#"{LOCKFILE_PREFIX}lock_version = "{CURRENT_LOCK_VERSION}"
+
+[[project]]
+name = "a"
+version = "1.0.0"
+identifiers = ["urn:a"]
+usages = ["urn:b"]
+
+[[project]]
+name = "b"
+version = "1.0.0"
+identifiers = ["urn:b"]
+usages = ["urn:a"]
+"#
+    );
+    Lock::parse(&text).expect("a cycle is not rejected in a lockfile yet");
 }

@@ -1,14 +1,28 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
+use semver::VersionReq;
 use thiserror::Error;
 
+#[cfg(feature = "filesystem")]
+use crate::{
+    context::ManifestEdit,
+    manifest::{
+        common::NormalizedIdentity,
+        edit,
+        project::ResolvedProject,
+        usage::{MemberUsage, Usage},
+    },
+    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw, InterchangeProjectUsage},
+    project::local_src::{LocalSrcError, LocalSrcProject},
+};
 use crate::{
     env::ReadEnvironment,
+    manifest::{edit::EditError, kpar_view},
     model::{
         IndexName, IndexPublisher, InterchangeProjectUsageRaw, InterchangeProjectValidationError,
     },
-    project::{ProjectMut, ProjectRead, utils::Identifier},
+    project::{ProjectRead, ValidatedDependencies, utils::Identifier},
     utils::SP,
 };
 
@@ -21,9 +35,8 @@ pub enum AddError<ProjectError> {
     #[error("missing project information: {0}")]
     MissingInfo(&'static str),
     /// The project is already declared by a usage of a *different* kind with
-    /// the same [`Identifier`]. Merging the two would mean choosing which
-    /// source wins, so it is refused, and we don't allow multiple usages
-    /// of the same project.
+    /// the same [`Identifier`]. Multiple usages of one project are not
+    /// allowed.
     ///
     /// [`Identifier`]: crate::project::utils::Identifier
     #[error(
@@ -48,6 +61,15 @@ pub enum AddError<ProjectError> {
         existing: String,
         new: String,
     },
+    /// The usage has no `model.toml` form; the message gives the reason.
+    #[error(transparent)]
+    NoManifestForm(kpar_view::NoManifestForm),
+    #[error(transparent)]
+    Edit(EditError),
+    #[error(transparent)]
+    Manifest(#[from] crate::project::ManifestError<ProjectError>),
+    #[error(transparent)]
+    ManifestWrite(#[from] crate::project::ManifestWriteError<ProjectError>),
 }
 
 /// Why [`spell_index_usage`] could not settle the spelling of an index usage
@@ -71,6 +93,13 @@ pub enum IndexSpellingError<EnvError, ProjectError> {
          information"
     )]
     MissingInfo { usage: String, version: String },
+    #[error("version {version} of `{usage}` installed in the local environment is invalid")]
+    InvalidProject {
+        usage: String,
+        version: String,
+        #[source]
+        source: Box<InterchangeProjectValidationError>,
+    },
     #[error(
         "index usage `{usage}` cannot be used: version {version} installed in the local \
          environment declares no publisher"
@@ -95,30 +124,39 @@ pub enum IndexSpellingError<EnvError, ProjectError> {
         version: String,
         spelling: String,
     },
+    #[error(
+        "index usage `{usage}` cannot be used: version {version} installed in the local \
+         environment declares itself `{spelling}`, which is not the project the usage names"
+    )]
+    OtherProject {
+        usage: String,
+        version: String,
+        spelling: String,
+    },
 }
 
 /// The publisher and name an index usage of `publisher`/`name` has to spell,
-/// read from a version of the project installed in `env` (the first it
-/// lists: a project spells itself the same way in every version), without
-/// touching the network: the project's own spelling when `publisher`/`name`
-/// is normalized (see [`IndexPublisher::is_normalized`]), and `publisher`/`name`
-/// itself otherwise, once it has been checked to be that spelling.
-/// `normalized` is whether `publisher`/`name` is normalized, which the
-/// caller has already found out.
+/// read from the first version of the project installed in `env`: the
+/// project's own spelling when `publisher`/`name` is normalized (see
+/// [`IndexPublisher::is_normalized`]), and `publisher`/`name` itself
+/// otherwise, once checked to be that spelling.
 ///
-/// Fails when no version is installed, since then there is nothing to check
-/// against.
-#[expect(clippy::type_complexity)]
+/// Fails when no version is installed, or when the installed project
+/// declares a publisher and name that do not normalize to `publisher`/`name`.
+#[expect(
+    clippy::type_complexity,
+    reason = "the return type spells out the full usage shape"
+)]
 pub fn spell_index_usage<Env: ReadEnvironment>(
     env: Option<&Env>,
     publisher: &IndexPublisher,
     name: &IndexName,
-    normalized: bool,
 ) -> Result<
     (IndexPublisher, IndexName),
     IndexSpellingError<Env::ReadError, <Env::InterchangeProjectRead as ProjectRead>::Error>,
 > {
     let usage = format!("{publisher}/{name}");
+    let normalized = publisher.is_normalized() && name.is_normalized();
     let identifier = Identifier::from_index(publisher, name);
 
     let version = match env {
@@ -134,18 +172,37 @@ pub fn spell_index_usage<Env: ReadEnvironment>(
     let (Some(env), Some(version)) = (env, version) else {
         return Err(IndexSpellingError::NotInstalled { usage, normalized });
     };
-    let info = env
+    let definition = env
         .get_project(identifier.as_str(), &version)
         .map_err(IndexSpellingError::Env)?
-        .get_info()
+        .get_project()
         .map_err(IndexSpellingError::Project)?;
-    let Some(info) = info else {
+    let Some(definition) = definition else {
         return Err(IndexSpellingError::MissingInfo { usage, version });
     };
-    let Some(found_publisher) = info.publisher else {
+    let ValidatedDependencies {
+        name: found_name,
+        publisher: found_publisher,
+        usages: _,
+        metamodel: _,
+    } = definition.validated_dependencies().map_err(|source| {
+        IndexSpellingError::InvalidProject {
+            usage: usage.clone(),
+            version: version.clone(),
+            source: Box::new(source),
+        }
+    })?;
+    let Some(found_publisher) = found_publisher else {
         return Err(IndexSpellingError::NoPublisher { usage, version });
     };
-    let found_name = info.name;
+    if Identifier::from_project(&found_publisher, &found_name) != identifier {
+        return Err(IndexSpellingError::OtherProject {
+            usage,
+            version,
+            spelling: format!("{found_publisher}/{found_name}"),
+        });
+    }
+    let (found_publisher, found_name) = (found_publisher.into_string(), found_name.into_string());
     if normalized || (found_publisher == publisher.as_str() && found_name == name.as_str()) {
         let spelling = format!("{found_publisher}/{found_name}");
         match (
@@ -168,42 +225,88 @@ pub fn spell_index_usage<Env: ReadEnvironment>(
     }
 }
 
-/// Common merge logic for path-like usages (`Directory`, `KparPath`): if an
-/// existing usage matches `new_publisher`/`new_name`, update its path; if it
-/// matches `new_path` instead, overwrite its publisher/name. Returns `true`
-/// if a match was found and merged (and thus the new usage should not be
-/// added separately), or `false` if there was no match.
-fn try_merge_path_usage(
+/// What [`merge_located_usage`] did with an existing usage.
+#[cfg(feature = "filesystem")]
+#[derive(PartialEq, Eq)]
+enum Merge {
+    /// The existing usage is the new one.
+    Identical,
+    /// The existing usage took the new location or the new publisher/name.
+    Merged,
+    /// The existing usage is of another project at another location.
+    Unrelated,
+}
+
+/// The publisher of a usage that names a location: required for `dir`
+/// and `kpar-path` usages, optional for a KPAR URL usage.
+#[cfg(feature = "filesystem")]
+trait LocatedPublisher: PartialEq + Clone {
+    /// The usage's publisher and name as the warnings quote them.
+    fn quote(&self, name: &str) -> String;
+}
+
+#[cfg(feature = "filesystem")]
+impl LocatedPublisher for String {
+    fn quote(&self, name: &str) -> String {
+        format!("`{self}`/`{name}`")
+    }
+}
+
+#[cfg(feature = "filesystem")]
+impl LocatedPublisher for Option<String> {
+    fn quote(&self, name: &str) -> String {
+        match self {
+            Some(publisher) => publisher.quote(name),
+            None => format!("`{name}`"),
+        }
+    }
+}
+
+/// Merge logic for usages that name a location and a publisher/name
+/// (`Directory`, `KparPath`, `RemoteKpar`): if the existing usage matches
+/// `new_publisher`/`new_name`, it takes `new_location`; if it matches
+/// `new_location` instead, it takes the new publisher/name. `noun` names
+/// the location in the warnings.
+#[cfg(feature = "filesystem")]
+fn merge_located_usage<P: LocatedPublisher>(
     noun: &str,
-    path: &mut String,
-    publisher: &mut String,
+    location: &mut String,
+    publisher: &mut P,
     name: &mut String,
-    new_path: &str,
-    new_publisher: &str,
+    new_location: &str,
+    new_publisher: &P,
     new_name: &str,
-) -> bool {
-    if publisher == new_publisher && name == new_name {
+) -> Merge {
+    let same_project = publisher == new_publisher && name == new_name;
+    let same_location = location == new_location;
+    let existing = publisher.quote(name);
+    if same_project && same_location {
         log::warn!(
-            "usage `{publisher}`/`{name}` is already present;\n\
-            {SP:>8} it will be updated to point to `{new_path}`"
+            "ignoring usage {existing} at `{new_location}`,\n\
+             {SP:>8} since it is already present"
         );
-        *path = new_path.to_owned();
-        true
-    } else if path == new_path {
+        Merge::Identical
+    } else if same_project {
         log::warn!(
-            "existing usage `{publisher}`/`{name}` already points to {noun}
-            {SP:>8} `{path}`; existing usage will be overwritten"
+            "usage {existing} is already present;\n\
+             {SP:>8} it will be updated to point to `{new_location}`"
         );
-        *publisher = new_publisher.to_owned();
-        *name = new_name.to_owned();
-        true
+        new_location.clone_into(location);
+        Merge::Merged
+    } else if same_location {
+        log::warn!(
+            "existing usage {existing} already points to {noun}\n\
+             {SP:>8} `{location}`; existing usage will be overwritten"
+        );
+        publisher.clone_from(new_publisher);
+        new_name.clone_into(name);
+        Merge::Merged
     } else {
-        false
+        Merge::Unrelated
     }
 }
 
 /// The usage that `usages` declare of the project `identifier`, if any.
-/// `add` never declares a project twice.
 fn declared<'a>(
     usages: &'a [InterchangeProjectUsageRaw],
     identifier: &Identifier,
@@ -257,7 +360,7 @@ pub enum IndexUsageToAdd {
     New {
         publisher: IndexPublisher,
         name: IndexName,
-        version_constraint: Option<semver::VersionReq>,
+        version_constraint: Option<VersionReq>,
         normalized: bool,
     },
 }
@@ -271,7 +374,7 @@ pub fn index_usage_to_add<E>(
     usages: &[InterchangeProjectUsageRaw],
     publisher: IndexPublisher,
     name: IndexName,
-    version_constraint: Option<semver::VersionReq>,
+    version_constraint: Option<VersionReq>,
 ) -> Result<IndexUsageToAdd, AddError<E>> {
     let normalized = publisher.is_normalized() && name.is_normalized();
     let identifier = Identifier::from_index(&publisher, &name);
@@ -293,7 +396,7 @@ pub fn index_usage_to_add<E>(
         return Err(refusal(identifier, existing, "an index", Some(spelling)));
     };
     // A normalized spelling names the project by its identifier only, so the
-    // declared usage says how it is spelled
+    // declared spelling is the one to use.
     if !normalized && (declared_publisher.as_str(), declared_name.as_str()) != spelling {
         return Err(refusal(identifier, existing, "an index", Some(spelling)));
     }
@@ -314,201 +417,371 @@ pub fn index_usage_to_add<E>(
     })
 }
 
-/// Ok(true) => project info changed: the usage was added, or an existing
-/// usage of it was updated
-/// Ok(false) => usage already present in project info as given
+/// `add` on a `model.toml` project: append an `[[inline-usages]]` entry.
+///
+/// A usage already present is reported through the returned `bool`:
+/// `false` means the usage was already there and nothing was written.
+#[cfg(feature = "filesystem")]
+pub(crate) fn add_toml<E>(
+    document: &mut toml_edit::DocumentMut,
+    usage: &InterchangeProjectUsage,
+) -> Result<bool, AddError<E>> {
+    use crate::commands::usage::{ConstraintChange, set_toml_index_constraint};
+
+    let usage = kpar_view::usage_of_validated(usage, crate::manifest::MODEL_TOML_FILE)
+        .map_err(AddError::NoManifestForm)?;
+    let identity = usage.identity();
+
+    // Already declared: only a changed constraint needs writing.
+    let declared = match &usage {
+        Usage::Index {
+            version_constraint,
+            publisher: _,
+            name: _,
+        } => match set_toml_index_constraint(document, &identity, version_constraint)
+            .map_err(AddError::Edit)?
+        {
+            ConstraintChange::Replaced { old: _, new: _ } => return Ok(true),
+            ConstraintChange::Unchanged { constraint: _ } => true,
+            ConstraintChange::NotFound => false,
+        },
+        _ => edit::usage_constraint(document, &identity).is_some(),
+    };
+    if declared {
+        log::warn!("ignoring usage `{identity}`, since it is already present");
+        return Ok(false);
+    }
+
+    edit::push_usage(document, &MemberUsage::Declared(usage)).map_err(AddError::Edit)?;
+    Ok(true)
+}
+
+/// Adding a usage to the current project.
+///
+/// Reports `true` when the manifest changed: the usage was added, or an
+/// existing usage of it was updated; `false` when the usage was already
+/// present as given.
 ///
 /// Accepts any usage kind. A usage of the same kind is updated: its path, or
 /// its version constraint, which is replaced as `cargo add` does; a usage of
 /// a *different* kind that identifies the same project is refused with
 /// [`AddError::DuplicateIdentifier`].
-pub fn do_add<P: ProjectMut>(
-    project: &mut P,
+#[cfg(feature = "filesystem")]
+#[derive(Debug)]
+pub struct AddUsage {
+    usage: InterchangeProjectUsage,
+}
+
+#[cfg(feature = "filesystem")]
+impl AddUsage {
     // TODO: take non-raw, CLI has it
-    usage_raw: &InterchangeProjectUsageRaw,
-) -> Result<bool, AddError<P::Error>> {
-    let usage: InterchangeProjectUsageRaw = usage_raw.validate()?.into();
+    pub fn new(
+        usage_raw: &InterchangeProjectUsageRaw,
+    ) -> Result<Self, InterchangeProjectValidationError> {
+        let usage = usage_raw.validate()?;
 
-    let adding = "Adding";
-    let header = crate::style::get_style_config().header;
-    log::info!("{header}{adding:>12}{header:#} usage: {usage_raw}");
+        let adding = "Adding";
+        let header = crate::style::get_style_config().header;
+        log::info!("{header}{adding:>12}{header:#} usage: {usage_raw}");
+        Ok(Self { usage })
+    }
+}
 
-    if let Some(info) = project.get_info().map_err(AddError::Project)?.as_mut() {
-        let mut dont_add = false;
-        match &usage {
-            InterchangeProjectUsageRaw::Resource {
-                resource: new_resource,
-                version_constraint: new_vc,
-            } => {
-                for u in &mut info.usage {
-                    if let InterchangeProjectUsageRaw::Resource {
-                        resource,
-                        version_constraint,
-                    } = u
-                        && resource == new_resource
-                    {
-                        match (&new_vc, version_constraint) {
-                            (None, None) => {
+#[cfg(feature = "filesystem")]
+impl ManifestEdit for AddUsage {
+    type Output = bool;
+    type Error = AddError<LocalSrcError>;
+
+    fn toml(
+        self,
+        document: &mut toml_edit::DocumentMut,
+        _project: &ResolvedProject,
+    ) -> Result<bool, Self::Error> {
+        add_toml(document, &self.usage)
+    }
+
+    fn json(
+        self,
+        _project: &LocalSrcProject,
+        info: &mut InterchangeProjectInfoRaw,
+        _meta: &mut InterchangeProjectMetadataRaw,
+    ) -> Result<bool, Self::Error> {
+        add_json(info, &self.usage.into())
+    }
+}
+
+/// Replacing the index usage `placeholder`, which was added to settle its
+/// spelling and constraint later, with the index usage of `publisher`,
+/// `name` and `version_constraint`, in the same place.
+#[cfg(feature = "filesystem")]
+#[derive(Debug)]
+pub struct SettleUsage {
+    /// The placeholder as a json usage.
+    pub placeholder: InterchangeProjectUsageRaw,
+    /// The placeholder's identity in a `model.toml`.
+    pub placeholder_identity: NormalizedIdentity,
+    pub publisher: IndexPublisher,
+    pub name: IndexName,
+    pub version_constraint: VersionReq,
+}
+
+#[cfg(feature = "filesystem")]
+impl ManifestEdit for SettleUsage {
+    type Output = ();
+    type Error = AddError<LocalSrcError>;
+
+    fn toml(
+        self,
+        document: &mut toml_edit::DocumentMut,
+        _project: &ResolvedProject,
+    ) -> Result<(), Self::Error> {
+        let settled = MemberUsage::Declared(Usage::Index {
+            publisher: self.publisher,
+            name: self.name,
+            version_constraint: self.version_constraint,
+        });
+        edit::replace_usage(document, &self.placeholder_identity, &settled).map_err(AddError::Edit)
+    }
+
+    fn json(
+        self,
+        _project: &LocalSrcProject,
+        info: &mut InterchangeProjectInfoRaw,
+        _meta: &mut InterchangeProjectMetadataRaw,
+    ) -> Result<(), Self::Error> {
+        let settled = InterchangeProjectUsageRaw::Index {
+            publisher: self.publisher.as_str().to_owned(),
+            name: self.name.as_str().to_owned(),
+            version_constraint: self.version_constraint.to_string(),
+        };
+        for usage in &mut info.usage {
+            if *usage == self.placeholder {
+                usage.clone_from(&settled);
+            }
+        }
+        Ok(())
+    }
+}
+
+/// `add` on a json project.
+#[cfg(feature = "filesystem")]
+pub(crate) fn add_json<E>(
+    info: &mut InterchangeProjectInfoRaw,
+    usage: &InterchangeProjectUsageRaw,
+) -> Result<bool, AddError<E>> {
+    let mut dont_add = false;
+    match usage {
+        InterchangeProjectUsageRaw::Resource {
+            resource: new_resource,
+            version_constraint: new_vc,
+        } => {
+            for u in &mut info.usage {
+                if let InterchangeProjectUsageRaw::Resource {
+                    resource,
+                    version_constraint,
+                } = u
+                    && resource == new_resource
+                {
+                    match (&new_vc, version_constraint) {
+                        (None, None) => {
+                            log::warn!(
+                                "ignoring usage `{new_resource}`,\n\
+                                     {SP:>8} since it is already present"
+                            );
+                            return Ok(false);
+                        }
+                        (None, Some(vc)) => {
+                            log::warn!(
+                                "ignoring usage `{new_resource}`\n\
+                                     {SP:>8} without a version constraint, since it is already present with\n\
+                                     {SP:>8} version constraint `{vc}`",
+                            );
+                            return Ok(false);
+                        }
+                        (Some(vc), vc_current @ None) => {
+                            log::warn!(
+                                "usage `{new_resource}` is already present,\n\
+                                     {SP:>8} but without a version constraint; version constraint\n\
+                                     {SP:>8} `{vc}` will be added to it",
+                            );
+                            *vc_current = Some(vc.to_owned());
+                            dont_add = true;
+                        }
+                        (Some(vc_new), Some(vc_current)) => {
+                            if vc_new == vc_current {
                                 log::warn!(
-                                    "ignoring usage `{new_resource}`,\n\
-                                         {SP:>8} since it is already present"
+                                    "ignoring usage `{new_resource}` with version constraint\n\
+                                         {SP:>8} `{vc_new}`, since it is already present with identical version constraint",
                                 );
                                 return Ok(false);
-                            }
-                            (None, Some(vc)) => {
+                            } else {
+                                // Replaced, as `cargo add` does
                                 log::warn!(
-                                    "ignoring usage `{new_resource}`\n\
-                                         {SP:>8} without a version constraint, since it is already present with\n\
-                                         {SP:>8} version constraint `{vc}`",
+                                    "usage `{new_resource}` is already present with version constraint\n\
+                                         {SP:>8} `{vc_current}`, which is replaced by `{vc_new}`",
                                 );
-                                return Ok(false);
-                            }
-                            (Some(vc), vc_current @ None) => {
-                                log::warn!(
-                                    "usage `{new_resource}` is already present,\n\
-                                         {SP:>8} but without a version constraint; version constraint\n\
-                                         {SP:>8} `{vc}` will be added to it",
-                                );
-                                *vc_current = Some(vc.to_owned());
+                                vc_new.clone_into(vc_current);
                                 dont_add = true;
                             }
-                            (Some(vc_new), Some(vc_current)) => {
-                                if vc_new == vc_current {
-                                    log::warn!(
-                                        "ignoring usage `{new_resource}` with version constraint\n\
-                                             {SP:>8} `{vc_new}`, since it is already present with identical version constraint",
-                                    );
-                                    return Ok(false);
-                                } else {
-                                    // Replaced, as `cargo add` does
-                                    log::warn!(
-                                        "usage `{new_resource}` is already present with version constraint\n\
-                                             {SP:>8} `{vc_current}`, which is replaced by `{vc_new}`",
-                                    );
-                                    vc_new.clone_into(vc_current);
-                                    dont_add = true;
-                                }
-                            }
                         }
-                        break;
                     }
-                }
-            }
-            InterchangeProjectUsageRaw::Directory {
-                dir: new_dir,
-                publisher: new_publisher,
-                name: new_name,
-            } => {
-                // It might be desirable to merge different path-like usages
-                // (`file:`, dir, kpar_path) or alternatively error out if
-                // a path-like usage of that path already exists, but it is not
-                // currently done.
-                for u in &mut info.usage {
-                    if let InterchangeProjectUsageRaw::Directory {
-                        dir,
-                        publisher,
-                        name,
-                    } = u
-                        && try_merge_path_usage(
-                            "path",
-                            dir,
-                            publisher,
-                            name,
-                            new_dir,
-                            new_publisher,
-                            new_name,
-                        )
-                    {
-                        dont_add = true;
-                        break;
-                    }
-                }
-            }
-            InterchangeProjectUsageRaw::KparPath {
-                kpar_path: new_kpar_path,
-                publisher: new_publisher,
-                name: new_name,
-            } => {
-                for u in &mut info.usage {
-                    if let InterchangeProjectUsageRaw::KparPath {
-                        kpar_path,
-                        publisher,
-                        name,
-                    } = u
-                        && try_merge_path_usage(
-                            "file",
-                            kpar_path,
-                            publisher,
-                            name,
-                            new_kpar_path,
-                            new_publisher,
-                            new_name,
-                        )
-                    {
-                        dont_add = true;
-                        break;
-                    }
-                }
-            }
-            InterchangeProjectUsageRaw::Index {
-                publisher: new_publisher,
-                name: new_name,
-                version_constraint: new_vc,
-            } => {
-                for u in &mut info.usage {
-                    let InterchangeProjectUsageRaw::Index {
-                        publisher,
-                        name,
-                        version_constraint,
-                    } = u
-                    else {
-                        continue;
-                    };
-                    if publisher != new_publisher || name != new_name {
-                        continue;
-                    }
-                    if new_vc == version_constraint {
-                        log::warn!(
-                            "ignoring usage `{new_publisher}/{new_name}` with version constraint\n\
-                             {SP:>8} `{new_vc}`, since it is already present with identical version constraint",
-                        );
-                        return Ok(false);
-                    }
-                    // Replaced, as `cargo add` does
-                    log::warn!(
-                        "usage `{new_publisher}/{new_name}` is already present with version\n\
-                         {SP:>8} constraint `{version_constraint}`, which is replaced by `{new_vc}`",
-                    );
-                    new_vc.clone_into(version_constraint);
-                    dont_add = true;
                     break;
                 }
             }
         }
-        if !dont_add {
-            // Every same-kind usage spelled the same has been merged above, so
-            // anything left sharing this usage's identity is either of the
-            // same kind but spelled differently, or of a different kind: the
-            // same project declared twice, from two sources.
-            if let Some(identifier) = Identifier::from_unvalidated_usage(&usage)
-                && let Some(existing) = declared(&info.usage, &identifier)
-            {
-                return Err(refusal(
-                    identifier,
-                    existing,
-                    usage.kind_with_article(),
-                    usage.typed_publisher_name(),
-                ));
+        InterchangeProjectUsageRaw::Directory {
+            dir: new_dir,
+            publisher: new_publisher,
+            name: new_name,
+        } => {
+            // It might be desirable to merge different path-like usages
+            // (`file:`, dir, kpar_path) or alternatively error out if
+            // a path-like usage of that path already exists, but it is not
+            // currently done.
+            for u in &mut info.usage {
+                let InterchangeProjectUsageRaw::Directory {
+                    dir,
+                    publisher,
+                    name,
+                } = u
+                else {
+                    continue;
+                };
+                match merge_located_usage(
+                    "path",
+                    dir,
+                    publisher,
+                    name,
+                    new_dir,
+                    new_publisher,
+                    new_name,
+                ) {
+                    Merge::Identical => return Ok(false),
+                    Merge::Merged => {
+                        dont_add = true;
+                        break;
+                    }
+                    Merge::Unrelated => {}
+                }
             }
-            info.usage.push(usage);
         }
-        project.put_info(info, true).map_err(AddError::Project)?;
-        Ok(true)
-    } else {
-        Err(AddError::MissingInfo(
-            "project is missing the interchange project information",
-        ))
+        InterchangeProjectUsageRaw::KparPath {
+            kpar_path: new_kpar_path,
+            publisher: new_publisher,
+            name: new_name,
+        } => {
+            for u in &mut info.usage {
+                let InterchangeProjectUsageRaw::KparPath {
+                    kpar_path,
+                    publisher,
+                    name,
+                } = u
+                else {
+                    continue;
+                };
+                match merge_located_usage(
+                    "file",
+                    kpar_path,
+                    publisher,
+                    name,
+                    new_kpar_path,
+                    new_publisher,
+                    new_name,
+                ) {
+                    Merge::Identical => return Ok(false),
+                    Merge::Merged => {
+                        dont_add = true;
+                        break;
+                    }
+                    Merge::Unrelated => {}
+                }
+            }
+        }
+        InterchangeProjectUsageRaw::RemoteKpar {
+            kpar_url: new_kpar_url,
+            publisher: new_publisher,
+            name: new_name,
+        } => {
+            for u in &mut info.usage {
+                let InterchangeProjectUsageRaw::RemoteKpar {
+                    kpar_url,
+                    publisher,
+                    name,
+                } = u
+                else {
+                    continue;
+                };
+                match merge_located_usage(
+                    "KPAR URL",
+                    kpar_url,
+                    publisher,
+                    name,
+                    new_kpar_url,
+                    new_publisher,
+                    new_name,
+                ) {
+                    Merge::Identical => return Ok(false),
+                    Merge::Merged => {
+                        dont_add = true;
+                        break;
+                    }
+                    Merge::Unrelated => {}
+                }
+            }
+        }
+        InterchangeProjectUsageRaw::Index {
+            publisher: new_publisher,
+            name: new_name,
+            version_constraint: new_vc,
+        } => {
+            for u in &mut info.usage {
+                let InterchangeProjectUsageRaw::Index {
+                    publisher,
+                    name,
+                    version_constraint,
+                } = u
+                else {
+                    continue;
+                };
+                if publisher != new_publisher || name != new_name {
+                    continue;
+                }
+                if new_vc == version_constraint {
+                    log::warn!(
+                        "ignoring usage `{new_publisher}/{new_name}` with version constraint\n\
+                         {SP:>8} `{new_vc}`, since it is already present with identical version constraint",
+                    );
+                    return Ok(false);
+                }
+                // Replaced, as `cargo add` does
+                log::warn!(
+                    "usage `{new_publisher}/{new_name}` is already present with version\n\
+                     {SP:>8} constraint `{version_constraint}`, which is replaced by `{new_vc}`",
+                );
+                new_vc.clone_into(version_constraint);
+                dont_add = true;
+                break;
+            }
+        }
     }
+    if !dont_add {
+        // Every same-kind usage spelled the same has been merged above, so
+        // anything left sharing this usage's identity is either of the
+        // same kind but spelled differently, or of a different kind: the
+        // same project declared twice, from two sources.
+        if let Some(identifier) = Identifier::from_unvalidated_usage(usage)
+            && let Some(existing) = declared(&info.usage, &identifier)
+        {
+            return Err(refusal(
+                identifier,
+                existing,
+                usage.kind_with_article(),
+                usage.typed_publisher_name(),
+            ));
+        }
+        info.usage.push(usage.clone());
+    }
+    Ok(true)
 }
 
 #[cfg(test)]

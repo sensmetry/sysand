@@ -2,8 +2,7 @@
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
 //! `lib_main` produces the process's exit code as a number, so an embedder
-//! can pass it on. `std::process::ExitCode` can be returned from `main` but
-//! not inspected, which is why `main.rs` does the wrapping rather than this.
+//! can pass it on.
 //!
 //! Parse-level cases only: they depend on neither the current directory nor
 //! the environment, so they are safe in a parallel in-process harness. The

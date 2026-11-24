@@ -21,15 +21,13 @@ use crate::{
 pub enum IndexRemoveError {
     #[error("index root directory `{0}` not found")]
     IndexRootNotFound(Utf8PathBuf),
-    #[error(
-        "directory `{index_root}` is not an index as it doesn't have {INDEX_FILE_NAME} file; make sure you run `sysand index init` in this directory before adding any packages"
-    )]
+    #[error("directory `{index_root}` is not an index: it has no {INDEX_FILE_NAME} file")]
     NotAnIndex {
         index_root: Utf8PathBuf,
         #[source]
         source: Box<FsIoError>,
     },
-    #[error("Project {iri} doesn't exist")]
+    #[error("project {iri} doesn't exist")]
     ProjectNotFound { iri: Box<str> },
     #[error(transparent)]
     Io(#[from] Box<FsIoError>),
@@ -47,8 +45,7 @@ pub enum IndexRemoveError {
 
 #[derive(Debug)]
 pub enum RemoveTarget {
-    // It's String and not semver::Version because it's good to allow removing a non-semantic
-    // version
+    // A String, so a non-semantic version can be removed
     Version(String),
     Project,
 }
@@ -93,9 +90,8 @@ pub fn do_index_remove<I: AsRef<str>, R: AsRef<Utf8Path>>(
     let header = crate::style::get_style_config().header;
     match target {
         RemoveTarget::Version(version) => {
-            // Specifically don't report any errors if the version is not a valid semver,
-            // since if the project with invalid semver got in there somehow, it should
-            // be possible to remove
+            // The version is not required to be valid semver, so that an entry
+            // with an invalid version can still be removed.
             log::info!("{header}{removing:>12}{header:#} {iri} version {version}");
             let mut version_found = false;
             remove_versions(
@@ -133,7 +129,7 @@ pub fn do_index_remove<I: AsRef<str>, R: AsRef<Utf8Path>>(
                 &versions_path,
                 &mut versions_file,
                 &mut versions_value,
-                |v| !matches!(v.status, VersionStatus::Removed),
+                |v| v.status != VersionStatus::Removed,
             )?;
             overwrite_file(&mut index_file, &index_path, &index_str)?;
             Ok(())
@@ -160,7 +156,7 @@ fn remove_versions<F: FnMut(&VersionEntry) -> bool>(
     versions_value: &mut VersionsJson,
     mut if_remove_version: F,
 ) -> Result<(), IndexRemoveError> {
-    // This instead .iter_mut() to appease the borrow checker
+    // Indexed to appease the borrow checker
     for i in 0..versions_value.versions.len() {
         let version_entry = &mut versions_value.versions[i];
         if if_remove_version(version_entry) {

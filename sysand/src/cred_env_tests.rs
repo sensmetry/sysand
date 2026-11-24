@@ -3,7 +3,10 @@
 
 use crate::cred_env::{CredEnvName, CredEnvRole, classify};
 
-#[expect(clippy::unnecessary_wraps)]
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "the helper must return an Option to match the call sites"
+)]
 fn grouped(stem: &str, role: CredEnvRole) -> Option<CredEnvName> {
     Some(CredEnvName::Grouped(stem.to_owned(), role))
 }

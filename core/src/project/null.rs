@@ -9,11 +9,12 @@ use std::{
 use futures::AsyncRead;
 use thiserror::Error;
 
+use crate::project::VersionAndUsage;
 use crate::{
     context::ProjectContext,
     lock::Source,
-    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
-    project::{ProjectRead, ProjectReadAsync},
+    manifest::edit::DocumentMut,
+    project::{ProjectDefinition, ProjectRead, ProjectReadAsync},
 };
 
 use super::ProjectChecksum;
@@ -23,7 +24,7 @@ pub struct NullProject {
     nothing: !,
 }
 
-#[derive(Error, Debug, Clone, Copy)]
+#[derive(Error, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NotARealProjectError {
     #[error("null project error")]
     NotARealProject,
@@ -53,15 +54,15 @@ impl AsyncRead for ImpossibleReader {
 impl ProjectRead for NullProject {
     type Error = NotARealProjectError;
 
-    fn get_project(
-        &self,
-    ) -> Result<
-        (
-            Option<InterchangeProjectInfoRaw>,
-            Option<InterchangeProjectMetadataRaw>,
-        ),
-        Self::Error,
-    > {
+    fn format(&self) -> Result<crate::project::ProjectFormat, Self::Error> {
+        match self.nothing {}
+    }
+
+    fn manifest_document(&self) -> Result<DocumentMut, crate::project::ManifestError<Self::Error>> {
+        match self.nothing {}
+    }
+
+    fn get_project(&self) -> Result<Option<ProjectDefinition>, Self::Error> {
         match self.nothing {}
     }
 
@@ -85,6 +86,10 @@ impl ProjectRead for NullProject {
         match self.nothing {}
     }
 
+    fn version_and_usage(&self) -> Result<Option<VersionAndUsage>, Self::Error> {
+        match self.nothing {}
+    }
+
     fn checksum_canonical_variant(&self) -> Result<ProjectChecksum, Self::Error> {
         match self.nothing {}
     }
@@ -97,15 +102,15 @@ impl ProjectRead for NullProject {
 impl ProjectReadAsync for NullProject {
     type Error = NotARealProjectError;
 
-    async fn get_project_async(
-        &self,
-    ) -> Result<
-        (
-            Option<InterchangeProjectInfoRaw>,
-            Option<InterchangeProjectMetadataRaw>,
-        ),
-        Self::Error,
-    > {
+    fn format(&self) -> Result<crate::project::ProjectFormat, Self::Error> {
+        match self.nothing {}
+    }
+
+    fn manifest_document(&self) -> Result<DocumentMut, crate::project::ManifestError<Self::Error>> {
+        match self.nothing {}
+    }
+
+    async fn get_project_async(&self) -> Result<Option<ProjectDefinition>, Self::Error> {
         match self.nothing {}
     }
 
@@ -126,6 +131,10 @@ impl ProjectReadAsync for NullProject {
     }
 
     fn source_may_offer_multiple_versions(&self) -> bool {
+        match self.nothing {}
+    }
+
+    async fn version_and_usage_async(&self) -> Result<Option<VersionAndUsage>, Self::Error> {
         match self.nothing {}
     }
 

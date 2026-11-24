@@ -1,0 +1,7 @@
+id: prefer-raw-string-literal
+language: rust
+severity: warning
+message: Consider using a raw string literal (`r#"..."#`) instead of escaping multiple double quotes.
+rule:
+  kind: string_literal
+  regex: '(?s)^"((?:[^"\\]|\\.)*\\"){3}'

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-use std::{collections::HashMap, str::FromStr as _, sync::Arc};
+use std::{collections::HashMap, sync::Arc};
 
 use anyhow::{Result, anyhow, bail};
 
@@ -12,8 +12,8 @@ use semver::VersionReq;
 use sysand_core::{
     auth::HTTPAuthentication,
     commands::{
-        env::do_env_local_dir,
-        lock::{DeclaredBy, LockOutcome},
+        env::{self, do_env_local_dir},
+        lock::{self, DeclaredBy},
         sync::SyncOutcome,
     },
     config::Config,
@@ -22,26 +22,18 @@ use sysand_core::{
     lock::Lock,
     model::InterchangeProjectUsage,
     project::{
-        ProjectRead as _,
+        ProjectDefinition, ProjectRead as _,
         local_kpar::{KparInnerPath, LocalKParProject},
-        local_src::LocalSrcProject,
-        utils::wrapfs,
+        utils::{Identifier, wrapfs},
     },
-    resolve::{
-        ResolutionInfo, UsageOrigin,
-        file::FileResolverProject,
-        memory::{AcceptAll, MemoryResolver},
-        priority::PriorityResolver,
-        standard::standard_resolver,
-    },
+    resolve::{ResolutionInfo, file::FileResolverProject},
     utils::SP,
 };
 use typed_path::Utf8UnixPathBuf;
 
 use crate::{
     cli::{InstallOptions, ResolutionOptions},
-    commands::sync::command_sync,
-    default_index_location, get_overrides,
+    commands::{clone, lock::create_resolver_with_env, sync::command_sync},
 };
 
 pub fn command_env<P: AsRef<Utf8Path>>(path: P) -> Result<LocalDirectoryEnvironment> {
@@ -63,12 +55,7 @@ pub fn command_env_install<Policy: HTTPAuthentication>(
     mut ctx: ProjectContext,
 ) -> Result<()> {
     let project_root = project_root.unwrap_or_else(|| ctx.current_directory.clone());
-    let env = crate::get_or_create_env(
-        ctx.env,
-        ctx.current_workspace.as_ref(),
-        ctx.current_project.as_ref(),
-        &ctx.current_directory,
-    )?;
+    let env = crate::get_or_create_env(&mut ctx)?;
     ctx.env = Some(env);
 
     let InstallOptions {
@@ -76,12 +63,7 @@ pub fn command_env_install<Policy: HTTPAuthentication>(
         allow_multiple,
         no_deps,
     } = install_opts;
-    let ResolutionOptions {
-        index,
-        default_index,
-        no_index,
-        include_std,
-    } = resolution_opts;
+    let include_std = resolution_opts.include_std;
 
     // TODO: should probably first check that current project exists
     let provided_usages = if include_std {
@@ -95,38 +77,17 @@ pub fn command_env_install<Policy: HTTPAuthentication>(
         sysml_std
     };
 
-    let index_urls = if no_index {
-        None
-    } else {
-        Some(config.index_urls(index, vec![default_index_location()], default_index))
-    };
-
-    let overrides = get_overrides(
+    // TODO: Move out the runtime
+    let resolver = create_resolver_with_env(
+        None,
+        resolution_opts,
         config,
-        &project_root,
-        &client,
+        &ctx,
+        provided_usages.clone(),
+        client.clone(),
         runtime.clone(),
         auth_policy.clone(),
     )?;
-
-    let override_resolver = PriorityResolver::new(
-        MemoryResolver::resources_only(overrides),
-        MemoryResolver {
-            iri_predicate: AcceptAll {},
-            projects: provided_usages.clone(),
-        },
-    );
-    // TODO: Move out the runtime
-    let resolver = PriorityResolver::new(
-        override_resolver,
-        standard_resolver(
-            None,
-            Some(client.clone()),
-            index_urls,
-            runtime.clone(),
-            auth_policy.clone(),
-        )?,
-    );
 
     // TODO: don't use different root project resolution
     //       mechanisms depending on no_deps
@@ -134,11 +95,19 @@ pub fn command_env_install<Policy: HTTPAuthentication>(
         let id = iri.to_string();
         let resolve = ResolutionInfo::iri(iri);
         let (version, storage) =
-            crate::commands::clone::get_project_version(&resolve, version_constraint, &resolver)?;
-        sysand_core::commands::env::do_env_install_project(
+            clone::get_project_version(&resolve, version_constraint, &resolver)?;
+        let definition = storage
+            .get_project()?
+            .ok_or_else(|| anyhow!("missing project info"))?;
+        // TODO: install `model.toml` projects, rewriting path usages as a build does.
+        if let ProjectDefinition::Toml(_) = &definition {
+            bail!("`{resolve}` is a `model.toml` project, which cannot be copied yet");
+        }
+        env::do_env_install_project(
             id,
             &version.to_string(),
             &storage,
+            definition,
             Some(storage.checksum_canonical_variant()?),
             // Initialized above
             &mut ctx.env.unwrap(),
@@ -146,27 +115,15 @@ pub fn command_env_install<Policy: HTTPAuthentication>(
             allow_multiple,
         )?;
     } else {
-        // The usage was written on the command line rather than read
-        // from a manifest, so it takes the json origin.
         let usages = [(
             InterchangeProjectUsage::Resource {
-                resource: Iri::from_str(iri.as_ref())?,
+                resource: iri,
                 version_constraint,
             },
             DeclaredBy::Input("the command line".to_owned()),
-            UsageOrigin::Json,
         )];
 
-        let LockOutcome {
-            lock,
-            dependencies: _dependencies,
-        } = sysand_core::commands::lock::do_lock_extend(
-            Lock::default(),
-            usages,
-            resolver,
-            &provided_usages,
-            &ctx,
-        )?;
+        let lock = lock::do_lock_extend(Lock::default(), usages, resolver, &provided_usages, &ctx)?;
         // Find if we added any std lib dependencies. This relies on `Lock::default()`
         // and `do_lock_extend()` to not read the existing lockfile, i.e. `lock` contains
         // only `iri` and `iri`'s dependencies.
@@ -187,14 +144,16 @@ pub fn command_env_install<Policy: HTTPAuthentication>(
         command_sync(
             &lock,
             project_root,
+            // The lock holds a resolved IRI and its dependencies, never a member.
+            None,
             &mut ctx.env.unwrap(),
             client,
             &provided_usages,
             runtime,
             auth_policy,
-            ctx.current_workspace.as_ref(),
             // Since this explicitly installs into env, it would not make sense to prune
             true,
+            ctx.cancellation,
             &mut SyncOutcome::default(),
         )?;
     }
@@ -217,12 +176,7 @@ pub fn command_env_install_path<Policy: HTTPAuthentication>(
     mut ctx: ProjectContext,
 ) -> Result<()> {
     let project_root = project_root.unwrap_or_else(|| ctx.current_directory.clone());
-    let env = crate::get_or_create_env(
-        ctx.env,
-        ctx.current_workspace.as_ref(),
-        ctx.current_project.as_ref(),
-        &ctx.current_directory,
-    )?;
+    let env = crate::get_or_create_env(&mut ctx)?;
     ctx.env = Some(env);
 
     let InstallOptions {
@@ -230,21 +184,16 @@ pub fn command_env_install_path<Policy: HTTPAuthentication>(
         allow_multiple,
         no_deps,
     } = install_opts;
-    let ResolutionOptions {
-        index,
-        default_index,
-        no_index,
-        include_std,
-    } = resolution_opts;
+    let include_std = resolution_opts.include_std;
 
     let metadata = wrapfs::metadata(&path)?;
     let project = if metadata.is_dir() {
-        FileResolverProject::LocalSrcProject(LocalSrcProject::new_access(
+        FileResolverProject::LocalSrcProject(ctx.project_at_path(
             path.as_str(),
             // Provide an empty nominal path to satisfy lock. It won't be used for actual
             // syncing, as the project is installed manually
             Some(Utf8UnixPathBuf::new()),
-        ))
+        )?)
     } else if metadata.is_file() {
         FileResolverProject::LocalKParProject(LocalKParProject::new_access(
             &path,
@@ -266,16 +215,17 @@ pub fn command_env_install_path<Policy: HTTPAuthentication>(
         sysml_std
     };
 
-    let index_urls = if no_index {
-        None
-    } else {
-        Some(config.index_urls(index, vec![default_index_location()], default_index))
-    };
-
-    let project_version = project
-        .get_info()?
-        .ok_or_else(|| anyhow!("missing project info"))?
-        .version;
+    let definition = project
+        .get_project()?
+        .ok_or_else(|| anyhow!("missing project info"))?;
+    // TODO: install `model.toml` projects, rewriting path usages as a build does.
+    if let ProjectDefinition::Toml(manifest) = &definition {
+        bail!(
+            "`{}` is a `model.toml` project, which cannot be copied yet",
+            manifest.name.as_str()
+        );
+    }
+    let project_version = definition.version();
     if let Some(version) = version
         && version != project_version
     {
@@ -285,47 +235,30 @@ pub fn command_env_install_path<Policy: HTTPAuthentication>(
     // TODO: Fix this hack. Manual installation needed to respect `allow_overwrite`/`allow_multiple`.
     // Lockfile generation should be configurable. How to handle allow_overwrite/allow_multiple
     // for dependencies? How about when syncing (e.g. after `add`)?
-    sysand_core::commands::env::do_env_install_project(
+    env::do_env_install_project(
         iri.as_str(),
         &project_version,
         &project,
+        definition,
         Some(project.checksum_canonical_variant()?),
         ctx.env.as_mut().unwrap(),
         allow_overwrite,
         allow_multiple,
     )?;
     if !no_deps {
-        let overrides = get_overrides(
+        // TODO: Move out the runtime
+        let resolver = create_resolver_with_env(
+            None,
+            resolution_opts,
             config,
-            &project_root,
-            &client,
+            &ctx,
+            provided_usages.clone(),
+            client.clone(),
             runtime.clone(),
             auth_policy.clone(),
         )?;
-
-        let override_resolver = PriorityResolver::new(
-            MemoryResolver::resources_only(overrides),
-            MemoryResolver {
-                iri_predicate: AcceptAll {},
-                projects: provided_usages.clone(),
-            },
-        );
-        // TODO: Move out the runtime
-        let resolver = PriorityResolver::new(
-            override_resolver,
-            standard_resolver(
-                None,
-                Some(client.clone()),
-                index_urls,
-                runtime.clone(),
-                auth_policy.clone(),
-            )?,
-        );
-        let LockOutcome {
-            mut lock,
-            dependencies: _dependencies,
-        } = sysand_core::commands::lock::do_lock_projects(
-            [(Some(vec![iri]), &project)],
+        let mut lock = lock::do_lock_projects(
+            [(Some(vec![Identifier::from_iri_owned(iri)]), &project)],
             resolver,
             &provided_usages,
             &ctx,
@@ -337,14 +270,16 @@ pub fn command_env_install_path<Policy: HTTPAuthentication>(
         command_sync(
             &lock,
             project_root,
+            // The lock holds a resolved IRI and its dependencies, never a member.
+            None,
             &mut ctx.env.unwrap(),
             client,
             &provided_usages,
             runtime,
             auth_policy,
-            ctx.current_workspace.as_ref(),
             // Since this explicitly installs into env, it would not make sense to prune
             true,
+            ctx.cancellation.clone(),
             &mut SyncOutcome::default(),
         )?;
     }
@@ -357,7 +292,7 @@ pub fn command_env_uninstall<S: AsRef<str>, V: AsRef<str>>(
     version: Option<V>,
     mut env: LocalDirectoryEnvironment,
 ) -> Result<()> {
-    sysand_core::commands::env::do_env_uninstall(&iri, version.as_ref(), &mut env)?;
+    env::do_env_uninstall(&iri, version.as_ref(), &mut env)?;
     env.write()?;
 
     Ok(())
@@ -368,7 +303,7 @@ pub fn command_env_list(env: Option<LocalDirectoryEnvironment>) -> Result<()> {
         bail!("unable to identify environment to list");
     };
 
-    for (uri, version) in sysand_core::commands::env::do_env_list(&env)? {
+    for (uri, version) in env::do_env_list(&env)? {
         println!("`{uri}` {}", version.unwrap_or_default());
     }
     Ok(())

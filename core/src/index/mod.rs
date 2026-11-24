@@ -8,3 +8,5 @@ pub use iri::ParseIriError;
 
 pub(crate) mod iri;
 pub(crate) mod model;
+
+pub use model::VersionsJsonError;

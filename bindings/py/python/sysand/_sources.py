@@ -25,7 +25,10 @@ def sources(
     combination of ``include_own`` and ``dependencies`` is valid.
 
     Args:
-        project_dir: The project directory, the one holding ``.project.json``.
+        project_dir: The project directory, the one holding its manifest. A
+            directory that is not a project's root, such as one inside a
+            project or a workspace root with no project of its own, raises
+            :class:`ProjectError`, also when ``include_own`` is false.
         include_own: Include the project's own sources.
         dependencies: Which dependency sources to list (see :class:`Dependencies`).
             Defaults to :attr:`Dependencies.DEPS` (dependencies, without the

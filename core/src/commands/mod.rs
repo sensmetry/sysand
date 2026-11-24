@@ -6,6 +6,8 @@ pub mod add;
 pub mod auth;
 #[cfg(feature = "filesystem")]
 pub mod build;
+#[cfg(test)]
+pub(crate) mod edit_testing;
 pub mod env;
 pub mod exclude;
 pub mod include;
@@ -14,6 +16,7 @@ pub mod index;
 pub mod info;
 pub mod init;
 pub mod lock;
+pub mod migrate;
 #[cfg(all(feature = "filesystem", feature = "networking"))]
 pub mod publish;
 pub mod remove;
@@ -22,4 +25,6 @@ pub mod root;
 pub mod sources;
 pub mod sync;
 pub mod usage;
+#[cfg(feature = "filesystem")]
+pub mod verify;
 pub mod versions;

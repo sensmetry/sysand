@@ -107,6 +107,23 @@ pub(crate) fn move_fs_item<P: AsRef<Utf8Path>, Q: AsRef<Utf8Path>>(
     }
 }
 
+/// [`move_fs_item`], except that a missing `src` is not an error.
+fn move_fs_item_if_present<P: AsRef<Utf8Path>, Q: AsRef<Utf8Path>>(
+    src: P,
+    dst: Q,
+) -> Result<(), Box<FsIoError>> {
+    match move_fs_item(&src, dst) {
+        Err(err) if err.kind() == io::ErrorKind::NotFound => {
+            if wrapfs::exists(src)? {
+                Err(err)
+            } else {
+                Ok(())
+            }
+        }
+        result => result,
+    }
+}
+
 /// Try moving paths from sources (`paths[].0`) to destinations (`paths[].1`). Sources can
 /// overlap with destinations and it won't cause loss of any source contents, as all sources
 /// are moved to a separate location before attempting any moves to destinations.
@@ -135,9 +152,7 @@ pub fn try_move_files(paths: &[(&Utf8Path, &Utf8Path)]) -> Result<(), TryMoveErr
         for (i, (path, _)) in paths.iter().enumerate() {
             let src_path = tempdir.path().join(format!("src_{i}"));
 
-            if src_path.exists()
-                && let Err(err) = move_fs_item(src_path, path)
-            {
+            if let Err(err) = move_fs_item_if_present(src_path, path) {
                 return Err(TryMoveError::CatastrophicIO { err, source: cause });
             }
         }
@@ -149,12 +164,10 @@ pub fn try_move_files(paths: &[(&Utf8Path, &Utf8Path)]) -> Result<(), TryMoveErr
 
     // Move target files out of the way
     for (i, (_, path)) in paths.iter().enumerate() {
-        if path.exists() {
-            let trg_path = tempdir.path().join(format!("trg_{i}"));
-            if let Err(e) = move_fs_item(path, trg_path) {
-                last_err = Some(e);
-                break;
-            }
+        let trg_path = tempdir.path().join(format!("trg_{i}"));
+        if let Err(e) = move_fs_item_if_present(path, trg_path) {
+            last_err = Some(e);
+            break;
         }
     }
 
@@ -163,9 +176,7 @@ pub fn try_move_files(paths: &[(&Utf8Path, &Utf8Path)]) -> Result<(), TryMoveErr
         for (i, (_, path)) in paths.iter().enumerate() {
             let trg_path = tempdir.path().join(format!("trg_{i}"));
 
-            if trg_path.exists()
-                && let Err(err) = move_fs_item(trg_path, path)
-            {
+            if let Err(err) = move_fs_item_if_present(trg_path, path) {
                 return Err(TryMoveError::CatastrophicIO { err, source: cause });
             }
         }
@@ -173,9 +184,7 @@ pub fn try_move_files(paths: &[(&Utf8Path, &Utf8Path)]) -> Result<(), TryMoveErr
         for (i, (path, _)) in paths.iter().enumerate() {
             let src_path = tempdir.path().join(format!("src_{i}"));
 
-            if src_path.exists()
-                && let Err(err) = move_fs_item(src_path, path)
-            {
+            if let Err(err) = move_fs_item_if_present(src_path, path) {
                 return Err(TryMoveError::CatastrophicIO { err, source: cause });
             }
         }
@@ -200,9 +209,7 @@ pub fn try_move_files(paths: &[(&Utf8Path, &Utf8Path)]) -> Result<(), TryMoveErr
         for (i, (_, path)) in paths.iter().enumerate() {
             let src_path = tempdir.path().join(format!("src_{i}"));
 
-            if path.exists()
-                && let Err(err) = move_fs_item(path, src_path)
-            {
+            if let Err(err) = move_fs_item_if_present(path, src_path) {
                 return Err(TryMoveError::CatastrophicIO { err, source: cause });
             }
         }
@@ -210,9 +217,7 @@ pub fn try_move_files(paths: &[(&Utf8Path, &Utf8Path)]) -> Result<(), TryMoveErr
         for (i, (_, path)) in paths.iter().enumerate() {
             let trg_path = tempdir.path().join(format!("trg_{i}"));
 
-            if trg_path.exists()
-                && let Err(err) = move_fs_item(trg_path, path)
-            {
+            if let Err(err) = move_fs_item_if_present(trg_path, path) {
                 return Err(TryMoveError::CatastrophicIO { err, source: cause });
             }
         }
@@ -220,9 +225,7 @@ pub fn try_move_files(paths: &[(&Utf8Path, &Utf8Path)]) -> Result<(), TryMoveErr
         for (i, (path, _)) in paths.iter().enumerate() {
             let src_path = tempdir.path().join(format!("src_{i}"));
 
-            if src_path.exists()
-                && let Err(err) = move_fs_item(src_path, path)
-            {
+            if let Err(err) = move_fs_item_if_present(src_path, path) {
                 return Err(TryMoveError::CatastrophicIO { err, source: cause });
             }
         }
@@ -232,65 +235,3 @@ pub fn try_move_files(paths: &[(&Utf8Path, &Utf8Path)]) -> Result<(), TryMoveErr
 
     Ok(())
 }
-
-// pub fn remove_dir_if_empty<P: AsRef<Utf8Path>>(path: P) -> Result<(), FsIoError> {
-//     match fs::remove_dir(path.as_ref()) {
-//         Err(err) if err.kind() == io::ErrorKind::DirectoryNotEmpty => Ok(()),
-//         r => r.map_err(|e| FsIoError::RmDir(path.to_path_buf(), e)),
-//     }
-// }
-
-// pub fn remove_empty_dirs<P: AsRef<Utf8Path>>(path: P) -> Result<(), FsIoError> {
-//     let mut dirs: Vec<_> = walkdir::WalkDir::new(path.as_ref())
-//         .into_iter()
-//         .filter_map(|e| e.ok())
-//         .filter_map(|e| {
-//             e.file_type()
-//                 .is_dir()
-//                 .then(|| Utf8PathBuf::from_path_buf(e.into_path()).ok())
-//                 .flatten()
-//         })
-//         .collect();
-
-//     dirs.sort_by(|a, b| b.cmp(a));
-
-//     for dir in dirs {
-//         remove_dir_if_empty(&dir)?;
-//     }
-
-//     Ok(())
-// }
-
-// pub fn try_remove_files<P: AsRef<Utf8Path>, I: Iterator<Item = P>>(
-//     paths: I,
-// ) -> Result<(), TryMoveError> {
-//     let tempdir = camino_tempfile::tempdir()
-//         .map_err(|e| TryMoveError::RecoveredIO(FsIoError::CreateTempFile(e).into()))?;
-//     let mut moved: Vec<Utf8PathBuf> = vec![];
-
-//     for (i, path) in paths.enumerate() {
-//         match move_fs_item(&path, tempdir.path().join(i.to_string())) {
-//             Ok(_) => {
-//                 moved.push(path.to_path_buf());
-//             }
-//             Err(cause) => {
-//                 // NOTE: This dance is to bypass the fact that std::io::error is not cloneable...
-//                 let mut catastrophic_error = None;
-//                 for (j, recover) in moved.iter().enumerate() {
-//                     if let Err(err) = move_fs_item(tempdir.path().join(j.to_string()), recover) {
-//                         catastrophic_error = Some(err);
-//                         break;
-//                     }
-//                 }
-
-//                 if let Some(err) = catastrophic_error {
-//                     return Err(TryMoveError::CatastrophicIO { err, cause });
-//                 } else {
-//                     return Err(TryMoveError::RecoveredIO(cause));
-//                 }
-//             }
-//         }
-//     }
-
-//     Ok(())
-// }

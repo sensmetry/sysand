@@ -8,70 +8,86 @@ use crate::{
 use camino::Utf8Path;
 use sysand_core::{
     auth::HTTPAuthentication,
+    cancel::CancellationToken,
     context::ProjectContext,
-    index_location::IndexLocation,
+    env::local_directory::LocalDirectoryEnvironment,
+    index_location::IndexSource,
+    manifest::project::{ProjectFiles, ResolvedProject},
     model::{
         InterchangeProjectChecksumRaw, InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw,
         InterchangeProjectUsageRaw,
     },
     project::{
-        ProjectMut, ProjectRead, any::OverrideProject, local_kpar::KparInnerPath, utils::Identifier,
+        ProjectDefinition, ProjectRead, any::OverrideProject, local_kpar::KparInnerPath,
+        local_src::LocalSrcProject, symbol_index, utils::Identifier,
     },
     resolve::{
-        ResolutionInfo, file::FileResolverProject, memory::MemoryResolver,
-        priority::PriorityResolver, standard::standard_resolver,
+        ResolutionInfo,
+        file::FileResolverProject,
+        memory::{AcceptResource, MemoryResolver},
+        priority::PriorityResolver,
+        standard::{StandardResolver, standard_resolver},
     },
     style,
-    utils::{ProvidedIdentifiers, format_err},
+    utils::ProvidedIdentifiers,
+    workspace::model_toml::Workspace,
 };
 
 use anstream::println;
 use anyhow::{Result, bail};
 use std::{collections::HashSet, sync::Arc};
 use sysand_core::{
-    info::{do_info_project, do_info_usage},
+    info::{InfoProjectError, do_info_project, do_info_usage},
+    project::local_kpar::LocalKParProject,
     project::utils::wrapfs,
-    project::{local_kpar::LocalKParProject, local_src::LocalSrcProject},
 };
 
-pub fn pprint_interchange_project(
-    info: &InterchangeProjectInfoRaw,
-    excluded_iris: &ProvidedIdentifiers,
-) {
+fn pprint_project(definition: &ProjectDefinition, excluded_iris: &ProvidedIdentifiers) {
     let header = style::get_style_config().header;
-    println!("{header}Name:{header:#} {}", info.name);
-    if let Some(publisher) = &info.publisher {
+    println!("{header}Name:{header:#} {}", definition.name());
+    if let Some(publisher) = definition.publisher() {
         println!("{header}Publisher:{header:#} {}", publisher);
     }
-    if let Some(description) = &info.description {
+    if let Some(description) = definition.description() {
         println!("{header}Description:{header:#} {}", description);
     }
-    println!("{header}Version:{header:#} {}", info.version);
-    if let Some(license) = &info.license {
+    println!("{header}Version:{header:#} {}", definition.version());
+    if let Some(license) = definition.license() {
         println!("{header}License:{header:#} {}", license);
     }
-    if let Some(website) = &info.website {
+    if let Some(website) = definition.website() {
         println!("{header}Website:{header:#} {}", website);
     }
-    if !info.maintainer.is_empty() {
+    let maintainers = definition.maintainers();
+    if !maintainers.is_empty() {
         println!(
             "{header}Maintainer(s):{header:#} {}",
-            info.maintainer.join(", ")
+            maintainers.join(", ")
         );
     }
-    if !info.topic.is_empty() {
-        println!("{header}Topics:{header:#} {}", info.topic.join(", "));
+    let topics = definition.topics();
+    if !topics.is_empty() {
+        println!("{header}Topics:{header:#} {}", topics.join(", "));
     }
-    if info.usage.is_empty() {
+    match definition {
+        ProjectDefinition::Toml(manifest) => pprint_toml_fields(manifest),
+        ProjectDefinition::Json { info: _, meta } => pprint_meta(meta),
+    }
+    let usages = definition.usages();
+    if usages.is_empty() {
         println!("No usages.");
     } else {
-        let usages_to_print: Vec<_> = info
-            .usage
+        let usages_to_print: Vec<_> = usages
             .iter()
             .filter(|u| match u {
                 InterchangeProjectUsageRaw::Resource {
                     resource,
                     version_constraint: _,
+                }
+                | InterchangeProjectUsageRaw::RemoteKpar {
+                    kpar_url: resource,
+                    publisher: _,
+                    name: _,
                 } => !excluded_iris.contains(resource),
                 InterchangeProjectUsageRaw::Directory {
                     dir: _,
@@ -90,7 +106,7 @@ pub fn pprint_interchange_project(
                 } => true,
             })
             .collect();
-        let has_ignored_usages = info.usage.len() > usages_to_print.len();
+        let has_ignored_usages = usages.len() > usages_to_print.len();
         if has_ignored_usages && usages_to_print.is_empty() {
             // TODO: distinguish between provided iris in general and std libs in
             // particular. Here it's assumed that non-empty excluded_iris == std is ignored,
@@ -115,69 +131,125 @@ pub fn pprint_interchange_project(
     }
 }
 
-/// How a local project path given on the command line is to be interpreted
-#[derive(Clone, Copy, Debug)]
-pub enum LocalProjectKind {
-    Dir,
-    Kpar,
-}
-
-fn interpret_project_path<P: AsRef<Utf8Path>>(
-    path: P,
-    kind: LocalProjectKind,
-) -> Result<FileResolverProject> {
-    let path = path.as_ref();
-    let metadata = wrapfs::metadata(path)?;
-    Ok(match kind {
-        LocalProjectKind::Dir => {
-            if !metadata.is_dir() {
-                bail!(
-                    "`{path}` is not a directory\n\
-                    {USAGE}hint:{USAGE:#} to use a KPAR, use `--kpar-path`"
-                );
-            }
-            FileResolverProject::LocalSrcProject(LocalSrcProject::new_access(path, None))
+/// The `model.toml` keys the shared report leaves out, with `sources`
+/// as a count.
+fn pprint_toml_fields(manifest: &ResolvedProject) {
+    let header = style::get_style_config().header;
+    for (key, url) in [
+        ("Documentation", &manifest.urls.documentation),
+        ("Repository", &manifest.urls.repository),
+    ] {
+        if let Some(url) = url {
+            println!("{header}{key}:{header:#} {url}");
         }
-        LocalProjectKind::Kpar => {
-            if !metadata.is_file() {
-                bail!(
-                    "`{path}` is not a file\n\
-                    {USAGE}hint:{USAGE:#} to use a directory, use `--dir`"
-                );
-            }
-            FileResolverProject::LocalKParProject(LocalKParProject::new_access(
-                path,
-                KparInnerPath::Guess,
-                None,
-            ))
-        }
-    })
-}
-
-pub fn command_info_path<P: AsRef<Utf8Path>>(
-    path: P,
-    kind: LocalProjectKind,
-    excluded_iris: &HashSet<Identifier>,
-) -> Result<()> {
-    let project = interpret_project_path(&path, kind)?;
-    match do_info_project(&project) {
-        Ok((info, _)) => {
-            pprint_interchange_project(&info, excluded_iris);
-
-            Ok(())
-        }
-        Err(err) => bail!(CliError::InvalidProject {
-            iri: path.as_ref().to_string(),
-            source: err
-        }),
+    }
+    println!("{header}Metamodel:{header:#} {}", manifest.metamodel);
+    if let Some(stdlib) = &manifest.stdlib {
+        println!("{header}Stdlib:{header:#} {stdlib}");
+    }
+    match &manifest.files {
+        ProjectFiles::Sources(sources) => println!(
+            "{header}Sources:{header:#} {}",
+            count(sources.as_slice().len(), "file")
+        ),
+        ProjectFiles::Root(root) => println!("{header}Root:{header:#} {root}"),
     }
 }
 
+/// The `.meta.json` fields, with `index`, `exports` and `checksum` as
+/// counts.
+fn pprint_meta(meta: &InterchangeProjectMetadataRaw) {
+    let header = style::get_style_config().header;
+    if let Some(metamodel) = &meta.metamodel {
+        println!("{header}Metamodel:{header:#} {metamodel}");
+    }
+    println!("{header}Created:{header:#} {}", meta.created);
+    if let Some(includes_derived) = meta.includes_derived {
+        println!("{header}Includes derived:{header:#} {includes_derived}");
+    }
+    if let Some(includes_implied) = meta.includes_implied {
+        println!("{header}Includes implied:{header:#} {includes_implied}");
+    }
+    if let Some(root) = &meta.root {
+        println!("{header}Root:{header:#} {root}");
+    }
+    if let Some(index) = &meta.index {
+        println!("{header}Index:{header:#} {}", count(index.len(), "symbol"));
+    }
+    if let Some(exports) = &meta.exports {
+        println!(
+            "{header}Exports:{header:#} {}",
+            count(exports.len(), "symbol")
+        );
+    }
+    if let Some(checksum) = &meta.checksum {
+        println!(
+            "{header}Checksums:{header:#} {}",
+            count(checksum.len(), "file")
+        );
+    }
+}
+
+/// `n` followed by `noun`, pluralized with an `s` unless `n` is 1.
+fn count(n: usize, noun: &str) -> String {
+    if n == 1 {
+        format!("{n} {noun}")
+    } else {
+        format!("{n} {noun}s")
+    }
+}
+
+fn interpret_kpar_path<P: AsRef<Utf8Path>>(path: P) -> Result<FileResolverProject> {
+    let path = path.as_ref();
+    if !wrapfs::metadata(path)?.is_file() {
+        bail!(
+            "`{path}` is not a file\n\
+            {USAGE}hint:{USAGE:#} to use a directory, use `--dir`"
+        );
+    }
+    Ok(FileResolverProject::LocalKParProject(
+        LocalKParProject::new_access(path, KparInnerPath::Guess, None),
+    ))
+}
+
+/// `info` on the KPAR at `path`: the whole report, or the field `get`.
+pub fn command_info_path<P: AsRef<Utf8Path>>(
+    path: P,
+    get: Option<InfoField>,
+    excluded_iris: &ProvidedIdentifiers,
+) -> Result<()> {
+    let project = interpret_kpar_path(&path)?;
+    let definition = do_info_project(&project).map_err(|source| CliError::InvalidProject {
+        iri: path.as_ref().to_string(),
+        source,
+    })?;
+    print_info(&project, &definition, get, excluded_iris)
+}
+
+/// `info` on the context's current project: the whole report, or the
+/// field `get`.
+pub fn command_info_current(
+    ctx: &ProjectContext,
+    project: &LocalSrcProject,
+    get: Option<InfoField>,
+    excluded_iris: &ProvidedIdentifiers,
+) -> Result<()> {
+    let definition = ctx
+        .current_definition()
+        .ok_or_else(|| CliError::InvalidProject {
+            iri: project.root_path().to_string(),
+            source: InfoProjectError::MissingProject,
+        })?;
+    print_info(project, definition, get, excluded_iris)
+}
+
+/// `info` on the project `resolve` resolves to: the whole report, or the
+/// field `get`.
 pub fn command_info_resolve<Policy: HTTPAuthentication>(
     resolve: ResolutionInfo,
-    _normalise: bool,
+    get: Option<InfoField>,
     client: reqwest_middleware::ClientWithMiddleware,
-    index_urls: Option<Vec<IndexLocation>>,
+    index_urls: Option<Vec<IndexSource>>,
     excluded_iris: &ProvidedIdentifiers,
     overrides: Vec<(Identifier, Vec<OverrideProject<Policy>>)>,
     runtime: Arc<tokio::runtime::Runtime>,
@@ -190,18 +262,61 @@ pub fn command_info_resolve<Policy: HTTPAuthentication>(
     // interchange project was not found without any hints that the provided
     // URI is invalid.
 
-    let combined_resolver = PriorityResolver::new(
-        MemoryResolver::resources_only(overrides),
-        standard_resolver(ctx.env, Some(client), index_urls, runtime, auth_policy)?,
+    let resolver = usage_resolver(
+        overrides,
+        ctx.env,
+        client,
+        index_urls,
+        runtime,
+        auth_policy,
+        ctx.cancellation,
     );
+    let (definition, project) = do_info_usage(resolve, &resolver)?;
+    print_info(&project, &definition, get, excluded_iris)
+}
 
-    let (info, _) = do_info_usage(resolve, &combined_resolver)?;
-    pprint_interchange_project(&info, excluded_iris);
+/// The resolver a usage is looked up with: the source overrides (of
+/// resource usages only), then `env` and the indexes.
+pub fn usage_resolver<Policy: HTTPAuthentication>(
+    overrides: Vec<(Identifier, Vec<OverrideProject<Policy>>)>,
+    env: Option<LocalDirectoryEnvironment>,
+    client: reqwest_middleware::ClientWithMiddleware,
+    index_urls: Option<Vec<IndexSource>>,
+    runtime: Arc<tokio::runtime::Runtime>,
+    auth_policy: Arc<Policy>,
+    cancellation: CancellationToken,
+) -> PriorityResolver<
+    MemoryResolver<AcceptResource, OverrideProject<Policy>>,
+    StandardResolver<Policy>,
+> {
+    PriorityResolver::new(
+        MemoryResolver::resources_only(overrides),
+        standard_resolver(
+            env,
+            Some(client),
+            index_urls,
+            runtime,
+            auth_policy,
+            cancellation,
+        ),
+    )
+}
+
+/// Print `definition`'s report, or the value of its field `get`.
+fn print_info<Project: ProjectRead>(
+    project: &Project,
+    definition: &ProjectDefinition,
+    get: Option<InfoField>,
+    excluded_iris: &ProvidedIdentifiers,
+) -> Result<()> {
+    match get {
+        None => pprint_project(definition, excluded_iris),
+        Some(field) => print_lines(field_lines(field, project, definition)?),
+    }
     Ok(())
 }
 
-/// Printed whenever the user sets a license, so that they know to add
-/// the license texts
+/// Printed whenever the user sets a license.
 pub fn log_license_files_note() {
     log::info!(
         "{GOOD}note{GOOD:#}: every license/exception should have its corresponding\n\
@@ -214,86 +329,82 @@ pub fn log_license_files_note() {
     )
 }
 
-/// Prints the value of `field` of `project`, a list field one entry per line
-pub fn command_info_field<Project: ProjectRead>(project: &Project, field: InfoField) -> Result<()> {
-    print_lines(field_lines(
-        field,
-        || get_info_or_bail(project),
-        || get_meta_or_bail(project),
-    )?);
-    Ok(())
-}
-
-pub fn command_info_field_path<P: AsRef<Utf8Path>>(
-    path: P,
-    kind: LocalProjectKind,
-    field: InfoField,
-) -> Result<()> {
-    command_info_field(&interpret_project_path(&path, kind)?, field)
-}
-
-pub fn command_info_field_resolve<Policy: HTTPAuthentication>(
-    resolve: ResolutionInfo,
-    field: InfoField,
-    client: reqwest_middleware::ClientWithMiddleware,
-    index_urls: Option<Vec<IndexLocation>>,
-    overrides: Vec<(Identifier, Vec<OverrideProject<Policy>>)>,
-    runtime: Arc<tokio::runtime::Runtime>,
-    auth_policy: Arc<Policy>,
-    ctx: ProjectContext,
-) -> Result<()> {
-    let combined_resolver = PriorityResolver::new(
-        MemoryResolver::resources_only(overrides),
-        standard_resolver(ctx.env, Some(client), index_urls, runtime, auth_policy)?,
-    );
-    let (info, meta) = do_info_usage(resolve, &combined_resolver)?;
-    print_lines(field_lines(field, || Ok(info), || Ok(meta))?);
-    Ok(())
-}
-
+/// The lines of one `--get`, one per line, each prefixed with the
+/// workspace member they came from, if any.
 fn print_lines(lines: Vec<String>) {
+    print_member_lines(None, lines);
+}
+
+fn print_member_lines(member: Option<&str>, lines: Vec<String>) {
     for line in lines {
-        println!("{line}");
+        match member {
+            Some(member) => println!("{member}: {line}"),
+            None => println!("{line}"),
+        }
     }
 }
 
 /// The value of `field`, a list field one entry per line, nothing if not set.
-/// Only the manifest holding the field is read
-fn field_lines(
+fn field_lines<Project: ProjectRead>(
     field: InfoField,
-    info: impl FnOnce() -> Result<InterchangeProjectInfoRaw>,
-    meta: impl FnOnce() -> Result<InterchangeProjectMetadataRaw>,
+    project: &Project,
+    definition: &ProjectDefinition,
 ) -> Result<Vec<String>> {
-    Ok(match field {
-        InfoField::Name => vec![info()?.name],
-        InfoField::Publisher => info()?.publisher.into_iter().collect(),
-        InfoField::Description => info()?.description.into_iter().collect(),
-        InfoField::Version => vec![info()?.version],
-        InfoField::License => info()?.license.into_iter().collect(),
-        InfoField::Maintainer => info()?.maintainer,
-        InfoField::Website => info()?.website.into_iter().collect(),
-        InfoField::Topic => info()?.topic,
-        InfoField::Usage => info()?.usage.iter().map(ToString::to_string).collect(),
-        InfoField::Index => meta()?
-            .index
-            .into_iter()
-            .map(|(symbol, path)| format!("`{symbol}` in `{path}`"))
-            .collect(),
-        InfoField::Created => vec![meta()?.created],
-        InfoField::Metamodel => meta()?.metamodel.into_iter().collect(),
-        InfoField::IncludesDerived => meta()?
+    match definition {
+        ProjectDefinition::Json { info, meta } => Ok(json_field_lines(field, info, meta)),
+        ProjectDefinition::Toml(manifest) => toml_field_lines(field, project, definition, manifest),
+    }
+}
+
+fn json_field_lines(
+    field: InfoField,
+    info: &InterchangeProjectInfoRaw,
+    meta: &InterchangeProjectMetadataRaw,
+) -> Vec<String> {
+    match field {
+        InfoField::Name => vec![info.name.clone()],
+        InfoField::Publisher => info.publisher.iter().cloned().collect(),
+        InfoField::Description => info.description.iter().cloned().collect(),
+        InfoField::Version => vec![info.version.clone()],
+        InfoField::License => info.license.iter().cloned().collect(),
+        InfoField::Maintainer => info.maintainer.clone(),
+        InfoField::Website => info.website.iter().cloned().collect(),
+        InfoField::Topic => info.topic.clone(),
+        InfoField::Usage => info.usage.iter().map(ToString::to_string).collect(),
+        InfoField::Index => {
+            // A root-shaped document has no `index`; the list stays the
+            // list a script reads, and the explanation goes to stderr.
+            if meta.index.is_none() {
+                log::warn!(
+                    "the project has no `index`; a Syside KPAR carries `root` and `exports`"
+                );
+            }
+            index_lines(meta.index.iter().flatten())
+        }
+        InfoField::Created => vec![meta.created.clone()],
+        InfoField::Root => meta.root.iter().cloned().collect(),
+        InfoField::Exports => {
+            // The mirror of `info index` on a root-shaped document: an
+            // OMG-shaped one has no `exports`.
+            if meta.exports.is_none() {
+                log::warn!("the project has no `exports`; an OMG KPAR carries `index`");
+            }
+            meta.exports.clone().unwrap_or_default()
+        }
+        InfoField::Metamodel => meta.metamodel.iter().cloned().collect(),
+        InfoField::IncludesDerived => meta
             .includes_derived
             .map(|x| x.to_string())
             .into_iter()
             .collect(),
-        InfoField::IncludesImplied => meta()?
+        InfoField::IncludesImplied => meta
             .includes_implied
             .map(|x| x.to_string())
             .into_iter()
             .collect(),
-        InfoField::Checksum => meta()?
+        InfoField::Checksum => meta
             .checksum
-            .into_iter()
+            .iter()
             .flatten()
             .map(
                 |(path, InterchangeProjectChecksumRaw { value, algorithm })| {
@@ -301,50 +412,109 @@ fn field_lines(
                 },
             )
             .collect(),
+    }
+}
+
+/// `index` and `exports` are computed from the sources, in the shape the
+/// project's KPAR would carry. The fields a KPAR records when it is built
+/// do not exist in a `model.toml` project.
+fn toml_field_lines<Project: ProjectRead>(
+    field: InfoField,
+    project: &Project,
+    definition: &ProjectDefinition,
+    manifest: &ResolvedProject,
+) -> Result<Vec<String>> {
+    Ok(match field {
+        InfoField::Name => vec![manifest.name.as_str().to_owned()],
+        InfoField::Publisher => vec![manifest.publisher.as_str().to_owned()],
+        InfoField::Description => manifest.description.iter().cloned().collect(),
+        InfoField::Version => vec![manifest.version.to_string()],
+        InfoField::License => manifest.license.iter().map(ToString::to_string).collect(),
+        InfoField::Maintainer => manifest
+            .maintainers
+            .iter()
+            .map(ToString::to_string)
+            .collect(),
+        InfoField::Website => manifest
+            .urls
+            .website
+            .iter()
+            .map(|website| website.as_str().to_owned())
+            .collect(),
+        InfoField::Topic => manifest.topics.clone(),
+        InfoField::Usage => definition
+            .usages()
+            .iter()
+            .map(ToString::to_string)
+            .collect(),
+        InfoField::Index => {
+            if manifest.root().is_some() {
+                log::warn!(
+                    "the project has no `index`; a Syside KPAR carries `root` and `exports`"
+                );
+                Vec::new()
+            } else {
+                index_lines(&symbol_index(project, manifest)?)
+            }
+        }
+        InfoField::Exports => {
+            if manifest.root().is_none() {
+                log::warn!("the project has no `exports`; an OMG KPAR carries `index`");
+                Vec::new()
+            } else {
+                let mut exports: Vec<String> =
+                    symbol_index(project, manifest)?.into_keys().collect();
+                exports.sort();
+                exports
+            }
+        }
+        InfoField::Root => manifest
+            .root()
+            .into_iter()
+            .map(|root| root.as_str().to_owned())
+            .collect(),
+        InfoField::Metamodel => vec![manifest.metamodel.to_string()],
+        InfoField::Created => built_only("created")?,
+        InfoField::IncludesDerived => built_only("includes-derived")?,
+        InfoField::IncludesImplied => built_only("includes-implied")?,
+        InfoField::Checksum => built_only("checksum")?,
     })
 }
 
-pub(crate) fn get_info_or_bail<Project: ProjectRead>(
-    project: &Project,
-) -> Result<InterchangeProjectInfoRaw> {
-    match project.get_info() {
-        Ok(Some(info)) => Ok(info),
-        Ok(None) => bail!("project does not appear to have a valid `.project.json`"),
-        Err(err) => {
-            bail!("failed to read `.project.json`: {}", format_err(err))
-        }
-    }
+fn built_only(field: &str) -> Result<Vec<String>> {
+    bail!("`{field}` is recorded when the KPAR is built; a `model.toml` project has none")
 }
 
-pub(crate) fn get_meta_or_bail<Project: ProjectRead>(
-    project: &Project,
-) -> Result<InterchangeProjectMetadataRaw> {
-    match project.get_meta() {
-        Ok(Some(meta)) => Ok(meta),
-        Ok(None) => bail!("project does not appear to have a valid `.meta.json`"),
-        Err(err) => {
-            bail!("failed to read `.meta.json`: {}", format_err(err))
-        }
-    }
+fn index_lines<'a>(index: impl IntoIterator<Item = (&'a String, &'a String)>) -> Vec<String> {
+    index
+        .into_iter()
+        .map(|(symbol, path)| format!("`{symbol}` in `{path}`"))
+        .collect()
 }
 
-pub(crate) fn set_info_or_bail<Project: ProjectMut>(
-    project: &mut Project,
-    info: &InterchangeProjectInfoRaw,
+/// `info` from a workspace root, or from a non-member directory under
+/// one: every member in `members` order. Without `--get` each member
+/// gets its full block, blank-line separated. With `--get` every line
+/// a member emits is prefixed with its name, so a list field stays
+/// attributable line by line.
+pub fn command_info_workspace(
+    workspace: &Workspace,
+    field: Option<InfoField>,
+    excluded_iris: &HashSet<Identifier>,
 ) -> Result<()> {
-    if let Err(err) = project.put_info(info, true) {
-        bail!("failed to write `.project.json`: {}", format_err(err));
-    }
-
-    Ok(())
-}
-
-pub(crate) fn set_meta_or_bail<Project: ProjectMut>(
-    project: &mut Project,
-    meta: &InterchangeProjectMetadataRaw,
-) -> Result<()> {
-    if let Err(err) = project.put_meta(meta, true) {
-        bail!("failed to write `.meta.json`: {}", format_err(err));
+    for (at, member) in workspace.members().iter().enumerate() {
+        let definition = ProjectDefinition::Toml(Box::new(member.project.clone()));
+        if let Some(field) = field {
+            let project =
+                LocalSrcProject::new_member(member.dir.clone(), None, member.project.clone());
+            let lines = field_lines(field, &project, &definition)?;
+            print_member_lines(Some(member.project.name.as_str()), lines);
+        } else {
+            if at > 0 {
+                println!();
+            }
+            pprint_project(&definition, excluded_iris);
+        }
     }
 
     Ok(())

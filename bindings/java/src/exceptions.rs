@@ -69,8 +69,8 @@ impl JniExt for jni::Env<'_> {
 
 /// Lists all possible exceptions to be thrown, i.e.
 /// all exception types defined in
-/// `java/src/main/java/org/sysand/exceptions/*.java`
-#[derive(Debug, Clone, Copy)]
+/// `java/src/main/java/com/sensmetry/sysand/exceptions/*.java`
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ExceptionKind {
     IOError,
     PathError,
@@ -127,7 +127,7 @@ impl Display for ExceptionKind {
 
 /// Lists all possible standard library exceptions to be thrown, i.e.
 /// all exception types defined in `java.lang` package.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum StdlibExceptionKind {
     NullPointerException,
     UnsupportedOperationException,

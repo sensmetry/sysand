@@ -10,18 +10,18 @@ use thiserror::Error;
 use crate::{
     env::{
         PutProjectError, ReadEnvironment, WriteEnvironment,
-        utils::{CloneError, clone_project},
+        utils::{CloneError, clone_read_project},
     },
-    project::{ProjectChecksum, ProjectRead},
+    project::{ProjectChecksum, ProjectDefinition, ProjectRead},
 };
 #[cfg(feature = "filesystem")]
 use crate::{
     project::{
         local_kpar::{KparInnerPath, LocalKParProject},
-        local_src::LocalSrcProject,
         utils::{FsIoError, Identifier, wrapfs},
     },
     resolve::file::{FileResolverProject, FileResolverProjectError},
+    workspace::{self, model_toml::DiscoverError},
 };
 
 #[derive(Error, Debug)]
@@ -125,14 +125,13 @@ impl<EnvReadError, ProjectReadError, I> From<CheckInstallError<EnvReadError>>
     }
 }
 
-pub fn do_env_install_project<
-    S: AsRef<str>,
-    P: ProjectRead,
-    E: WriteEnvironment + ReadEnvironment,
->(
+/// Install `storage`, whose manifest `definition` is, as `uri` at
+/// `version`.
+pub fn do_env_install_project<S: AsRef<str>, P: ProjectRead, E: WriteEnvironment>(
     uri: S,
     version: &str,
     storage: &P,
+    definition: ProjectDefinition,
     checksum: Option<ProjectChecksum>,
     env: &mut E,
     allow_overwrite: bool,
@@ -159,7 +158,7 @@ pub fn do_env_install_project<
     );
 
     env.put_project(uri, version, checksum, |p| {
-        clone_project(storage, p, true).map(|_| ())
+        clone_read_project(storage, definition, p, true).map(|_| ())
     })
     .map_err(EnvInstallError::Installation)?;
 
@@ -179,14 +178,22 @@ pub enum EnvInstallPathError<InstallError> {
     MissingInfo(Utf8PathBuf),
     #[error(transparent)]
     ProjectRead(#[from] FileResolverProjectError),
+    /// `location` lies under a workspace root without being a member,
+    /// or its workspace cannot be read.
+    #[error(transparent)]
+    Workspace(DiscoverError),
     #[error(transparent)]
     Installation(InstallError),
+    // TODO: install `model.toml` projects, rewriting path usages as a build does.
+    /// `model.toml` projects are used only in place, as editable projects.
+    #[error("`{0}` is a `model.toml` project, which cannot be copied yet")]
+    TomlProject(Utf8PathBuf),
 }
 
 /// Same as [`do_env_install_project`], but installs the project at `location`
 /// (a KPAR or a project directory), with the version and checksum it has
 #[cfg(feature = "filesystem")]
-pub fn do_env_install_path<E: WriteEnvironment + ReadEnvironment>(
+pub fn do_env_install_path<E: WriteEnvironment>(
     identifier: &Identifier,
     location: &Utf8Path,
     env: &mut E,
@@ -201,19 +208,28 @@ pub fn do_env_install_path<E: WriteEnvironment + ReadEnvironment>(
             None,
         ))
     } else if metadata.is_dir() {
-        FileResolverProject::LocalSrcProject(LocalSrcProject::new_access(location, None))
+        // A member that inherits keys cannot be read without its workspace
+        FileResolverProject::LocalSrcProject(
+            workspace::project_at_path(location.to_owned(), None)
+                .map_err(EnvInstallPathError::Workspace)?,
+        )
     } else {
         return Err(EnvInstallPathError::NotFound(location.to_owned()));
     };
 
-    let Some(version) = project.version()? else {
-        return Err(EnvInstallPathError::MissingInfo(location.to_owned()));
+    let definition = match project.get_project()? {
+        Some(ProjectDefinition::Toml(_)) => {
+            return Err(EnvInstallPathError::TomlProject(location.to_owned()));
+        }
+        Some(definition) => definition,
+        None => return Err(EnvInstallPathError::MissingInfo(location.to_owned())),
     };
     let checksum = project.checksum_canonical_variant()?;
     do_env_install_project(
         identifier,
-        &version,
+        &definition.version(),
         &project,
+        definition,
         Some(checksum),
         env,
         allow_overwrite,
@@ -224,7 +240,7 @@ pub fn do_env_install_path<E: WriteEnvironment + ReadEnvironment>(
 
 /// Same as [`do_env_install_path`], but takes an unparsed IRI
 #[cfg(feature = "filesystem")]
-pub fn do_env_install_path_parse<E: WriteEnvironment + ReadEnvironment>(
+pub fn do_env_install_path_parse<E: WriteEnvironment>(
     iri: String,
     location: &Utf8Path,
     env: &mut E,

@@ -47,7 +47,8 @@ def set_usage_constraint(
     The dependency is named as :func:`remove` names it: by ``iri`` for a
     resource usage, or by ``publisher`` and ``name``, spelled exactly as the
     usage spells them, for an index usage. A constraint can be replaced but
-    not removed; pass ``"*"`` to accept any version.
+    not removed; pass ``"*"`` to accept any version. The constraint is written
+    in its normalized form (``"1.2"`` is written as ``"^1.2"``).
 
     Only that one ``versionConstraint`` value is touched: every other key,
     including keys sysand does not know, and the document's key order are
@@ -56,16 +57,21 @@ def set_usage_constraint(
     does not touch the file at all.
 
     Args:
-        project_dir: The project directory, the one holding ``.project.json``.
+        project_dir: The project directory, the one holding the manifest. A
+            directory inside a project is refused.
         iri: The dependency's IRI.
         publisher: The dependency's publisher, given together with ``name``.
         name: The dependency's name, given together with ``publisher``.
         version_constraint: A semver requirement such as ``">=0.11.0, <0.12.0"``.
         must_exist: Raise :class:`ProjectError` when no usage matches. With
             ``False`` a missing usage is reported as ``found=False`` instead;
-            a missing or unreadable ``.project.json`` still raises. It does
-            not apply to a usage that is declared but cannot hold a
+            a missing or unreadable manifest still raises. It does not
+            apply to a usage that is declared but cannot hold a
             constraint: that one is not missing.
+
+    On a ``model.toml`` project the usage is addressed by identity
+    (``publisher/name`` or its ``pkg:sysand`` PURL) and only an index usage
+    has a constraint; each of those refusals is a :class:`ProjectError`.
 
     Returns:
         Whether the usage was found and whether its constraint changed, with
@@ -82,8 +88,7 @@ def set_usage_constraint(
             index usage, or spelled differently), or (with ``must_exist``) is
             not declared at all. ``wrote`` is always ``False``.
     """
-    # A constraint cannot be cleared, so that a usage `add` gave a
-    # constraint keeps one.
+    # A constraint cannot be cleared.
     if version_constraint is None:
         raise TypeError(
             'set_usage_constraint() cannot clear a constraint; pass "*" to accept any version'
@@ -98,8 +103,13 @@ def set_usage_constraint(
         new_version_constraint=new,
     )
     if must_exist and not found:
+        manifest = (
+            "model.toml"
+            if (Path(project_dir) / "model.toml").is_file()
+            else ".project.json"
+        )
         raise ProjectError(
-            f"usage `{iri if iri is not None else f'{publisher}/{name}'}` is not declared in `{Path(project_dir) / '.project.json'}`",
+            f"usage `{iri if iri is not None else f'{publisher}/{name}'}` is not declared in `{Path(project_dir) / manifest}`",
             wrote=False,
         )
     return change

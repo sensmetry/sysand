@@ -3,9 +3,8 @@
 
 //! Module for extracting symbols from KerML or SysML v2 files.
 //!
-//! The main function is `top_level`, which returns top level symbols for a
-//! given file. We need to know the top level symbols to correctly populate
-//! field `index` of `.meta.json` files.
+//! [`top_level_symbols`] returns the top level symbols of a file, which
+//! populate the `index` field of `.meta.json` files.
 
 pub mod lex;
 
@@ -19,10 +18,20 @@ use typed_path::Utf8UnixPath;
 
 use crate::symbols::lex::LexingError;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Language {
     SysML,
     KerML,
+}
+
+impl std::fmt::Display for Language {
+    /// How a diagnostic names the language (the spelling `SpecKind` uses).
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::SysML => "SysML",
+            Self::KerML => "KerML",
+        })
+    }
 }
 
 impl Language {
@@ -153,6 +162,7 @@ fn skip_list_of_refs<'a, I: Iterator<Item = &'a (Token, Box<str>, logos::Span)>>
     }
 }
 
+#[derive(PartialEq, Eq)]
 enum KeywordType {
     Simple,
     MultiReferences,
@@ -476,10 +486,8 @@ fn collect_symbols(
 }
 
 /// A lexer that extracts top-level symbols from a SysML file.
-///
-/// It is used for handling `index` field of `.meta.json` files.
 pub fn top_level_sysml<S: AsRef<str>>(source: S) -> Result<Vec<String>, ExtractError> {
-    let source = source.as_ref();
+    let source = strip_bom(source.as_ref());
     let all = lex_source(source)?;
 
     let keywords = HashMap::from([
@@ -572,8 +580,13 @@ pub fn top_level_sysml<S: AsRef<str>>(source: S) -> Result<Vec<String>, ExtractE
     collect_symbols(source, all, &keywords)
 }
 
+/// `source` without a leading UTF-8 byte order mark.
+fn strip_bom(source: &str) -> &str {
+    source.trim_prefix('\u{feff}')
+}
+
 pub fn top_level_kerml<S: AsRef<str>>(source: S) -> Result<Vec<String>, ExtractError> {
-    let source = source.as_ref();
+    let source = strip_bom(source.as_ref());
 
     let all = lex_source(source)?;
 
@@ -590,16 +603,10 @@ pub fn top_level_kerml<S: AsRef<str>>(source: S) -> Result<Vec<String>, ExtractE
 }
 
 /// Why [`top_level_symbols`] could not index a file.
-///
-/// Narrower than the error of any one command, so that a caller which
-/// only extracts symbols -- the KPAR view of a `model.toml` project, for
-/// one -- does not have to name a project-read or IO failure it cannot
-/// produce. `commands::include::IncludeError` carries the same two texts
-/// and converts from this.
 #[derive(Debug, Error)]
 pub enum SymbolsError {
-    #[error("failed to extract symbol names from `{0}`: {1}")]
-    Extract(Box<str>, ExtractError),
+    #[error("failed to extract symbol names from `{0}`")]
+    Extract(Box<str>, #[source] ExtractError),
     #[error(
         "unknown file format of `{0}`, only SysML v2 (.sysml) and KerML (.kerml) files are supported"
     )]
@@ -624,7 +631,11 @@ pub fn top_level_symbols<P: AsRef<Utf8UnixPath>, S: AsRef<str>>(
 }
 
 // Returns: (line, byte), both 1-indexed
-#[expect(clippy::cast_possible_truncation, clippy::naive_bytecount)]
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::naive_bytecount,
+    reason = "line and column counts fit in u32 and a plain byte count is sufficient"
+)]
 fn line_byte(source: &str, span: logos::Span) -> (u32, u32) {
     let range = &source.as_bytes()[..span.start];
     let line = range.iter().filter(|x| **x == b'\n').count() as u32 + 1;

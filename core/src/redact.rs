@@ -115,7 +115,7 @@ fn redact_query(query: &str) -> Cow<'_, str> {
 pub(crate) fn redact_userinfo(raw: &str) -> Box<str> {
     // The authority runs from after any scheme separator to the first
     // `/`, `?`, or `#`; userinfo is everything up to the last `@` in it.
-    let authority_start = raw.find("://").map_or(0, |idx| idx + 3);
+    let authority_start = raw.find("://").map_or_default(|idx| idx + 3);
     let authority_end = raw[authority_start..]
         .find(['/', '?', '#'])
         .map_or(raw.len(), |idx| authority_start + idx);
@@ -210,6 +210,30 @@ impl std::error::Error for HttpError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         self.0.source()
     }
+}
+
+/// An HTTP exchange that failed: the request, a non-success status, or
+/// reading the body.
+#[cfg(feature = "networking")]
+#[derive(thiserror::Error, Debug)]
+pub enum HttpFailure {
+    #[error("HTTP request to `{url}` failed")]
+    Request {
+        url: RedactedUrl,
+        #[source]
+        source: HttpError,
+    },
+    #[error("HTTP request to {url} returned status {status}")]
+    BadHttpStatus {
+        url: ResponseUrl,
+        status: reqwest::StatusCode,
+    },
+    #[error("failed to read HTTP response body from {url}")]
+    Body {
+        url: ResponseUrl,
+        #[source]
+        source: HttpError,
+    },
 }
 
 #[cfg(test)]

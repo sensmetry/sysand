@@ -1,0 +1,31 @@
+# SPDX-License-Identifier: MIT OR Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
+
+id: fieldless-enum-eq
+severity: warning
+language: rust
+rule:
+  kind: enum_item
+  has:
+    field: body
+    kind: enum_variant_list
+    has:
+      kind: enum_variant
+    not:
+      has:
+        kind: enum_variant
+        has:
+          any:
+            - kind: field_declaration_list
+            - kind: ordered_field_declaration_list
+  not:
+    follows:
+      kind: attribute_item
+      regex: '\bEq\b'
+      stopBy:
+        not:
+          any:
+            - kind: attribute_item
+            - kind: line_comment
+            - kind: block_comment
+message: "derive `PartialEq` and `Eq` on a fieldless enum"

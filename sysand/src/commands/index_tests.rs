@@ -6,7 +6,7 @@ use std::{fs, io::Write as _};
 use camino::Utf8Path;
 use camino_tempfile::tempdir;
 use serde_json::json;
-use sysand_core::commands::index::INDEX_FILE_NAME;
+use sysand_core::{commands::index::INDEX_FILE_NAME, env::utils::ErrorBound};
 use zip::write::SimpleFileOptions;
 
 use super::{
@@ -14,7 +14,7 @@ use super::{
 };
 
 // The tests only care about whether a fix was offered (`suggestion.is_some()`),
-// not the exact wording, so that the messages can be edited freely.
+// not the exact wording.
 
 const SOME_IRI: &str = "https://example.test/some-package";
 
@@ -47,9 +47,7 @@ fn write_kpar_of_version(kpar_path: &Utf8Path, publisher: &str, name: &str, vers
 
 /// The suggestion offered for a fixable error, expected to spell out the
 /// publisher/name rules (3 to 50 ASCII characters among them)
-fn assert_suggests_the_naming_rules<T: sysand_core::env::utils::ErrorBound>(
-    err: super::IndexError<T>,
-) {
+fn assert_suggests_the_naming_rules<T: ErrorBound>(err: super::IndexError<T>) {
     let suggestion = err.suggestion.expect("expected a suggestion to be offered");
     assert!(suggestion.contains('3'), "suggestion was: {suggestion}");
     assert!(suggestion.contains("50"), "suggestion was: {suggestion}");

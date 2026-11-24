@@ -1,0 +1,66 @@
+# Clippy has no lint for `strip_prefix(..).unwrap_or(<receiver>)`.
+# `str`, `std::path::Path` and slices have `trim_prefix`/`trim_suffix`, but
+# camino's `Utf8Path` does not. ast-grep cannot see types, so string and char
+# literals (only `str` and `Path` take them) and `&[..]` arrays (only slices
+# take them) are autofixed, and other arguments only warn. For a `Utf8Path` receiver put
+# `// ast-grep-ignore: strip-prefix-unwrap-or-self-nonliteral` (or the
+# `strip-suffix` one) on the line before.
+id: strip-prefix-unwrap-or-self
+severity: warning
+language: rust
+rule:
+  pattern: $S.strip_prefix($P).unwrap_or($S)
+constraints:
+  P:
+    any:
+      - kind: char_literal
+      - kind: string_literal
+      - kind: raw_string_literal
+      - pattern: "&[$$$]"
+fix: $S.trim_prefix($P)
+message: "use `trim_prefix`"
+---
+id: strip-suffix-unwrap-or-self
+severity: warning
+language: rust
+rule:
+  pattern: $S.strip_suffix($P).unwrap_or($S)
+constraints:
+  P:
+    any:
+      - kind: char_literal
+      - kind: string_literal
+      - kind: raw_string_literal
+      - pattern: "&[$$$]"
+fix: $S.trim_suffix($P)
+message: "use `trim_suffix`"
+---
+id: strip-prefix-unwrap-or-self-nonliteral
+severity: warning
+language: rust
+rule:
+  pattern: $S.strip_prefix($P).unwrap_or($S)
+constraints:
+  P:
+    not:
+      any:
+        - kind: char_literal
+        - kind: string_literal
+        - kind: raw_string_literal
+        - pattern: "&[$$$]"
+message: "use `trim_prefix` if the receiver has it (`str`, `std::path::Path`, slices)"
+---
+id: strip-suffix-unwrap-or-self-nonliteral
+severity: warning
+language: rust
+rule:
+  pattern: $S.strip_suffix($P).unwrap_or($S)
+constraints:
+  P:
+    not:
+      any:
+        - kind: char_literal
+        - kind: string_literal
+        - kind: raw_string_literal
+        - pattern: "&[$$$]"
+message: "use `trim_suffix` if the receiver has it (`str`, `std::path::Path`, slices)"
