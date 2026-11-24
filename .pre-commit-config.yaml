@@ -51,8 +51,12 @@ repos:
         priority: readonly
       - id: check-case-conflict
         priority: readonly
+      - id: check-illegal-windows-names
+        priority: readonly
       - id: check-merge-conflict
         priority: readonly
+        # otherwise it only runs if the branch is in merge/rebase state
+        args: [--assume-in-merge]
       - id: check-symlinks
         priority: readonly
       - id: destroyed-symlinks

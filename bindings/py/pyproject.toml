@@ -59,3 +59,7 @@ strip = true
 [tool.pytest]
 addopts = ["--verbose", "--color=yes", "--durations=10"]
 testpaths = ["tests"]
+
+[tool.uv]
+# dependency cooldown
+exclude-newer = "7 days"
